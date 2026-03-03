@@ -1,0 +1,60 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: edge-forwarder
+  namespace: edge
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: edge-forwarder
+  template:
+    metadata:
+      labels:
+        app: edge-forwarder
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: r230
+      initContainers:
+        - name: wait-kafka
+          image: busybox:1.36
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-ec"]
+          args:
+            - |
+              until nc -z netops-kafka.netops-core.svc.cluster.local 9092; do
+                echo "waiting for kafka netops-kafka.netops-core.svc.cluster.local:9092"
+                sleep 3
+              done
+      containers:
+        - name: edge-forwarder
+          image: netops-core-app:0.1
+          imagePullPolicy: IfNotPresent
+          command: ["python", "-m", "core.edge_forwarder.main"]
+          env:
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: netops-kafka.netops-core.svc.cluster.local:9092
+            - name: KAFKA_TOPIC_RAW
+              value: netops.facts.raw.v1
+            - name: FORWARDER_INPUT_GLOB
+              value: /data/fortigate-runtime/output/parsed/events-*.jsonl
+            - name: FORWARDER_CHECKPOINT_PATH
+              value: /data/netops-runtime/forwarder/checkpoint.json
+            - name: FORWARDER_SCAN_INTERVAL_SEC
+              value: "5"
+            - name: FORWARDER_MAX_BATCH_LINES
+              value: "1000"
+          volumeMounts:
+            - name: fortigate-runtime
+              mountPath: /data/fortigate-runtime
+            - name: netops-runtime
+              mountPath: /data/netops-runtime
+      volumes:
+        - name: fortigate-runtime
+          hostPath:
+            path: /data/fortigate-runtime
+            type: DirectoryOrCreate
+        - name: netops-runtime
+          hostPath:
+            path: /data/netops-runtime
+            type: DirectoryOrCreate

@@ -1,0 +1,32 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: netops-kafka-topic-init
+  namespace: netops-core
+spec:
+  ttlSecondsAfterFinished: 300
+  template:
+    spec:
+      restartPolicy: OnFailure
+      nodeSelector:
+        kubernetes.io/hostname: r450
+      containers:
+        - name: topic-init
+          image: bitnamilegacy/kafka:3.7
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/bash", "-ec"]
+          args:
+            - |
+              for i in {1..60}; do
+                kafka-topics.sh --bootstrap-server netops-kafka:9092 --list >/dev/null 2>&1 && break
+                echo "waiting kafka... $i"
+                sleep 5
+              done
+
+              kafka-topics.sh --bootstrap-server netops-kafka:9092 --create --if-not-exists --topic netops.facts.raw.v1 --partitions 6 --replication-factor 1
+              kafka-topics.sh --bootstrap-server netops-kafka:9092 --create --if-not-exists --topic netops.alerts.v1 --partitions 3 --replication-factor 1
+              kafka-topics.sh --bootstrap-server netops-kafka:9092 --create --if-not-exists --topic netops.dlq.v1 --partitions 3 --replication-factor 1
+
+              kafka-topics.sh --bootstrap-server netops-kafka:9092 --describe --topic netops.facts.raw.v1
+              kafka-topics.sh --bootstrap-server netops-kafka:9092 --describe --topic netops.alerts.v1
+              kafka-topics.sh --bootstrap-server netops-kafka:9092 --describe --topic netops.dlq.v1
