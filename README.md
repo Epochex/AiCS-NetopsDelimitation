@@ -1,4 +1,6 @@
 ## Towards NetOps: Hybrid AIOps Platform for Network Awareness and Automated Remediation
+[![English](https://img.shields.io/badge/Language-English-1f6feb)](./README.md) [![简体中文](https://img.shields.io/badge/%E8%AF%AD%E8%A8%80-%E7%AE%80%E4%BD%93%E4%B8%AD%E6%96%87-2ea043)](./README_CN.md)
+
 > Hybrid AIOps Platform: Deterministic Streaming Core + CPU Local LLM (On-Demand) + Multi-Agent Orchestration
 
 #### Project Overview
