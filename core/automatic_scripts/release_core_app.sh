@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# One-shot release helper for core-correlator on core node (r450).
+# One-shot release helper for core deployments on core node (r450).
 # This script intentionally does not manage edge components.
 
 ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -48,30 +48,12 @@ docker save "$IMAGE" -o "$TAR_PATH"
 echo "[3/5] Importing image on local node (r450)"
 $LOCAL_IMPORT_CMD "$TAR_PATH"
 
-echo "[4/7] Copying tar to edge node ${EDGE_USER}@${EDGE_HOST}"
-scp "$TAR_PATH" "${EDGE_USER}@${EDGE_HOST}:${TAR_PATH}"
+echo "[4/5] Updating core deployment images to ${IMAGE}"
+kubectl -n netops-core set image deployment/core-correlator core-correlator="$IMAGE"
+kubectl -n netops-core set image deployment/core-alerts-sink core-alerts-sink="$IMAGE"
 
-echo "[5/7] Importing image on edge node (r230)"
-ssh "${EDGE_USER}@${EDGE_HOST}" "$REMOTE_IMPORT_CMD ${TAR_PATH}"
-
-if [[ "$TARGET" == "all" || "$TARGET" == "edge" ]]; then
-  echo "[6/7] Updating edge-forwarder image to ${IMAGE}"
-  kubectl -n edge set image deployment/edge-forwarder edge-forwarder="$IMAGE"
-fi
-if [[ "$TARGET" == "all" || "$TARGET" == "core" ]]; then
-  echo "[6/7] Updating core-correlator image to ${IMAGE}"
-  kubectl -n netops-core set image deployment/core-correlator core-correlator="$IMAGE"
-  echo "[6/7] Updating core-alerts-sink image to ${IMAGE}"
-  kubectl -n netops-core set image deployment/core-alerts-sink core-alerts-sink="$IMAGE"
-fi
-
-echo "[7/7] Waiting rollout"
-if [[ "$TARGET" == "all" || "$TARGET" == "edge" ]]; then
-  kubectl -n edge rollout status deployment/edge-forwarder
-fi
-if [[ "$TARGET" == "all" || "$TARGET" == "core" ]]; then
-  kubectl -n netops-core rollout status deployment/core-correlator
-  kubectl -n netops-core rollout status deployment/core-alerts-sink
-fi
+echo "[5/5] Waiting rollout"
+kubectl -n netops-core rollout status deployment/core-correlator
+kubectl -n netops-core rollout status deployment/core-alerts-sink
 
 echo "Done. Released core image: ${IMAGE}"

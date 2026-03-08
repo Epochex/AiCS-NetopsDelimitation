@@ -36,6 +36,8 @@ spec:
               value: netops-kafka.netops-core.svc.cluster.local:9092
             - name: KAFKA_TOPIC_ALERTS
               value: netops.alerts.v1
+            - name: KAFKA_TOPIC_DLQ
+              value: netops.dlq.v1
             - name: ALERTS_SINK_GROUP_ID
               value: core-alerts-sink-v1
             - name: KAFKA_AUTO_OFFSET_RESET

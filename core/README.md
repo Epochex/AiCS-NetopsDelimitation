@@ -60,7 +60,7 @@ python -m core.benchmark.kafka_topic_probe \
 
 ## Release Automation
 
-To avoid manual build/save/import/set-image steps for core-correlator, use:
+To avoid manual build/save/import/set-image steps for core deployments, use:
 
 ```bash
 ./core/automatic_scripts/release_core_app.sh
@@ -76,4 +76,10 @@ Optional arguments:
 Notes:
 - script builds image from `core/docker/Dockerfile.app`
 - imports image to local `r450` runtime
-- updates `core-correlator` image tag and waits for rollout
+- updates `core-correlator` and `core-alerts-sink` image tags and waits for rollout
+
+## Reliability Notes
+
+- `core-correlator` and `core-alerts-sink` use manual offset commit (commit after successful handling).
+- malformed JSON / publish-write failures are pushed into `netops.dlq.v1` for replay and diagnostics.
+- runtime observability remains log-first (stats logs) to keep the phase-2 stack lightweight.

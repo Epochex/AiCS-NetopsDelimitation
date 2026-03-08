@@ -38,6 +38,8 @@ spec:
               value: netops.facts.raw.v1
             - name: KAFKA_TOPIC_ALERTS
               value: netops.alerts.v1
+            - name: KAFKA_TOPIC_DLQ
+              value: netops.dlq.v1
             - name: CORRELATOR_GROUP_ID
               value: core-correlator-v2
             - name: KAFKA_AUTO_OFFSET_RESET
