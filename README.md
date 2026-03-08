@@ -72,6 +72,25 @@ flowchart LR
 | AIOps assistant (minimal) | `core/aiops_agent` | Build suggestion payloads for high-value alerts | Python, Kafka |
 | Ops tooling | `core/benchmark/*` | Runtime watch and warning-noise observation | Python, `kubectl` |
 
+### AIOps Agent Module Diagram
+
+```mermaid
+flowchart TD
+  M[core.aiops_agent.main] --> C[app_config]
+  M --> IO[runtime_io]
+  M --> SVC[service]
+  SVC --> CTX[context_lookup]
+  SVC --> ENG[suggestion_engine]
+  SVC --> OUT[output_sink]
+```
+
+- `app_config`: normalize env config and enforce severity gate policy.
+- `runtime_io`: initialize Kafka/ClickHouse clients in one place.
+- `service`: consume alerts, publish suggestions, and commit offsets only on successful handling.
+- `context_lookup`: query recent-similar counts from ClickHouse for context enrichment.
+- `suggestion_engine`: generate stable suggestion payload schema.
+- `output_sink`: persist hourly JSONL evidence for audit/replay.
+
 ### Reliability Hardening Already Applied
 
 - Release script now avoids updating edge runtime image during core-only releases.
@@ -88,8 +107,8 @@ bash -n core/automatic_scripts/release_core_app.sh
 ```
 
 > [!NOTE]
-> Current `tests/core` covers `rules`, `quality_gate`, and `alerts_sink` minimal behavior.
-> Recommended next step is adding tests for `alerts_store` and `aiops_agent` message semantics.
+> `tests/core` now covers `rules`, `quality_gate`, `alerts_sink`, `alerts_store`, and `aiops_agent` minimal behavior.
+> Current baseline is suitable for iterative AIOps feature development on top of the existing core pipeline.
 
 ## 1.1 Project Positioning and Current Architecture Boundary
 The current project architecture is centered around **r230 (edge collection) → r450 (core data plane and analytics processing)**, i.e., near-source collection and factization on the edge side, and subsequent streaming processing, correlation analysis, evidence-chain attribution, and automated remediation capability implementation on the core side. This means the project has completed the most critical input-plane landing work in platform construction and has entered the architecture advancement stage oriented toward core capability expansion.

@@ -71,6 +71,25 @@ flowchart LR
 | AIOps 最小闭环 | `core/aiops_agent` | 对高价值告警生成建议消息 | Python, Kafka |
 | 运维观测 | `core/benchmark/*` | 流程健康观测与 warning 噪声观测 | Python, `kubectl` |
 
+### AIOps Agent 模块图
+
+```mermaid
+flowchart TD
+  M[core.aiops_agent.main] --> C[app_config]
+  M --> IO[runtime_io]
+  M --> SVC[service]
+  SVC --> CTX[context_lookup]
+  SVC --> ENG[suggestion_engine]
+  SVC --> OUT[output_sink]
+```
+
+- `app_config`：统一加载和规范化环境变量，并执行严重级别门禁策略。
+- `runtime_io`：统一初始化 Kafka/ClickHouse 客户端，避免连接逻辑分散。
+- `service`：完成告警消费、建议发布、成功后提交 offset 的主流程。
+- `context_lookup`：从 ClickHouse 查询近 1 小时相似告警计数用于上下文增强。
+- `suggestion_engine`：生成稳定可演进的建议消息 schema。
+- `output_sink`：按小时落盘 JSONL，保留审计与回放证据。
+
 ### 已完成的可靠性治理
 
 - `release_core_app.sh` 已避免在 core-only 发布中误更新 edge 运行镜像。
@@ -87,8 +106,8 @@ bash -n core/automatic_scripts/release_core_app.sh
 ```
 
 > [!NOTE]
-> 当前 `tests/core` 已覆盖 `rules`、`quality_gate`、`alerts_sink` 的最小行为。
-> 下一步建议补上 `alerts_store` 与 `aiops_agent` 的单元测试与消息语义测试。
+> 当前 `tests/core` 已覆盖 `rules`、`quality_gate`、`alerts_sink`、`alerts_store`、`aiops_agent` 的最小行为。
+> 现有基线可支持你继续迭代 AIOps 功能开发（在现有 core 流水线上增量扩展）。
 
 
 <!-- 本项目旨在构建一个面向复杂网络运维场景的 **分布式 AIOps 平台（Towards NetOps）**，以 **边缘事实接入（Edge Fact Ingestion）→ 核心流式分析（Core Streaming Analytics）→ 智能增强决策（LLM-Augmented Reasoning）→ 处置闭环（Remediation Loop）** 为主线，逐步实现从异常发现、证据链归因到处置建议与执行控制的工程化能力演进。平台并不以“全量日志实时 LLM 推理”为目标，而是以稳定的数据面与可解释的证据流为基础，在核心侧对高价值异常簇进行按需智能增强分析，从而在成本、实时性与可运维性之间取得可落地平衡。

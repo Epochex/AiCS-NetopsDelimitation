@@ -21,6 +21,28 @@ Edge components and release scripts are intentionally separated under `edge/`.
 - `netops.dlq.v1`: reserved for malformed records / replay failures
 - `netops.aiops.suggestions.v1`: aiops suggestions generated from alert stream
 
+## AIOps Agent Internal Design
+
+```mermaid
+flowchart LR
+  A[main.py] --> B[app_config.py]
+  A --> C[runtime_io.py]
+  A --> D[service.py]
+  D --> E[context_lookup.py]
+  D --> F[suggestion_engine.py]
+  D --> G[output_sink.py]
+```
+
+| File | Purpose | Typical change scenarios |
+| --- | --- | --- |
+| `core/aiops_agent/app_config.py` | load env and apply severity gate policy | rollout policy defaults, env naming, threshold behavior |
+| `core/aiops_agent/runtime_io.py` | build Kafka/ClickHouse clients | auth/timeout/retry tuning, endpoint migrations |
+| `core/aiops_agent/context_lookup.py` | fetch recent similar alert counts from ClickHouse | context features, query window, query dimensions |
+| `core/aiops_agent/suggestion_engine.py` | generate suggestion payload and confidence | recommendation strategy, confidence scoring, schema evolution |
+| `core/aiops_agent/output_sink.py` | persist suggestion JSONL by hour | retention policy, sink path layout |
+| `core/aiops_agent/service.py` | process loop, publish/commit semantics | retry policy, DLQ integration, idempotency hardening |
+| `core/aiops_agent/main.py` | startup wiring only | runtime composition and dependency injection |
+
 ## Build
 
 ```bash
