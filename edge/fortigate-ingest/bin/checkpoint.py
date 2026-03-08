@@ -47,7 +47,13 @@ def completed_key(path: str, inode: int, size: int, mtime: int) -> str:
 def is_completed(ck: Dict[str, Any], path: str, inode: int, size: int, mtime: int) -> bool:
     key = completed_key(path, inode, size, mtime)
     for item in ck.get("completed", []):
+        # Strict match for current key format.
         if item.get("key") == key:
+            return True
+        # Backward-compatible match by file identity.
+        # This avoids replay storms when rotated files keep same inode/path but
+        # metadata (size/mtime) changes after initial completion mark.
+        if item.get("path") == path and int(item.get("inode", -1)) == int(inode):
             return True
     return False
 

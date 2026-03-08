@@ -12,10 +12,26 @@ ROTATED_RE = re.compile(r"^fortigate\.log-(\d{8}-\d{6})(?:\.gz)?$")
 
 def list_rotated_files() -> List[str]:
     files: List[str] = []
+    # Avoid consuming rotated files that may still be being generated/compressed.
+    min_age_sec_raw = os.getenv("ROTATED_MIN_AGE_SEC", "120")
+    try:
+        min_age_sec = max(0, int(min_age_sec_raw))
+    except ValueError:
+        min_age_sec = 120
+    now = time.time()
+
     try:
         for name in os.listdir(DIR):
             if ROTATED_RE.match(name):
-                files.append(os.path.join(DIR, name))
+                path = os.path.join(DIR, name)
+                if min_age_sec > 0:
+                    try:
+                        st = os.stat(path)
+                    except FileNotFoundError:
+                        continue
+                    if (now - st.st_mtime) < min_age_sec:
+                        continue
+                files.append(path)
     except FileNotFoundError:
         return []
 

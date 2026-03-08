@@ -28,9 +28,9 @@ spec:
               done
       containers:
         - name: edge-forwarder
-          image: netops-core-app:0.1
+          image: netops-edge-forwarder:0.1
           imagePullPolicy: IfNotPresent
-          command: ["python", "-m", "core.edge_forwarder.main"]
+          command: ["python", "-m", "edge.edge_forwarder.main"]
           env:
             - name: KAFKA_BOOTSTRAP_SERVERS
               value: netops-kafka.netops-core.svc.cluster.local:9092
@@ -44,6 +44,10 @@ spec:
               value: "5"
             - name: FORWARDER_MAX_BATCH_LINES
               value: "1000"
+            - name: FORWARDER_FILTER_DROP_LOCAL_DENY
+              value: "true"
+            - name: FORWARDER_FILTER_DROP_BROADCAST_MDNS_NBNS
+              value: "true"
           volumeMounts:
             - name: fortigate-runtime
               mountPath: /data/fortigate-runtime

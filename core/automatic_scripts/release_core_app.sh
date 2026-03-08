@@ -1,27 +1,34 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# One-shot release helper for netops-core-app in k3s/containerd cluster.
-# Steps:
-# 1) docker build image
-# 2) docker save tarball
-# 3) import to local r450 containerd
-# 4) scp + import to r230 containerd
-# 5) patch deployment image tags
-# 6) wait rollout status
+# One-shot release helper for core-correlator on core node (r450).
+# This script intentionally does not manage edge components.
 
 ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT_DIR"
 
 APP_NAME="netops-core-app"
-TAG="${1:-$(date +%Y%m%d-%H%M%S)-$(git rev-parse --short HEAD)}"
-TARGET="${2:-all}" # all|edge|core
-EDGE_HOST="${EDGE_HOST:-192.168.1.23}"
-EDGE_USER="${EDGE_USER:-root}"
+TAG_DEFAULT="$(date +%Y%m%d-%H%M%S)-$(git rev-parse --short HEAD)"
+TAG="${1:-$TAG_DEFAULT}"
 LOCAL_IMPORT_CMD="k3s ctr images import"
-REMOTE_IMPORT_CMD="k3s ctr images import"
 TAR_PATH="/tmp/${APP_NAME}_${TAG}.tar"
 IMAGE="${APP_NAME}:${TAG}"
+
+usage() {
+  cat <<EOF
+Usage:
+  ./core/automatic_scripts/release_core_app.sh [tag]
+
+Examples:
+  ./core/automatic_scripts/release_core_app.sh
+  ./core/automatic_scripts/release_core_app.sh v20260303
+EOF
+}
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  usage
+  exit 0
+fi
 
 if ! command -v docker >/dev/null 2>&1; then
   echo "[ERROR] docker not found. Please install docker first." >&2
@@ -32,18 +39,13 @@ if ! command -v kubectl >/dev/null 2>&1; then
   exit 1
 fi
 
-if [[ "$TARGET" != "all" && "$TARGET" != "edge" && "$TARGET" != "core" ]]; then
-  echo "[ERROR] TARGET must be one of: all|edge|core" >&2
-  exit 1
-fi
-
-echo "[1/7] Building image ${IMAGE}"
+echo "[1/5] Building image ${IMAGE}"
 docker build -t "$IMAGE" -f core/docker/Dockerfile.app .
 
-echo "[2/7] Saving tar to ${TAR_PATH}"
+echo "[2/5] Saving tar to ${TAR_PATH}"
 docker save "$IMAGE" -o "$TAR_PATH"
 
-echo "[3/7] Importing image on local node (r450)"
+echo "[3/5] Importing image on local node (r450)"
 $LOCAL_IMPORT_CMD "$TAR_PATH"
 
 echo "[4/7] Copying tar to edge node ${EDGE_USER}@${EDGE_HOST}"
@@ -72,4 +74,4 @@ if [[ "$TARGET" == "all" || "$TARGET" == "core" ]]; then
   kubectl -n netops-core rollout status deployment/core-alerts-sink
 fi
 
-echo "Done. Released image: ${IMAGE}"
+echo "Done. Released core image: ${IMAGE}"

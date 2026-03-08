@@ -1,13 +1,13 @@
 # Automatic Scripts
 
-This directory stores one-shot automation scripts for build, image distribution, and rollout.
+This directory stores one-shot automation scripts for core node components only.
 
 ## Scripts
 
 ### `release_core_app.sh`
 
-Builds `netops-core-app`, imports image to both cluster nodes (`r450` local + `r230` remote),
-updates deployment image tags, and waits for rollout.
+Builds `netops-core-app`, imports the image on local core node runtime, updates
+`core-correlator` image, and waits for rollout.
 
 #### Usage
 
@@ -49,5 +49,6 @@ EDGE_HOST=192.168.1.23 EDGE_USER=root ./core/automatic_scripts/release_core_app.
 
 ## Notes
 
-- Ensure `docker`, `kubectl`, `ssh`, and `scp` are available on the execution host.
+- Ensure `docker`, `kubectl`, and `k3s` are available on the core node.
+- Edge forwarder release is handled separately by `edge/edge_forwarder/scripts/deploy_edge_forwarder.sh`.
 - For reproducibility, always keep deployment env values in YAML and avoid long-term drift from ad-hoc `kubectl set env`.

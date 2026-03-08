@@ -265,13 +265,16 @@ Input 字段分析
 
 ### 3.4 Core Phase-2 最小闭环（当前仓库已落地）
 
-当前仓库已新增 `core/` 模块化实现，职责拆分如下：
+当前仓库已新增模块化实现，职责拆分如下：
 
-- `core/infra`：基础设施能力（配置读取、日志封装、checkpoint 落盘）
-- `core/edge_forwarder`：运行在 `r230`，将 edge 侧 JSONL 事件推送到 Kafka Raw Topic
+- `edge/edge_forwarder`：运行在 `r230`，将 edge 侧 JSONL 事件推送到 Kafka Raw Topic
+- `edge/edge_forwarder/infra`：edge-forwarder 基础设施能力（配置读取、日志封装、checkpoint 落盘）
 - `core/correlator`：运行在 `r450`，消费 Raw Topic，执行窗口规则并输出 Alert Topic
-- `core/deployments`：k3s 资源清单（namespace、kafka、topic-init、forwarder、correlator）
-- `core/docker`：业务镜像构建入口
+- `core/infra`：core-correlator 共享基础能力
+- `core/deployments`：k3s 资源清单（namespace、kafka、topic-init、correlator）
+- `core/docker`：core-correlator 镜像构建入口
+- `edge/edge_forwarder/deployments`：edge-forwarder 清单
+- `edge/edge_forwarder/docker`：edge-forwarder 镜像构建入口
 
 当前最小链路的数据流为：
 
@@ -299,33 +302,52 @@ kubectl apply -f core/deployments/20-topic-init-job.yaml
 kubectl logs -n netops-core job/netops-kafka-topic-init --tail=200
 ```
 
-4. 部署 Forwarder 与 Correlator：
+4. 部署 Correlator：
 
 ```bash
-kubectl apply -f core/deployments/30-edge-forwarder.yaml
 kubectl apply -f core/deployments/40-core-correlator.yaml
+```
+
+5. 在 edge 侧创建命名空间：
+
+```bash
+kubectl apply -f edge/deployments/00-edge-namespace.yaml
+```
+
+6. 在 edge 侧部署 Forwarder：
+
+```bash
+kubectl apply -f edge/edge_forwarder/deployments/30-edge-forwarder.yaml
+```
+
+建议运维方式：core 节点窗口只执行 `core/*` 发布，edge 节点窗口只执行 `edge/*` 发布，避免跨节点脚本耦合。
+
+edge 侧一键发布入口：
+
+```bash
+./edge/fortigate-ingest/scripts/deploy_ingest.sh
+./edge/edge_forwarder/scripts/deploy_edge_forwarder.sh
 ```
 
 ### 3.6 镜像分发说明（重点）
 
-`netops-core-app:0.1` 是本项目自定义镜像，不在公共仓库中。若 `edge-forwarder`（运行在 `r230`）与 `core-correlator`（运行在 `r450`）均使用 `imagePullPolicy: IfNotPresent`，则镜像必须在两个节点本地 containerd 可见。
+`netops-core-app:0.1` 与 `netops-edge-forwarder:0.1` 为两条独立镜像线，分别用于 core 与 edge 组件。两者都使用 `imagePullPolicy: IfNotPresent` 时，需分别在对应节点本地 containerd 可见。
 
 推荐流程：
 
 ```bash
-# 1) 在可用 Docker 的机器构建与导出
+# 1) 构建 core-correlator 镜像并导入 core 节点（r450）
 docker build -t netops-core-app:0.1 -f core/docker/Dockerfile.app .
 docker save netops-core-app:0.1 -o /tmp/netops-core-app_0.1.tar
-
-# 2) 导入 core 节点（r450）
 k3s ctr images import /tmp/netops-core-app_0.1.tar
 
-# 3) 导入 edge 节点（r230）
-scp /tmp/netops-core-app_0.1.tar root@192.168.1.23:/tmp/
-ssh root@192.168.1.23 "k3s ctr images import /tmp/netops-core-app_0.1.tar"
+# 2) 构建 edge-forwarder 镜像并导入 edge 节点（r230）
+docker build -t netops-edge-forwarder:0.1 -f edge/edge_forwarder/docker/Dockerfile.app .
+docker save netops-edge-forwarder:0.1 -o /tmp/netops-edge-forwarder_0.1.tar
+k3s ctr images import /tmp/netops-edge-forwarder_0.1.tar
 ```
 
-> 注意：如果只导入 `r450` 而未导入 `r230`，`edge-forwarder` 会在 `r230` 报 `ErrImagePull`。
+> 注意：edge 与 core 独立发布时，避免在同一个发布脚本里跨节点导入镜像，减少环境耦合与变更污染。
 
 ### 3.7 运行验证
 

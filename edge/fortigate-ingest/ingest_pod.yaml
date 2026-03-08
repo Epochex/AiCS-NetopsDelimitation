@@ -19,6 +19,9 @@ spec:
         - name: fortigate-ingest
           image: fortigate-ingest:0.2
           imagePullPolicy: IfNotPresent
+          env:
+            - name: ROTATED_MIN_AGE_SEC
+              value: "120"
           volumeMounts:
             - name: fortigate-runtime
               mountPath: /data/fortigate-runtime

@@ -272,16 +272,17 @@ The core side (`netops-node1 / r450`) adopts **Kafka (KRaft, single-node) + Pyth
 
 ### 3.4 Phase-2 Current Implementation (Repository State)
 
-Phase-2 minimal pipeline has been implemented under `core/` with clear module boundaries:
+Phase-2 minimal pipeline has been implemented with clear module boundaries:
 
-- `core/infra`: shared infra utilities (`env` config, logging, checkpoint I/O)
-- `core/edge_forwarder`: edge-side producer (`events-*.jsonl` -> Kafka raw topic)
+- `edge/edge_forwarder`: edge-side producer (`events-*.jsonl` -> Kafka raw topic)
+- `edge/edge_forwarder/infra`: edge-forwarder local infra utilities (`env` config, logging, checkpoint I/O)
 - `core/correlator`: core-side consumer/correlator (raw topic -> alert topic)
-  - includes `quality_gate` (field validation + event_id dedup + drop stats)
-- `core/alerts_sink`: alert persistence consumer (alerts topic -> hourly JSONL on core runtime)
+- `core/infra`: core-side shared helpers for correlator path
 - `core/benchmark`: load-test and throughput probe utilities
-- `core/deployments`: k3s manifests (`namespace`, `kafka`, `topic-init`, `forwarder`, `correlator`)
-- `core/docker`: app image build entry
+- `core/deployments`: k3s manifests (`namespace`, `kafka`, `topic-init`, `correlator`)
+- `core/docker`: core app image build entry
+- `edge/edge_forwarder/deployments`: edge-forwarder deployment manifest
+- `edge/edge_forwarder/docker`: edge-forwarder image build entry
 
 Current dataflow:
 
@@ -301,9 +302,19 @@ kubectl apply -f core/deployments/00-namespace.yaml
 kubectl apply -f core/deployments/10-kafka-kraft.yaml
 kubectl delete job -n netops-core netops-kafka-topic-init --ignore-not-found
 kubectl apply -f core/deployments/20-topic-init-job.yaml
-kubectl apply -f core/deployments/30-edge-forwarder.yaml
 kubectl apply -f core/deployments/40-core-correlator.yaml
-kubectl apply -f core/deployments/50-core-alerts-sink.yaml
+kubectl apply -f edge/deployments/00-edge-namespace.yaml
+kubectl apply -f edge/edge_forwarder/deployments/30-edge-forwarder.yaml
+```
+
+Recommended operation model: use one terminal/session on core node for `core/*`,
+and a separate terminal/session on edge node for `edge/*` release tasks.
+
+Edge-side one-shot release entries:
+
+```bash
+./edge/fortigate-ingest/scripts/deploy_ingest.sh
+./edge/edge_forwarder/scripts/deploy_edge_forwarder.sh
 ```
 
 ### 3.6 Throughput Measurement and Pressure Testing

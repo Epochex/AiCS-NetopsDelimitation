@@ -1,16 +1,16 @@
 # Core Phase-2 Minimal Implementation
 
 This directory contains the minimal, deployable phase-2 stack for the core node.
+Edge components and release scripts are intentionally separated under `edge/`.
 
 ## Module Layout
 
 - `core/infra`: shared config, logging, checkpoint helpers
-- `core/edge_forwarder`: reads edge JSONL events and forwards to Kafka raw topic
 - `core/correlator`: consumes raw topic and emits alert topic using deterministic rules
 - `core/alerts_sink`: consumes alert topic and persists hourly JSONL in runtime volume
 - `core/benchmark`: load test and throughput probe scripts for Kafka pipeline sizing
-- `core/deployments`: k3s manifests for KRaft Kafka + forwarder + correlator
-- `core/docker`: container build file for forwarder/correlator
+- `core/deployments`: k3s manifests for namespace, KRaft Kafka, topic init, correlator
+- `core/docker`: container build file for core-correlator
 
 ## Data Plane Topics
 
@@ -30,7 +30,6 @@ docker build -t netops-core-app:0.1 -f core/docker/Dockerfile.app .
 kubectl apply -f core/deployments/00-namespace.yaml
 kubectl apply -f core/deployments/10-kafka-kraft.yaml
 kubectl apply -f core/deployments/20-topic-init-job.yaml
-kubectl apply -f core/deployments/30-edge-forwarder.yaml
 kubectl apply -f core/deployments/40-core-correlator.yaml
 kubectl apply -f core/deployments/50-core-alerts-sink.yaml
 ```
@@ -59,36 +58,22 @@ python -m core.benchmark.kafka_topic_probe \
   --duration-sec 60
 ```
 
-### 3) r230 producer rate (edge-forwarder runtime)
-
-`edge-forwarder` logs now include per-scan metrics:
-- `eps` (events per second)
-- `mbps` (MB per second)
-- `cumulative_sent`, `cumulative_bytes`
-
-```bash
-kubectl logs -n edge deploy/edge-forwarder --tail=200 -f
-```
-
 ## Release Automation
 
-To avoid manual build/save/import/set-image steps each time, use:
+To avoid manual build/save/import/set-image steps for core-correlator, use:
 
 ```bash
-./core/scripts/release_core_app.sh
+./core/automatic_scripts/release_core_app.sh
 ```
 
 Optional arguments:
 
 ```bash
-# release only edge-forwarder
-./core/scripts/release_core_app.sh <tag> edge
-
-# release only core-correlator
-./core/scripts/release_core_app.sh <tag> core
+# release with explicit tag
+./core/automatic_scripts/release_core_app.sh <tag>
 ```
 
 Notes:
 - script builds image from `core/docker/Dockerfile.app`
-- imports image into both nodes (`r450` local + `r230` via ssh/scp)
-- updates deployment image tag and waits for rollout
+- imports image to local `r450` runtime
+- updates `core-correlator` image tag and waits for rollout
