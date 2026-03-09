@@ -54,6 +54,12 @@ spec:
               value: latest
             - name: AIOPS_MIN_SEVERITY
               value: warning
+            - name: AIOPS_CLUSTER_WINDOW_SEC
+              value: "300"
+            - name: AIOPS_CLUSTER_MIN_ALERTS
+              value: "3"
+            - name: AIOPS_CLUSTER_COOLDOWN_SEC
+              value: "300"
             - name: AIOPS_CLICKHOUSE_ENABLED
               value: "true"
             - name: CLICKHOUSE_HOST

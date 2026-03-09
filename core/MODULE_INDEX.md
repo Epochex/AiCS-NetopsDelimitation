@@ -16,6 +16,14 @@ This file is a quick map for "which folder to edit" during feature changes.
 - `core/aiops_agent`
   - Responsibility: consume alerts, produce suggestion records/topic for human-in-the-loop.
   - Typical changes: prompt/template policy, recommendation logic, confidence policy.
+  - Internal modules:
+    - `app_config.py`: env loading + severity gate policy.
+    - `cluster_aggregator.py`: alert-window clustering and cooldown trigger logic.
+    - `context_lookup.py`: ClickHouse similarity lookup.
+    - `suggestion_engine.py`: suggestion payload generation.
+    - `output_sink.py`: JSONL sink helpers.
+    - `service.py`: runtime loop + commit/publish semantics.
+    - `runtime_io.py`: Kafka/ClickHouse client builders.
 
 ## Shared Infra
 
