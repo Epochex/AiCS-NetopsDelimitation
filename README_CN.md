@@ -40,7 +40,7 @@
 > 本项目当前阶段不以“全量事件逐条 LLM 判定”为架构目标。
 > 主链路由确定性流式模块承担实时检测与基础关联；LLM/Agent 用于高价值告警簇的按需增强分析与处置建议生成。
 
-## 当前进展快照（2026-03-08）
+## 当前进展快照（2026-03-18）
 
 > [!TIP]
 > 运行时边界已明确：`edge/*` 只放边缘节点组件，`core/*` 只放核心节点组件。
@@ -68,8 +68,12 @@ flowchart LR
 | 核心关联 | `core/correlator` | 质量门禁、规则匹配、告警产出、手动提交 offset | Python, Kafka |
 | 告警落盘 | `core/alerts_sink` | 告警按小时写入 JSONL | Python |
 | 热查询存储 | `core/alerts_store` | 告警结构化入库 | ClickHouse, `clickhouse-connect` |
-| AIOps 最小闭环 | `core/aiops_agent` | 对高价值告警生成建议消息 | Python, Kafka |
+| AIOps 最小闭环 | `core/aiops_agent` | 对高价值告警簇做聚合，结合 ClickHouse 近似上下文生成建议消息并按小时落盘 | Python, Kafka, ClickHouse |
 | 运维观测 | `core/benchmark/*` | 流程健康观测与 warning 噪声观测 | Python, `kubectl` |
+
+> [!NOTE]
+> 当前仓库状态更准确的表述是：**Core Phase-2 数据面最小闭环已打通，并在其上落地了最小 AIOps 告警簇建议闭环**。  
+> 也就是说，确定性流式检测、告警落盘和热查询已经到位；真正的 LLM 推理、因果证据链归因和自动化处置控制仍属于下一阶段建设内容。
 
 ### AIOps Agent 模块图
 
@@ -87,7 +91,7 @@ flowchart TD
 - `app_config`：统一加载和规范化环境变量，并执行严重级别门禁策略。
 - `runtime_io`：统一初始化 Kafka/ClickHouse 客户端，避免连接逻辑分散。
 - `cluster_aggregator`：按 `rule_id + severity + service + src_device_key` 做滑窗聚合。
-- `service`：完成告警消费、簇触发建议发布、成功后提交 offset 的主流程。
+- `service`：完成告警消费、严重级别门禁、簇触发建议发布、成功后提交 offset 的主流程。
 - `context_lookup`：从 ClickHouse 查询近 1 小时相似告警计数用于上下文增强。
 - `suggestion_engine`：生成稳定可演进的建议消息 schema。
 - `output_sink`：按小时落盘 JSONL，保留审计与回放证据。
@@ -109,7 +113,7 @@ bash -n core/automatic_scripts/release_core_app.sh
 
 > [!NOTE]
 > 当前 `tests/core` 已覆盖 `rules`、`quality_gate`、`alerts_sink`、`alerts_store`、`aiops_agent`（含簇聚合）的最小行为。
-> 现有基线可支持你继续迭代 AIOps 功能开发（在现有 core 流水线上增量扩展）。
+> 最近一次本地基线校验已通过 `22` 个 core 测试，现有基线可支持你继续迭代 AIOps 功能开发（在现有 core 流水线上增量扩展）。
 
 
 <!-- 本项目旨在构建一个面向复杂网络运维场景的 **分布式 AIOps 平台（Towards NetOps）**，以 **边缘事实接入（Edge Fact Ingestion）→ 核心流式分析（Core Streaming Analytics）→ 智能增强决策（LLM-Augmented Reasoning）→ 处置闭环（Remediation Loop）** 为主线，逐步实现从异常发现、证据链归因到处置建议与执行控制的工程化能力演进。平台并不以“全量日志实时 LLM 推理”为目标，而是以稳定的数据面与可解释的证据流为基础，在核心侧对高价值异常簇进行按需智能增强分析，从而在成本、实时性与可运维性之间取得可落地平衡。
@@ -321,6 +325,7 @@ Input 字段分析
 ### 3.1 当前阶段的核心侧建设目标（可直接写入 README）
 - **数据平面接入**：承接 `r230` 输出的事实事件流，建立稳定的传输与消费入口（解耦边缘生产与核心消费）。
 - **最小流式消费链路**：实现基础 consumer / correlator，对事件进行窗口聚合、规则触发、告警上下文构建。
+- **最小 AIOps 增强已落地**：已具备告警簇级建议生成、近似上下文查询、建议 Topic/JSONL 输出能力。
 - **智能增强入口预留**：核心侧保留 `LLM inference queue` 与限流机制，用于后续告警级推理（解释/归因辅助/Runbook 草案），不阻塞主链路。
 - **分层边界明确**：实时检测与基础关联由确定性流式模块负责；LLM/Agent 仅处理高价值告警簇，不参与全量事件逐条判定。
 
@@ -333,24 +338,33 @@ Input 字段分析
 **技术栈（当前阶段）**
 - **Core Broker**：`Apache Kafka (KRaft mode, single-node)`（事件接入、生产消费解耦、Topic/Consumer Group 扩展）
 - **Core Consumer / Correlator**：`Python 3.11 + Kafka Client + 窗口聚合/规则关联模块`（事件消费、聚合、异常簇构建、告警上下文生成）
-- **Inference Entry（待商榷）**：`Inference Queue + 常驻推理服务（限流）`（仅处理高价值告警簇的解释/归因辅助/Runbook 草案）
+- **最小 AIOps 闭环（已实现）**：`告警簇聚合 + ClickHouse 上下文查询 + 建议 topic/jsonl 输出`（面向高价值告警簇的低成本增强）
+- **Inference Entry（下一阶段）**：`Inference Queue + 常驻推理服务（限流）`（处理高价值告警簇的解释/归因辅助/Runbook 草案）
 
-### 3.4 Core Phase-2 最小闭环（当前仓库已落地）
+### 3.4 Core Phase-2 / 最小 AIOps 闭环（当前仓库已落地）
 
-当前仓库已新增模块化实现，职责拆分如下：
+当前仓库已形成模块化实现，职责拆分如下：
 
 - `edge/edge_forwarder`：运行在 `r230`，将 edge 侧 JSONL 事件推送到 Kafka Raw Topic
 - `edge/edge_forwarder/infra`：edge-forwarder 基础设施能力（配置读取、日志封装、checkpoint 落盘）
 - `core/correlator`：运行在 `r450`，消费 Raw Topic，执行窗口规则并输出 Alert Topic
+- `core/alerts_sink`：运行在 `r450`，将告警按小时落盘到 `/data/netops-runtime/alerts`
+- `core/alerts_store`：运行在 `r450`，将告警结构化写入 ClickHouse
+- `core/aiops_agent`：运行在 `r450`，对告警流进行簇级聚合和建议消息输出
 - `core/infra`：core-correlator 共享基础能力
-- `core/deployments`：k3s 资源清单（namespace、kafka、topic-init、correlator）
+- `core/benchmark`：压测、吞吐探测、告警质量观测、长时链路观测工具
+- `core/deployments`：k3s 资源清单（namespace、kafka、topic-init、correlator、alerts_sink、clickhouse、alerts_store、aiops_agent）
 - `core/docker`：core-correlator 镜像构建入口
 - `edge/edge_forwarder/deployments`：edge-forwarder 清单
 - `edge/edge_forwarder/docker`：edge-forwarder 镜像构建入口
 
 当前最小链路的数据流为：
 
-`fortigate-ingest(output/parsed JSONL) -> edge-forwarder -> netops.facts.raw.v1 -> core-correlator -> netops.alerts.v1`
+`fortigate-ingest(output/parsed JSONL) -> edge-forwarder -> netops.facts.raw.v1 -> core-correlator -> netops.alerts.v1 -> (alerts_sink / alerts_store / aiops_agent) -> netops.aiops.suggestions.v1`
+
+其中，`core-aiops-agent` 同时会把建议消息按小时落盘到 `/data/netops-runtime/aiops/*.jsonl` 作为审计与回放证据。
+
+`netops.dlq.v1` 已用于承接 correlator / sink 路径中的异常记录与重放失败记录。
 
 ### 3.5 部署顺序（k3s）
 
@@ -380,13 +394,22 @@ kubectl logs -n netops-core job/netops-kafka-topic-init --tail=200
 kubectl apply -f core/deployments/40-core-correlator.yaml
 ```
 
-5. 在 edge 侧创建命名空间：
+5. 部署 Alerts Sink / ClickHouse / Alerts Store / AIOps Agent：
+
+```bash
+kubectl apply -f core/deployments/50-core-alerts-sink.yaml
+kubectl apply -f core/deployments/60-clickhouse.yaml
+kubectl apply -f core/deployments/70-core-alerts-store.yaml
+kubectl apply -f core/deployments/80-core-aiops-agent.yaml
+```
+
+6. 在 edge 侧创建命名空间：
 
 ```bash
 kubectl apply -f edge/deployments/00-edge-namespace.yaml
 ```
 
-6. 在 edge 侧部署 Forwarder：
+7. 在 edge 侧部署 Forwarder：
 
 ```bash
 kubectl apply -f edge/edge_forwarder/deployments/30-edge-forwarder.yaml

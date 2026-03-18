@@ -41,7 +41,7 @@ The project construction sequence is expected to proceed in the following stages
 > At the current stage, this project does not take “per-event LLM judgment over the full event stream” as an architectural target.  
 > The main path is handled by deterministic streaming modules for real-time detection and basic correlation; LLM/Agent components are used for on-demand augmented analysis of high-value alert clusters and remediation recommendation generation.
 
-## Current Progress Snapshot (2026-03-08)
+## Current Progress Snapshot (2026-03-18)
 
 > [!TIP]
 > Runtime ownership is now explicit: `edge/*` only for edge node components, `core/*` only for core node components.
@@ -69,8 +69,12 @@ flowchart LR
 | Core correlator | `core/correlator` | Quality gate, rule matching, alert emit, manual offset commit | Python, Kafka |
 | Alert persistence | `core/alerts_sink` | Persist alerts to hourly JSONL | Python |
 | Hot analytics store | `core/alerts_store` | Consume alerts and store structured records | ClickHouse, `clickhouse-connect` |
-| AIOps assistant (minimal) | `core/aiops_agent` | Build suggestion payloads for high-value alerts | Python, Kafka |
+| AIOps assistant (minimal) | `core/aiops_agent` | Aggregate high-value alert clusters, enrich with ClickHouse recent-similar context, and emit suggestion payloads/audit JSONL | Python, Kafka, ClickHouse |
 | Ops tooling | `core/benchmark/*` | Runtime watch and warning-noise observation | Python, `kubectl` |
+
+> [!NOTE]
+> The current repository state is best described as: **Phase-2 core data plane closed loop is in place, and a minimal AIOps cluster-suggestion loop has landed on top of it**.  
+> Deterministic streaming detection and alert persistence are already implemented; true LLM inference, causal evidence-chain reasoning, and remediation execution control remain the next-stage work.
 
 ### AIOps Agent Module Diagram
 
@@ -88,7 +92,7 @@ flowchart TD
 - `app_config`: normalize env config and enforce severity gate policy.
 - `runtime_io`: initialize Kafka/ClickHouse clients in one place.
 - `cluster_aggregator`: aggregate alerts by `rule_id + severity + service + src_device_key` in a sliding window.
-- `service`: consume alerts, trigger cluster suggestions, and commit offsets only on successful handling.
+- `service`: consume alerts, apply severity gate, trigger cluster suggestions, and commit offsets only on successful handling.
 - `context_lookup`: query recent-similar counts from ClickHouse for context enrichment.
 - `suggestion_engine`: generate stable suggestion payload schema.
 - `output_sink`: persist hourly JSONL evidence for audit/replay.
@@ -110,7 +114,7 @@ bash -n core/automatic_scripts/release_core_app.sh
 
 > [!NOTE]
 > `tests/core` now covers `rules`, `quality_gate`, `alerts_sink`, `alerts_store`, and `aiops_agent` (including cluster aggregation) minimal behavior.
-> Current baseline is suitable for iterative AIOps feature development on top of the existing core pipeline.
+> Latest local verification on the repository baseline passed `22` core tests, and the current baseline is suitable for iterative AIOps feature development on top of the existing core pipeline.
 
 ## 1.1 Project Positioning and Current Architecture Boundary
 The current project architecture is centered around **r230 (edge collection) → r450 (core data plane and analytics processing)**, i.e., near-source collection and factization on the edge side, and subsequent streaming processing, correlation analysis, evidence-chain attribution, and automated remediation capability implementation on the core side. This means the project has completed the most critical input-plane landing work in platform construction and has entered the architecture advancement stage oriented toward core capability expansion.
@@ -329,7 +333,8 @@ The core side (`netops-node1 / r450`) is positioned as the **Data Plane + Core A
 ### 3.1 Core-Side Objectives at the Current Stage (README-ready)
 - **Data plane ingress**: receive the fact event stream output from `r230` and establish a stable transport/consumption entry point (decoupling edge production from core consumption).
 - **Minimal streaming consumption pipeline**: implement a basic consumer/correlator for window aggregation, rule triggering, and alert context construction.
-- **Reserved intelligent augmentation entry**: retain an `LLM inference queue` and rate-limiting mechanism on the core side for future alert-level inference (explanation / root-cause assistance / Runbook draft generation), without blocking the main pipeline.
+- **Minimal AIOps augmentation already landed**: cluster-level suggestion generation, recent-similar context lookup, and suggestion-topic / JSONL output are already connected on top of the alert stream.
+- **Reserved intelligent augmentation entry**: keep an `LLM inference queue` and rate-limiting mechanism on the core side for future alert-level inference (explanation / root-cause assistance / Runbook draft generation), without blocking the main pipeline.
 - **Clear layering boundary**: real-time detection and basic correlation are handled by deterministic streaming modules; LLM/Agent only processes high-value alert clusters and does not participate in per-event full-stream classification.
 
 ### 3.2 Evaluated but Not Adopted at This Stage (Flink Direction)
@@ -341,18 +346,22 @@ The core side (`netops-node1 / r450`) adopts **Kafka (KRaft, single-node) + Pyth
 **Technology Stack (Current Stage)**
 - **Core Broker**: `Apache Kafka (KRaft mode, single-node)` (event ingress, producer-consumer decoupling, Topic/Consumer Group extensibility)
 - **Core Consumer / Correlator**: `Python 3.11 + Kafka Client + window aggregation / rule-correlation modules` (event consumption, aggregation, anomaly cluster construction, alert context generation)
-- **Inference Entry (TBD)**: `Inference Queue + resident inference service (rate-limited)` (only for explanation / root-cause assistance / Runbook draft generation on high-value alert clusters)
+- **Minimal AIOps Loop (implemented)**: `Alert cluster aggregator + ClickHouse context lookup + suggestion topic/jsonl sink` (deterministic, low-cost augmentation for high-value alert clusters)
+- **Inference Entry (next stage)**: `Inference Queue + resident inference service (rate-limited)` (for explanation / root-cause assistance / Runbook draft generation on high-value alert clusters)
 
-### 3.4 Phase-2 Current Implementation (Repository State)
+### 3.4 Phase-2 / Minimal AIOps Current Implementation (Repository State)
 
-Phase-2 minimal pipeline has been implemented with clear module boundaries:
+Phase-2 minimal pipeline and the first AIOps augmentation hook have been implemented with clear module boundaries:
 
 - `edge/edge_forwarder`: edge-side producer (`events-*.jsonl` -> Kafka raw topic)
 - `edge/edge_forwarder/infra`: edge-forwarder local infra utilities (`env` config, logging, checkpoint I/O)
 - `core/correlator`: core-side consumer/correlator (raw topic -> alert topic)
+- `core/alerts_sink`: alert sink (`netops.alerts.v1` -> hourly JSONL under `/data/netops-runtime/alerts`)
+- `core/alerts_store`: alert hot store (`netops.alerts.v1` -> ClickHouse structured records)
+- `core/aiops_agent`: minimal AIOps loop (`netops.alerts.v1` -> cluster suggestion -> `netops.aiops.suggestions.v1` + hourly JSONL)
 - `core/infra`: core-side shared helpers for correlator path
-- `core/benchmark`: load-test and throughput probe utilities
-- `core/deployments`: k3s manifests (`namespace`, `kafka`, `topic-init`, `correlator`)
+- `core/benchmark`: load-test, lag probe, alert quality observation, and long-run pipeline watch utilities
+- `core/deployments`: k3s manifests (`namespace`, `kafka`, `topic-init`, `correlator`, `alerts_sink`, `clickhouse`, `alerts_store`, `aiops_agent`)
 - `core/docker`: core app image build entry
 - `edge/edge_forwarder/deployments`: edge-forwarder deployment manifest
 - `edge/edge_forwarder/docker`: edge-forwarder image build entry
@@ -365,8 +374,12 @@ Current dataflow:
 `-> core-correlator (r450)`
 `-> netops.alerts.v1`
 `-> core-alerts-sink (r450, /data/netops-runtime/alerts/*.jsonl)`
+`-> core-alerts-store (r450, ClickHouse netops.alerts)`
+`-> core-aiops-agent (r450)`
+`-> netops.aiops.suggestions.v1`
+`-> /data/netops-runtime/aiops/*.jsonl`
 
-DLQ channel is reserved as `netops.dlq.v1` for malformed/replay-failed records.
+DLQ channel `netops.dlq.v1` is already wired for malformed or replay-failed records in the correlator / sink path.
 
 ### 3.5 Phase-2 Deployment Procedure (k3s)
 
@@ -376,6 +389,10 @@ kubectl apply -f core/deployments/10-kafka-kraft.yaml
 kubectl delete job -n netops-core netops-kafka-topic-init --ignore-not-found
 kubectl apply -f core/deployments/20-topic-init-job.yaml
 kubectl apply -f core/deployments/40-core-correlator.yaml
+kubectl apply -f core/deployments/50-core-alerts-sink.yaml
+kubectl apply -f core/deployments/60-clickhouse.yaml
+kubectl apply -f core/deployments/70-core-alerts-store.yaml
+kubectl apply -f core/deployments/80-core-aiops-agent.yaml
 kubectl apply -f edge/deployments/00-edge-namespace.yaml
 kubectl apply -f edge/edge_forwarder/deployments/30-edge-forwarder.yaml
 ```
