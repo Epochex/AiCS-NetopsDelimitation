@@ -44,6 +44,41 @@ class InferenceResult:
         return asdict(self)
 
 
+def build_alert_inference_request(
+    alert: dict[str, Any],
+    evidence_bundle: dict[str, Any],
+    provider: str,
+) -> InferenceRequest:
+    now = datetime.now(timezone.utc)
+    alert_id = str(alert.get("alert_id") or "")
+    rule_id = str(alert.get("rule_id") or "unknown")
+    severity = str(alert.get("severity") or "unknown").lower()
+    seed = f"{alert_id}|{rule_id}|alert|{provider}"
+    request_id = hashlib.sha1(seed.encode("utf-8"), usedforsecurity=False).hexdigest()
+
+    return InferenceRequest(
+        schema_version=1,
+        request_id=request_id,
+        request_ts=now.isoformat(),
+        request_kind="alert_triage",
+        provider=provider,
+        alert_id=alert_id,
+        rule_id=rule_id,
+        severity=severity,
+        priority=_priority_for_severity(severity),
+        suggestion_scope="alert",
+        evidence_bundle=evidence_bundle,
+        expected_response_schema={
+            "summary": "string",
+            "hypotheses": ["string"],
+            "recommended_actions": ["string"],
+            "confidence_score": "float[0,1]",
+            "confidence_label": "low|medium|high",
+            "confidence_reason": "string",
+        },
+    )
+
+
 def build_cluster_inference_request(
     alert: dict[str, Any],
     trigger: ClusterTrigger,

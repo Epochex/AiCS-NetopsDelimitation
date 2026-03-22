@@ -27,6 +27,46 @@ class TemplateProvider:
         rule_context = evidence.get("rule_context") or {}
         device = evidence.get("device_context") or {}
         change = evidence.get("change_context") or {}
+        recent_similar_1h = int(history.get("recent_similar_1h") or 0)
+
+        if inference_request.suggestion_scope == "alert":
+            summary = (
+                f"{inference_request.rule_id} triggered for service={topology.get('service') or 'unknown'} "
+                f"device={device.get('src_device_key') or 'unknown'}"
+            )
+            hypotheses = [
+                "The alert may indicate a localized policy or traffic anomaly on this source device.",
+                "The observed traffic class may have drifted from the current deterministic rule baseline.",
+            ]
+            if change.get("suspected_change"):
+                hypotheses.append("Recent risk/change indicators suggest the device behavior may have changed.")
+
+            recommended_actions = [
+                "Inspect the source device session trace and recent deny history in ClickHouse.",
+                "Check whether the affected service is expected for this device profile and interface path.",
+                "If this repeats, compare it with the cluster-level suggestion stream before tuning thresholds.",
+            ]
+
+            confidence_score = 0.66 if inference_request.severity == "warning" else 0.78
+            if recent_similar_1h > 20:
+                confidence_score += 0.07
+            if change.get("suspected_change"):
+                confidence_score += 0.05
+            confidence_score = round(min(confidence_score, 0.92), 2)
+
+            confidence_reason = (
+                "Confidence is based on alert severity, one-hour recurrence, and whether change/risk markers exist."
+            )
+            payload = {
+                "summary": summary,
+                "hypotheses": hypotheses,
+                "recommended_actions": recommended_actions,
+                "confidence_score": confidence_score,
+                "confidence_label": "high" if confidence_score >= 0.85 else "medium",
+                "confidence_reason": confidence_reason,
+                "rule_context": rule_context,
+            }
+            return inference_result_from_payload(inference_request.request_id, self.name, self.kind, payload)
 
         summary = (
             f"{inference_request.rule_id} clustered {history.get('cluster_size', 0)} alerts in "
@@ -47,7 +87,6 @@ class TemplateProvider:
             "If traffic is expected, tune correlator profile thresholds with canary rollout and monitor impact.",
         ]
 
-        recent_similar_1h = int(history.get("recent_similar_1h") or 0)
         cluster_size = int(history.get("cluster_size") or 0)
         confidence_score = 0.7 if inference_request.severity == "warning" else 0.82
         if recent_similar_1h > 20:
