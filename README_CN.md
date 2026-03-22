@@ -1,6 +1,8 @@
 ## Towards NetOps： Hybrid AIOps Driven 分布式深度根因追踪与智能自动化处置系统
 [![English](https://img.shields.io/badge/Language-English-1f6feb)](./README.md) [![简体中文](https://img.shields.io/badge/%E8%AF%AD%E8%A8%80-%E7%AE%80%E4%BD%93%E4%B8%AD%E6%96%87-2ea043)](./README_CN.md)
 
+阅读入口：[English](./README.md) | [简体中文](./README_CN.md) | [PROJECT_STATE](./documentation/PROJECT_STATE.md) | [ISSUES_LOG](./documentation/ISSUES_LOG.md) | [CONTROLLED_VALIDATION_20260322](./documentation/CONTROLLED_VALIDATION_20260322.md)
+
 > **Hybrid AIOps Platform: Deterministic Streaming Core + CPU Local LLM (On-Demand) + Multi-Agent Orchestration**
 
 #### 项目概述（Project Overview）
@@ -12,7 +14,7 @@
 系统采用 **边缘接入（Edge）+ 核心分析（Core）** 的分层架构。边缘侧负责近源日志采集、结构化事实事件化、审计留痕与可回放落盘，将原始设备日志转换为可持续消费的事实事件流；核心侧负责流式数据平面承载、事件聚合与关联分析、证据链构建，并在此基础上引入 **LLM 增强分析层** 用于告警解释、态势摘要、归因辅助与 Runbook 草案生成。该增强层采用 **常驻服务 + 限流队列** 的运行模式：由规则/流式模块完成实时检测与高价值异常筛选，LLM 仅对告警级上下文进行低并发、按需推理，避免对主链路实时性与系统资源造成挤占。
 
 > [!IMPORTANT]
-> 平台目标不是“全量日志实时 LLM 推理”，而是以稳定数据面与可解释证据流为基础，对高价值异常簇进行按需智能增强分析。
+> 平台目标不是“全量日志实时 LLM 推理”，而是以稳定数据面与可解释证据流为基础，对满足门槛的告警和重复告警簇进行按需智能增强分析。
 
 - 当前资源约束下的技术路线（Current Technical Route Under Resource Constraints）
 
@@ -38,7 +40,7 @@
 
 > [!WARNING]
 > 本项目当前阶段不以“全量事件逐条 LLM 判定”为架构目标。
-> 主链路由确定性流式模块承担实时检测与基础关联；LLM/Agent 用于高价值告警簇的按需增强分析与处置建议生成。
+> 主链路由确定性流式模块承担实时检测与基础关联；LLM/Agent 用于满足门槛的告警、重复告警簇以及处置建议生成的按需增强分析。
 
 ## 当前进展快照（2026-03-22）
 
@@ -68,11 +70,11 @@ flowchart LR
 | 核心关联 | `core/correlator` | 质量门禁、规则匹配、告警产出、手动提交 offset | Python, Kafka |
 | 告警落盘 | `core/alerts_sink` | 告警按小时写入 JSONL | Python |
 | 热查询存储 | `core/alerts_store` | 告警结构化入库 | ClickHouse, `clickhouse-connect` |
-| AIOps 最小闭环 | `core/aiops_agent` | 构建证据包、推理请求、queue/worker/provider 主链，并输出建议消息与审计 JSONL | Python, Kafka, ClickHouse |
+| AIOps 最小闭环 | `core/aiops_agent` | 构建告警级与簇级证据/推理主链，输出结构化建议消息与审计 JSONL | Python, Kafka, ClickHouse |
 | 运维观测 | `core/benchmark/*` | 流程健康观测与 warning 噪声观测 | Python, `kubectl` |
 
 > [!NOTE]
-> 当前仓库状态更准确的表述是：**Core Phase-2 数据面最小闭环已打通，并在其上落地了最小 AIOps 告警簇建议闭环**。  
+> 当前仓库状态更准确的表述是：**Core Phase-2 数据面最小闭环已打通，并在其上落地了最小 AIOps 告警级 + 告警簇建议闭环**。  
 > 也就是说，确定性流式检测、告警落盘和热查询已经到位；真正的 LLM 推理、因果证据链归因和自动化处置控制仍属于下一阶段建设内容。
 
 ### AIOps Agent 模块图
@@ -96,11 +98,11 @@ flowchart TD
 - `app_config`：统一加载和规范化环境变量，并执行严重级别门禁策略。
 - `runtime_io`：统一初始化 Kafka/ClickHouse 客户端，避免连接逻辑分散。
 - `cluster_aggregator`：按 `rule_id + severity + service + src_device_key` 做滑窗聚合。
-- `evidence_bundle`：把告警、规则、历史上下文以及变更/拓扑占位信息收成统一证据对象。
-- `inference_schema`：定义 provider 侧请求/结果 schema 以及 confidence 字段约定。
+- `evidence_bundle`：分别构建告警级和簇级证据包，把告警、规则、历史上下文以及变更/拓扑信息收成统一证据对象。
+- `inference_schema`：定义 `alert_triage` / `cluster_triage` 两类 provider 请求以及统一结果 schema。
 - `inference_queue` / `inference_worker`：把 slow path 明确成 queue + worker，即使当前先同步执行。
 - `providers`：把内置模板推理和未来外部 API / 本地模型 provider 抽象开。
-- `service`：完成告警消费、严重级别门禁、证据构建、provider 主链调用以及成功后提交 offset 的主流程。
+- `service`：完成告警消费、严重级别门禁，对每条合格告警先发出告警级建议，若簇聚合触发再追加簇级建议，并在成功后提交 offset。
 - `context_lookup`：从 ClickHouse 查询近 1 小时相似告警计数用于上下文增强。
 - `suggestion_engine`：把 provider 输出和证据对象映射回稳定可演进的建议消息 schema。
 - `output_sink`：按小时落盘 JSONL，保留审计与回放证据。
@@ -111,6 +113,7 @@ flowchart TD
 - 发布后新增“Pod 内模块可导入”校验，用于提前发现镜像内容与代码不一致问题。
 - 核心消费者改为 `enable_auto_commit=False`，处理成功后再提交 offset。
 - 规则阈值采用 profile 化配置（`core/correlator/rule_profile.py`），支持按环境调参。
+- ClickHouse 上下文查询已兼容运行时返回 `dict` 形态的 `first_item`，避免 suggestion 生成过程中出现伪错误。
 
 ### 合并/发布前基线校验
 
@@ -121,8 +124,43 @@ bash -n core/automatic_scripts/release_core_app.sh
 ```
 
 > [!NOTE]
-> 当前 `tests/core` 已覆盖 `rules`、`quality_gate`、`alerts_sink`、`alerts_store`、`aiops_agent`（含簇聚合）的最小行为。
-> 最近一次本地基线校验已通过 `24` 个 core 测试，现有基线可支持继续迭代 AIOps 功能开发（在现有 core 流水线上增量扩展）。
+> 当前 `tests/core` 已覆盖 `rules`、`quality_gate`、`alerts_sink`、`alerts_store`、`aiops_agent`（含告警级 + 簇级建议主链）的最小行为。
+> 最近一次本地基线校验已通过 `31` 个 core 测试，现有基线可支持继续迭代 AIOps 功能开发（在现有 core 流水线上增量扩展）。
+
+### 双路径 AIOps 更新后的实时验证（2026-03-22）
+
+当前 core 运行镜像已更新为：
+
+- `netops-core-app:v20260322-aiopsdualfix-3a76ec4`
+
+本次更新新增了：
+
+- 每条合格告警都输出 `alert-scope` suggestion
+- 保留原有 `cluster-scope` 路径，在簇聚合命中时额外输出
+- 修复 ClickHouse `recent_similar_count()` 对运行时 `dict` 形态 `first_item` 的兼容问题
+
+实时验证使用了真实 FortiGate 流量和一个极短的受控阈值窗口：
+
+- 临时验证窗口：
+  - `RULE_DENY_THRESHOLD=5`
+  - `RULE_ALERT_COOLDOWN_SEC=60`
+- 验证后已恢复：
+  - `RULE_DENY_THRESHOLD=200`
+  - `RULE_ALERT_COOLDOWN_SEC=300`
+
+真实观察结果：
+
+- `raw` 持续保持实时（最终 live check 中 `latest_raw_payload_age_sec=4`）。
+- `alerts` 保持当前时间窗口（最终 live check 中 `latest_alert_event_age_sec=35`）。
+- `suggestions` 已追上当前时间，不再停留在历史 `19:39 UTC`。
+- 最新 suggestion payload 已明确带有 `suggestion_scope=\"alert\"`，例如：
+  - `2026-03-22T21:55:17.943944+00:00`，service=`Dahua SDK`，src_device_key=`d4:43:0e:1a:c5:88`
+  - `2026-03-22T21:55:28.139648+00:00`，service=`udp/48689`，src_device_key=`78:66:9d:a3:4f:51`
+- `kubectl logs -n netops-core deploy/core-aiops-agent --since=3m` 已不再出现之前的 ClickHouse `TypeError`。
+
+需要诚实说明的点：
+
+- `cluster-scope` 路径在代码、测试和历史回放里都保留有效，但在这次很短的实时验证窗口里，没有自然观测到新的同 key `3/600s` 告警簇，因此没有再次看到新的 cluster suggestion。
 
 ### 基于真实告警历史的回放验证（2026-03-22）
 

@@ -31,7 +31,7 @@
   - `service.py`
   - `evidence_bundle.py`
   - `providers.py`
-- 旧版 `ClickHouse context TypeError` 消失
+- 旧版单文件 `aiops-agent` 逻辑已被替换为当前模块化 slow path
 
 ### 2.2 edge replay/backfill 的实锤
 
@@ -236,3 +236,125 @@ checkpoint 关键事实：
    - raw 是否持续保持当前时间
    - alert 是否自然触发
    - aiops suggestion 是否重新回到当前时间
+
+## 9. AIOps 双路径 suggestion 验证（2026-03-22 晚间补充）
+
+### 9.1 为什么还要补这一轮
+
+在 edge backlog 已经切回实时、core enrichment 也被证明生效之后，又观察到了一个新的真实问题：
+
+- `raw` 与 `alerts` 已经回到当前时间窗口
+- `core-aiops-agent` 消费 lag 为 `0`
+- 但 `suggestions` 仍停留在历史 `19:39 UTC`
+
+后续代码审查确认，原因不是 Kafka 或 consumer 卡住，而是当时 `service.py` 的主循环只在 `cluster trigger` 命中时才继续产出 suggestion。
+
+### 9.2 本轮代码改动
+
+本轮没有重做整个 AIOps 骨架，而是按最短路径把 suggestion 从“cluster-only”补成“双路径”：
+
+1. 告警级证据与请求
+- `build_alert_evidence_bundle()`
+- `build_alert_inference_request()`
+- `build_alert_pipeline_suggestion()`
+
+2. Provider 双分支
+- `TemplateProvider` 按 `suggestion_scope` 分开处理：
+  - `alert`
+  - `cluster`
+
+3. service 主循环调整
+- 每条合格 alert：
+  - 先发 `alert-scope` suggestion
+- 若聚合器命中：
+  - 再额外发 `cluster-scope` suggestion
+
+4. ClickHouse 上下文兼容修复
+- `context_lookup.py` 兼容运行时 `result.first_item` 为 `dict`
+
+### 9.3 对应发布
+
+1. 首次双路径发布
+- `netops-core-app:v20260322-aiopsdual-ca14d7e`
+
+2. 修复 ClickHouse context 后再次发布
+- `netops-core-app:v20260322-aiopsdualfix-3a76ec4`
+
+### 9.4 本地基线校验
+
+- `python3 -m pytest -q tests/core` -> `31 passed`
+- `python3 -m compileall -q core` -> 通过
+
+### 9.5 实时验证方法
+
+因为自然阈值下，短时间不一定立刻出现新 alert，本轮仍然使用了一个极短的受控窗口：
+
+- 临时设置：
+  - `RULE_DENY_THRESHOLD=5`
+  - `RULE_ALERT_COOLDOWN_SEC=60`
+- 验证完成后恢复：
+  - `RULE_DENY_THRESHOLD=200`
+  - `RULE_ALERT_COOLDOWN_SEC=300`
+
+### 9.6 真实结果
+
+在 `2026-03-22 21:51 UTC` 和 `21:55 UTC` 两个受控窗口里，`suggestions` 都重新追上了当前时间。
+
+最新 suggestion 样本（来自 Kafka topic `netops.aiops.suggestions.v1`）：
+
+- `2026-03-22T21:51:17.539662+00:00`
+  - `suggestion_scope="alert"`
+  - `service=udp/5351`
+  - `src_device_key=50:9a:4c:87:29:b3`
+
+- `2026-03-22T21:51:37.889506+00:00`
+  - `suggestion_scope="alert"`
+  - `service=Dahua SDK`
+  - `src_device_key=d4:43:0e:1a:c5:88`
+
+- `2026-03-22T21:55:28.139648+00:00`
+  - `suggestion_scope="alert"`
+  - `service=udp/48689`
+  - `src_device_key=78:66:9d:a3:4f:51`
+
+这证明：
+
+- 新增的 `alert-scope` suggestion 路径已经在真实流量下生效
+- `suggestions` 不再被“必须凑成 cluster 才能产出”的旧限制卡住
+
+### 9.7 最终 runtime 收口
+
+最终 `python3 -m core.benchmark.live_runtime_check` 结果：
+
+- `history_backlog_suspected=false`
+- `latest_raw_payload_age_sec=4`
+- `latest_alert_event_age_sec=35`
+- `suggestions` 最新 payload 时间：
+  - `2026-03-22T21:55:28.139648+00:00`
+
+说明当前三段链路已经同时回到当前时间窗口：
+
+- raw
+- alerts
+- suggestions
+
+### 9.8 ClickHouse 次级问题验证
+
+在第一次双路径发布后，`core-aiops-agent` 运行日志曾暴露：
+
+- `TypeError: int() argument must be ... not 'dict'`
+
+这来自 `recent_similar_count()` 对运行时 `result.first_item` 形态的错误假设。  
+修复后再次发布，并执行：
+
+- `kubectl logs -n netops-core deploy/core-aiops-agent --since=3m`
+
+结果：
+
+- suggestion 正常持续产出
+- 日志中已不再出现上述 `TypeError`
+
+### 9.9 仍需诚实说明的限制
+
+- 这轮短时实时验证已经证明了新增的 `alert-scope` suggestion 路径。
+- `cluster-scope` 路径仍然保留在代码和测试中，也保留了历史 cluster 行为；但在这次短窗口内，没有自然观察到新的同 key `min=3 within 600s` cluster，因此没有再次观测到新的 cluster suggestion。

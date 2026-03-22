@@ -11,7 +11,7 @@
 
 ## Issue-2026-03-22-001：edge replay/backfill 导致 raw 长期停留在历史时间，且 core 需要受控验证才能证明 enrichment 生效
 - 日期：2026-03-22
-- 状态：Mitigated
+- 状态：Resolved
 - 影响范围：`edge/fortigate-ingest`、`edge-forwarder`、`core-correlator`、`core-aiops-agent` 的联调判断。
 
 ### 现象
@@ -124,8 +124,99 @@
 2. 继续观察：
    - raw 是否持续保持当前时间
    - alerts 是否在自然阈值下持续产生
-   - aiops suggestions 是否重新回到当前时间
-3. 将 `documentation/` 正式纳入 git 跟踪并提交。
+   - aiops suggestions 是否在自然阈值下持续保持当前时间
+
+---
+
+## Issue-2026-03-22-002：AIOps suggestion 只在 cluster 触发时产出，导致实时 alert 已恢复但 suggestion 仍停留在历史时间
+- 日期：2026-03-22
+- 状态：Resolved
+- 影响范围：`core-aiops-agent` suggestion 产出链路与实时验证结论。
+
+### 现象
+- `raw` 与 `alerts` 已经回到当前时间窗口。
+- `core-aiops-agent` 对 `netops.alerts.v1` 的 consumer lag 为 `0`。
+- 但 `netops.aiops.suggestions.v1` 仍停留在历史 `2026-03-22 19:39 UTC`，没有新的 current-time suggestion。
+
+### 根因
+1. `core/aiops_agent/service.py` 当时只在 `aggregator.observe(alert)` 返回 trigger 时才继续走 evidence/request/provider/publish。
+2. 这意味着当前实现本质上是“cluster-only suggestion”，而不是“每条 alert 都有基础 suggestion”。
+3. 后续真实验证又暴露一个次级问题：
+   - `core/aiops_agent/context_lookup.py` 假定 ClickHouse `result.first_item` 一定可直接 `int()`
+   - 但运行时客户端会返回 `dict` 形态，导致日志出现 `TypeError`
+   - 该错误不会阻塞 suggestion，因为异常会被兜底成 `0`，但会污染运行日志并掩盖真正状态
+
+### 处理过程
+1. 实现双路径 suggestion
+- `build_alert_evidence_bundle()`
+- `build_alert_inference_request()`
+- `build_alert_pipeline_suggestion()`
+- `TemplateProvider` 根据 `suggestion_scope` 分别处理 `alert` 与 `cluster`
+- `service.py` 调整为：
+  - 每条合格 alert 先发 `alert-scope` suggestion
+  - 若聚合器命中，再额外发 `cluster-scope` suggestion
+- stats 日志调整为每轮循环都可按间隔输出，不再只在旧 cluster 路径上可见
+
+2. 增加回归测试
+- `tests/core/test_aiops_agent.py`
+- 当前基线：
+  - `python3 -m pytest -q tests/core` -> `31 passed`
+  - `python3 -m compileall -q core` -> 通过
+
+3. 修复 ClickHouse context 兼容性
+- `core/aiops_agent/context_lookup.py`
+- 兼容 `result.first_item` 为 `dict` 的运行时返回
+
+4. 两次发布与受控验证
+- 首次双路径发布：
+  - `netops-core-app:v20260322-aiopsdual-ca14d7e`
+- 修复 ClickHouse context 后再次发布：
+  - `netops-core-app:v20260322-aiopsdualfix-3a76ec4`
+- 验证窗口短时使用：
+  - `RULE_DENY_THRESHOLD=5`
+  - `RULE_ALERT_COOLDOWN_SEC=60`
+- 验证后已恢复：
+  - `RULE_DENY_THRESHOLD=200`
+  - `RULE_ALERT_COOLDOWN_SEC=300`
+
+### 验证结果
+1. 双路径里的新增关键路径已经在真实流量下命中
+- `suggestions` 已从历史时间追到当前时间
+- 最新 suggestion 明确带有：
+  - `suggestion_scope=\"alert\"`
+  - `cluster_size=1`
+  - 当前 alert 对应的 `service / src_device_key`
+
+2. 当前时间样本
+- `2026-03-22T21:51:17.539662+00:00`
+  - `service=udp/5351`
+  - `src_device_key=50:9a:4c:87:29:b3`
+- `2026-03-22T21:51:37.889506+00:00`
+  - `service=Dahua SDK`
+  - `src_device_key=d4:43:0e:1a:c5:88`
+- `2026-03-22T21:55:28.139648+00:00`
+  - `service=udp/48689`
+  - `src_device_key=78:66:9d:a3:4f:51`
+
+3. 最终 live runtime 收口
+- `python3 -m core.benchmark.live_runtime_check`
+  - `history_backlog_suspected=false`
+  - `latest_raw_payload_age_sec=4`
+  - `latest_alert_event_age_sec=35`
+  - `suggestions` 最新 payload 时间已推进到 `2026-03-22T21:55:28.139648+00:00`
+
+4. ClickHouse 次级问题也已闭环
+- `kubectl logs -n netops-core deploy/core-aiops-agent --since=3m`
+- 已不再出现先前的 `TypeError: int() argument must be ... not 'dict'`
+
+### 仍需注意
+- 这轮短时实时窗口只验证了新增的 `alert-scope` suggestion 路径。
+- `cluster-scope` 路径仍保留有效，但在这次自然流量窗口里没有再次观测到新的同 key `3/600s` cluster。
+
+### 后续动作
+1. 在自然阈值下继续观察 cluster-scope 是否自然出现。
+2. 继续优化 `live_runtime_check` 的采样口径。
+3. 再考虑最小 CI（`pytest` / `compileall` / `docker build` smoke）。
 
 ---
 

@@ -2,7 +2,7 @@
 
 本文件给“新会话 AI / 新协作者 / 未来自己”提供一个稳定、可直接接手的项目状态入口。
 
-- 最后更新：2026-03-22 20:10 UTC
+- 最后更新：2026-03-22 21:56 UTC
 - 当前开发分支：`core-dev`
 - 配套问题日志：[ISSUES_LOG.md](./ISSUES_LOG.md)
 - 本轮详细过程记录：[CONTROLLED_VALIDATION_20260322.md](./CONTROLLED_VALIDATION_20260322.md)
@@ -15,6 +15,11 @@
 2. `core correlator -> alerts topic`
 3. `alerts -> JSONL / ClickHouse`
 4. `AIOps slow path -> suggestions`
+
+当前这个 slow path 已不是“只有 cluster 才出建议”，而是：
+
+- 每条满足严重级别门槛的 alert 都会产出一条 `alert-scope` suggestion
+- 如果同 key 告警在 AIOps 聚合器里达到 `600s / min=3 / cooldown=300s`，还会额外产出一条 `cluster-scope` suggestion
 
 当前阶段最重要的判断标准只有两个：
 
@@ -87,6 +92,14 @@
   - `core/aiops_agent/providers.py`
   - `core/aiops_agent/suggestion_engine.py`
 
+- AIOps 双路径建议已落地：
+  - `alert-scope`：每条合格 alert 产出基础建议
+  - `cluster-scope`：保留原簇触发建议，作为额外输出
+
+- ClickHouse 上下文查询已加固：
+  - `core/aiops_agent/context_lookup.py`
+  - 兼容运行时 `result.first_item` 为 `dict` 的情况
+
 - 核心验证脚本已落地：
   - `core/benchmark/aiops_replay_validation.py`
   - `core/benchmark/runtime_timestamp_audit.py`
@@ -99,14 +112,10 @@
 
 ### 3.2 当前本地分支头部
 
-- `54f5ecf` `docs: update project state and issues log`
-- `292b1eb` `docs: update project state and issues log`
-- `f42c761` `Prepare core alert enrichment and live runtime check`
+- `3a76ec4` `Harden aiops ClickHouse context lookup`
+- `ca14d7e` `Implement dual-path aiops suggestions`
+- `8c47387` `docs: capture final runtime validation state`
 - `3e9d187` `edge: preserve fortigate cr fields and device profile`
-
-注意：
-
-- 当前工作区里 `documentation/` 目录仍是未跟踪状态，需要后续手动 `git add documentation`
 
 ## 4. 当前运行态事实
 
@@ -115,7 +124,7 @@
 2026-03-22 已执行本地发布：
 
 - 发布脚本：`core/automatic_scripts/release_core_app.sh`
-- 运行镜像：`netops-core-app:v20260322-corealign-54f5ecf`
+- 运行镜像：`netops-core-app:v20260322-aiopsdualfix-3a76ec4`
 
 当前 `netops-core` 中以下 deployment 都在跑这个 tag：
 
@@ -156,26 +165,28 @@
 
 ### 4.3 live runtime 当前结论
 
-`python3 -m core.benchmark.live_runtime_check` 在 2026-03-22 20:11 UTC 的关键结果：
+`python3 -m core.benchmark.live_runtime_check` 在 2026-03-22 21:55 UTC 的关键结果：
 
 - `history_backlog_suspected = false`
-- `latest_raw_payload_age_sec = 5`
-- `latest_alert_event_age_sec = 206`
-- 最新 alert 落盘文件已经变成：
-  - `alerts-20260322-20.jsonl`
+- `latest_raw_payload_age_sec = 4`
+- `latest_alert_event_age_sec = 35`
+- 最新 alert 落盘文件：
+  - `alerts-20260322-21.jsonl`
+- 最新 suggestion 落盘文件：
+  - `suggestions-20260322-21.jsonl`
 
-最近 1000 条 alert 的字段出现率已经不再是全 0：
+最近 1000 条 alert 的字段出现率已进一步抬升：
 
-- `topology_context = 0.005`
-- `device_profile = 0.005`
-- `change_context = 0.003`
+- `topology_context = 0.024`
+- `device_profile = 0.024`
+- `change_context = 0.011`
 
 含义：
 
-- raw 已经回到实时
-- alert 也已经重新进入当前时间窗口
-- 新字段已经开始在近期 alert 中出现
-- `suggestions` 仍滞后于实时 alert，需要后续单独观察 cluster 触发恢复情况
+- raw 已经稳定保持实时
+- alert 已重新进入当前时间窗口
+- 新字段已开始稳定进入近期 alert
+- suggestion 也已重新回到当前时间窗口，不再卡在历史 19:39 UTC
 
 ## 5. 本轮关键验证结论
 
@@ -216,22 +227,57 @@ edge 重置回实时后，再次做了短时阈值验证：
 - `RULE_BYTES_THRESHOLD=100000000`
 - `RULE_ALERT_COOLDOWN_SEC=300`
 
+### 5.3 第三轮受控验证：AIOps 双路径 suggestion 已在真实流量下生效
+
+在完成 `alert-scope + cluster-scope` 双路径代码发布后，继续使用真实 FortiGate 流量做短时验证：
+
+- 首次双路径发布：
+  - `netops-core-app:v20260322-aiopsdual-ca14d7e`
+- 随后修复 ClickHouse 上下文查询兼容性后再次发布：
+  - `netops-core-app:v20260322-aiopsdualfix-3a76ec4`
+
+为保证当前时间 alert 足够快地产生，本轮仍短时使用：
+
+- `RULE_DENY_THRESHOLD=5`
+- `RULE_ALERT_COOLDOWN_SEC=60`
+
+真实结果：
+
+- 在 `2026-03-22 21:51 UTC` 窗口内，`suggestions` 已从历史时间追到当前时间
+- 最新 suggestion 明确带有：
+  - `suggestion_scope="alert"`
+  - `cluster_size=1`
+  - 当前 alert 的 `service / src_device_key`
+- 样本包括：
+  - `2026-03-22T21:51:17.539662+00:00`, `service=udp/5351`, `src_device_key=50:9a:4c:87:29:b3`
+  - `2026-03-22T21:51:37.889506+00:00`, `service=Dahua SDK`, `src_device_key=d4:43:0e:1a:c5:88`
+  - `2026-03-22T21:55:28.139648+00:00`, `service=udp/48689`, `src_device_key=78:66:9d:a3:4f:51`
+
+在第二次修复发布后，再次检查：
+
+- `kubectl logs -n netops-core deploy/core-aiops-agent --since=3m`
+- 已不再出现先前的 ClickHouse `TypeError`
+
+诚实说明：
+
+- 这次短时实时窗口已经证明 `alert-scope` suggestion 生效
+- 但没有自然观察到新的 `cluster-scope` suggestion，因为这段时间内没有形成满足 `min=3 within 600s` 的同 key 告警簇
+
 ## 6. 当前剩余问题
 
 1. `core.benchmark.live_runtime_check` 的 `recent_alert_presence` 在 replay / 实验窗口下仍可能低估字段厚度，后续可以再优化为更偏“最新写入”的取样口径
-2. `netops.aiops.suggestions.v1` 当前仍主要是历史 suggestion；新实时 alert 未必立即形成 suggestion，因为 cluster 条件本身更严格
-3. 当前 `documentation/` 仍未纳入 git 跟踪
-4. 本地分支还比 `origin/core-dev` 超前 3 个 commit，后续需要整理和提交
+2. 当前已验证 `alert-scope` 实时 suggestion，但 `cluster-scope` 在短时自然流量下尚未再次观测到
+3. 当前 confidence 仍是稳定启发式，不应当被解释成已校准 RCA 置信度
+4. 最小 CI 仍未补齐，当前发布流程仍依赖人工执行脚本
 
 ## 7. 接下来最合理的动作
 
-1. 把 `documentation/` 整体 `git add` 并提交
-2. 补一个更准确的 runtime 验证脚本或修正 `live_runtime_check` 的 alert 采样口径
-3. 基于当前实时数据继续观察：
+1. 补一个更准确的 runtime 验证脚本或修正 `live_runtime_check` 的 alert 采样口径
+2. 在自然阈值下继续观察：
    - raw 是否持续保持当前时间
    - core alert 是否按自然阈值触发
-   - aiops suggestion 是否恢复到当前时间
-4. 再考虑最小 CI：
+   - cluster-scope suggestion 是否自然出现
+3. 再考虑最小 CI：
    - `pytest`
    - `compileall`
    - `docker build` smoke check
