@@ -1,13 +1,11 @@
 ## Towards NetOps: Hybrid AIOps Platform for Network Awareness and Automated Remediation
 [![English](https://img.shields.io/badge/Language-English-1f6feb)](./README.md) [![简体中文](https://img.shields.io/badge/%E8%AF%AD%E8%A8%80-%E7%AE%80%E4%BD%93%E4%B8%AD%E6%96%87-2ea043)](./README_CN.md)
 
-Quick Links: [English](./README.md) | [简体中文](./README_CN.md) | [Project State](./documentation/PROJECT_STATE.md) | [Issues Log](./documentation/ISSUES_LOG.md) | [Controlled Validation 2026-03-22](./documentation/CONTROLLED_VALIDATION_20260322.md)
-
 > Hybrid AIOps Platform: Deterministic Streaming Core + CPU Local LLM (On-Demand) + Multi-Agent Orchestration
 
 #### Project Overview
 
-This project aims to build a **distributed AIOps platform (Towards NetOps)** for complex network operations scenarios, following the main line of **Edge Fact Ingestion → Core Streaming Analytics → LLM-Augmented Reasoning → Remediation Loop**, and progressively implementing an engineering capability evolution from anomaly detection and evidence-chain attribution to remediation recommendation and execution control. The platform does not target “real-time LLM inference on full-volume logs”; instead, it is built on a stable data plane and explainable evidence flow, and performs on-demand intelligent augmented analysis for high-value anomaly clusters on the core side, in order to achieve a deployable balance among cost, real-time performance, and operability.
+This project aims to build a **distributed AIOps platform (Towards NetOps)** for complex network operations scenarios, following the main line of **Edge Fact Ingestion → Core Streaming Analytics → LLM-Augmented Reasoning → Remediation Loop**, and progressively implementing an engineering capability evolution from anomaly detection and evidence-chain attribution to remediation recommendation and execution control. The platform does not target “real-time LLM inference on full-volume logs”; instead, it is built on a stable data plane and explainable evidence flow, and performs on-demand intelligent augmented analysis for eligible alerts and repeated anomaly clusters on the core side, in order to achieve a deployable balance among cost, real-time performance, and operability.
 
 #### Architecture Paradigm
 
@@ -178,7 +176,7 @@ Key findings:
 - Replaying with `600s / min_alerts=3 / cooldown=300s` produced `12,751` AIOps pipeline outputs from the same `44,733` alerts.
 - Template provider stability rate was `1.0` on replay (no semantic drift across repeated inference on the same request).
 - Evidence presence was strong for fields already carried by the alert stream: `service=1.0`, `src_device_key=1.0`, `srcip=1.0`, `dstip=1.0`, `recent_similar_nonzero=1.0`.
-- Evidence presence was `0.0` for `site`, `device_profile`, and `change_context`, which means the current upstream/core schema still lacks those contexts and the new evidence bundle is only partially populated in production-shaped replay.
+- Evidence presence was `0.0` for `site`, `device_profile`, and `change_context` in that historical replay corpus. This reflects the fact that the replayed alerts were generated before the later edge/core enrichment changes landed, so it should be read as a historical baseline rather than the current live-pipeline state.
 - Confidence output was stable but not yet discriminative: replay outputs were all `medium`, so current confidence should be treated as a stable heuristic rather than calibrated RCA confidence.
 - No external HTTP provider was counted in this validation because no real endpoint was configured; no mock-based claim is recorded.
 
@@ -201,7 +199,7 @@ Interpretation:
 - If current processing time is March 22 but the alert payload timestamp is still March 18, then `alerts-sink` will keep appending to `alerts-20260318-*` while `aiops-agent` writes to `suggestions-20260322-*`.
 - The remaining upstream question is therefore not “did alerts-sink stop?” but “why is the source stream still carrying March 18-era event timestamps on March 22?”
 
-## 1.1 Project Positioning and Current Architecture Boundary
+## Project Positioning and Current Architecture Boundary
 The current project architecture is centered around **r230 (edge collection) → r450 (core data plane and analytics processing)**, i.e., near-source collection and factization on the edge side, and subsequent streaming processing, correlation analysis, evidence-chain attribution, and automated remediation capability implementation on the core side. This means the project has completed the most critical input-plane landing work in platform construction and has entered the architecture advancement stage oriented toward core capability expansion.
 
 The project is currently at the stage where the **Edge Fact Ingestion Layer has been deployed and is running stably**, while the **Core Analytics / Causality / Remediation layer is under continuous development**. The system runs on a **k3s** cluster; the `fortigate-ingest` component on the `edge` side has been containerized, deployed, and is continuously running, undertaking edge-side ingestion and factization of FortiGate logs. The current node role split is: **netops-node2 (r230) for edge ingestion**, and **netops-node1 (r450) as the hosting node for the core data plane and analytics side**. The platform has entered the cluster runtime stage for foundational AIOps components.
@@ -213,27 +211,49 @@ Node role allocation is as follows:
 - **netops-node2 (r230)**: Edge ingestion side (Edge Ingestion; Ingest Pod development and deployment completed, running stably)
 - **netops-node1 (r450)**: Core side (Data Plane / Core Analytics; under continuous development)
 
-## 1.2 Currently Implemented Components (Edge / FortiGate Ingestion)
-`edge/fortigate-ingest` has been containerized, deployed, and is continuously running in the k3s cluster, and currently performs the following responsibilities:
+## Currently Implemented Components and Collaboration
+The repository has moved beyond a single ingest prototype. At the current stage, the implemented chain already covers the following end-to-end capabilities:
 
-- Ingest FortiGate syslog inputs (active log + rotated logs, including `.gz`)
-- Process historical backfill and near-real-time tailing in a fixed order (`rotated → active`)
-- Parse syslog header and FortiGate `key=value` payload
-- Perform field type normalization and structured event generation
-- Output directly consumable fact event streams (JSONL)
-- Output DLQ and ingest metrics (for bad-sample isolation and runtime observability)
-- Persist checkpoints (including `inode/offset` and `completed` dedup ledger), supporting restart recovery, rotation handling, and traceable replay localization
+- Edge-side FortiGate syslog ingestion, replay control, structured fact generation, and audit persistence
+- Lossless edge forwarding from parsed JSONL into the core raw topic
+- Core-side deterministic analytics (`quality_gate + rules + window correlation`) from raw facts to alerts
+- Dual persistence of the alert stream through hourly JSONL and ClickHouse hot storage
+- Minimal AIOps augmentation on top of the alert contract, including alert-scope suggestions, cluster-scope suggestions, evidence construction, and suggestion audit output
 
-The edge side has already formed a stable **fact event production pipeline** based on the overall router environment, providing unified input for subsequent core-side streaming consumption, correlation analysis, and root-cause reasoning.
+In other words, the project already has a runnable path from **device log -> structured fact -> deterministic alert -> persisted context -> operator-facing suggestion**, which is the most important technical boundary for the current phase.
+
+### Dataflow and Module Collaboration
+
+The current repository is no longer just a collection of independent components. It already forms a clearly layered NSM/AIOps pipeline that follows the direction of the real data flow:
+
+1. **Source acquisition**
+   - FortiGate emits syslog to the edge node.
+2. **Edge factization**
+   - `edge/fortigate-ingest` converts raw text logs into replayable structured JSONL facts, normalizes time and device identity, and preserves audit metadata.
+3. **Edge transport**
+   - `edge/edge_forwarder` consumes parsed JSONL and forwards raw facts to `netops.facts.raw.v1` without changing field semantics.
+4. **Core deterministic analytics**
+   - `core/correlator` consumes the raw topic, runs quality gates and sliding-window rules, and emits structured alerts to `netops.alerts.v1`.
+5. **Persistence and observability**
+   - `core/alerts_sink` provides JSONL audit/replay files.
+   - `core/alerts_store` provides ClickHouse-based hot query and recent-history lookup.
+6. **AIOps slow path**
+   - `core/aiops_agent` consumes alerts, builds evidence, queries recent history, and emits structured suggestions to `netops.aiops.suggestions.v1`.
+
+Current technical highlights already visible in the implemented path:
+
+- **Replayable edge ingest**: checkpoint + inode/offset + completed-ledger design supports restart recovery and precise backlog control.
+- **Deterministic core first**: quality gates, rule windows, and manual offset commits keep the main path explainable and controllable.
+- **Dual persistence surface**: JSONL preserves an audit/replay trail, while ClickHouse supports hot analytics and AIOps context lookup.
+- **Enriched alert contract**: `topology_context`, `device_profile`, and `change_context` now flow from edge-derived facts into current alerts.
+- **Dual-path AIOps output**: the AIOps layer now emits both alert-scope suggestions and cluster-scope suggestions, instead of depending only on cluster formation.
 
 ---
-## 2. Edge Components
-### 2.1 Ingest Component
-> ## FortiGate Log Input / Ingest / Parsed Output Specification  
-> Raw log (`/data/fortigate-runtime/input/fortigate.log`) format analysis  
-> FortiGate log input format, structured event output format (JSONL), field semantics, and ingest processing pipeline, for data ingestion, analytics development, troubleshooting audit, and downstream streaming integration.
+### Edge Components
+#### Ingest Component
+This section describes the current FortiGate edge-ingest contract from raw syslog input to parsed JSONL output, including file organization, line structure, field semantics, and the operational guarantees already implemented on the edge side.
 
-### 2.1.1 Raw FortiGate Log Format (Input)
+##### Raw FortiGate Log Format (Input)
 The input of `edge/fortigate-ingest` is not a single file, but **a set of FortiGate log files in the same directory**: the continuously appended active file `fortigate.log`, plus historical files generated by an external rotation mechanism, `fortigate.log-YYYYMMDD-HHMMSS` and `fortigate.log-YYYYMMDD-HHMMSS.gz`. On startup and in the main loop, ingest first scans and processes all rotated files matching the naming rule in filename timestamp order (for historical log backfill), and then performs incremental tailing on `fortigate.log` using `active.inode + active.offset` recorded in the checkpoint (for near-real-time ingestion of new logs). Rotated files are read as whole files (`.gz` is read line by line after gzip decompression with `source.offset=null`; non-`.gz` rotated files record per-line offsets), while the active file is continuously tailed by byte offset; during runtime, the main loop periodically rescans the rotated list and uses the `completed(path|inode|size|mtime)` dedup ledger to avoid duplicate backfill, while handling active-file rotation switch and truncation recovery through `inode` changes and file size/offset state. The responsibility boundary of this processing model is: **ingest identifies and consumes the active/rotated input set, while an external component is responsible for generating rotated log files**.
 
 - **Active log**
@@ -242,15 +262,14 @@ The input of `edge/fortigate-ingest` is not a single file, but **a set of FortiG
   - `/data/fortigate-runtime/input/fortigate.log-YYYYMMDD-HHMMSS`
   - `/data/fortigate-runtime/input/fortigate.log-YYYYMMDD-HHMMSS.gz`
 
-### Line Format
+##### Line Format
 
-Each log line consists of two parts:  
-*Input sample (raw)*: demonstrates that the raw log contains directly extractable network semantics + asset profiling semantics (interface, policy, action, device vendor/type/OS/MAC)
+Each log line consists of two parts. The raw sample demonstrates that the source log already carries directly usable network semantics and asset-profile semantics, including interface, policy, action, vendor, device type, OS, and MAC identity:
 
 1. **Syslog header** - 4-token dimension
 2. **FortiGate key-value payload** - 43-token dimension
 
-### Input raw log field list (43 FortiGate KV fields + 4 syslog header subfields)
+##### Input Raw Log Field List (43 FortiGate KV Fields + 4 Syslog Header Subfields)
 
 **Example (real sample):**
 ```text
@@ -307,7 +326,7 @@ Input field analysis
 | `srcmac`       | `78:66:9d:a3:4f:51`   | Source MAC (device identity normalization clue)           |
 | `srcserver`    | `0`                   | Device role hint (endpoint / non-server)                  |
 
-### 2.1.2 Ingest Pod Processing Pipeline (`edge/fortigate-ingest`)
+##### Ingest Pod Processing Pipeline (`edge/fortigate-ingest`)
 
 The responsibility of `edge/fortigate-ingest` is not “simple log forwarding,” but to convert FortiGate raw syslog text (`/data/fortigate-runtime/input/fortigate.log` and rotated files `fortigate.log-YYYYMMDD-HHMMSS[.gz]`) into a structured fact event stream (JSONL) that is auditable, replayable, and directly usable for aggregation analytics. The main loop processing order is fixed as **rotated first (historical backfill) → active next (near-real-time tailing)**: rotated files are sorted by filename timestamp and scanned sequentially to avoid missing historical logs after startup/restart; the active file is continuously tailed based on byte offset to balance real-time ingestion and recoverability. Outputs are written as hourly partitioned files `events-YYYYMMDD-HH.jsonl` (with separate DLQ/metrics JSONL files), facilitating unified downstream batch/stream consumption.
 
@@ -315,7 +334,7 @@ When processing a single log line, the pipeline first splits the **syslog header
 
 The key reliability design of this component is the **checkpoint + inode/offset + completed deduplication mechanism**. `checkpoint.json` stores three categories of state: `active` (the current active file `path/inode/offset/last_event_ts_seen`), `completed` (records of fully processed rotated files, using `path|inode|size|mtime` as a unique key to prevent duplicate historical backfill), and `counters` (cumulative counters such as `lines/bytes/events/dlq/parse_fail/write_fail/checkpoint_fail`). After a rotated file is completed, `mark_completed()` is called to persist the ledger entry; when tailing the active file, ingest resumes from the checkpoint `inode+offset`, and resets/re-scans offsets when detecting **inode change (rotation switch)** or **file truncation (`size < offset`)**, preventing out-of-range reads, duplicates, and misses. The checkpoint is persisted atomically via temporary file write + `fsync` + `os.replace`; each event is enriched with `ingest_ts` (UTC) and `source.path/inode/offset` (`offset=null` for `.gz` in most cases), enabling precise audit, replay localization, and idempotent reprocessing.
 
-### 2.1.3 Output Sample (Parsed JSONL) Field List (62 top-level fields + 3 `source` subfields)
+##### Output Sample (Parsed JSONL) Field List (62 top-level fields + 3 `source` subfields)
 **Output sample (parsed)**: demonstrates that ingest has stably converted text logs into an analyzable schema (time normalization, derived fields, device key, source audit metadata)
 
 ```text
@@ -390,7 +409,7 @@ The key reliability design of this component is the **checkpoint + inode/offset 
 | `ingest_ts`      | `2026-02-16T19:59:59.808411+00:00`                               | Ingest output timestamp                                                |
 | `source`         | `{"path":"...","inode":6160578,"offset":null}`                   | Input source metadata (audit / replay localization)                    |
 
-### 2.1.4 Throughput Snapshot (March 3, 2026)
+##### Throughput Snapshot (March 3, 2026)
 
 The following baseline was sampled on **March 3, 2026 (CET)** for current topic/partition capacity planning.
 
@@ -411,30 +430,32 @@ The following baseline was sampled on **March 3, 2026 (CET)** for current topic/
 > [!NOTE]
 > For partition planning, use repeated runs and keep at least P95 headroom (for example, target <60% sustained partition utilization during peak windows).
 
-## 3. Core Components (Planned Scope and Current Implementation Boundary)
+### Core Components (Current Scope and Implemented Boundary)
 
 The core side (`netops-node1 / r450`) is positioned as the **Data Plane + Core Analytics** hosting node. It is responsible for receiving the structured fact event stream produced by the edge-side `edge/fortigate-ingest`, and for completing event decoupling, basic aggregation, correlation analysis, alert cluster generation, and the execution entry for subsequent intelligent augmented inference (LLM/Agent). The current architectural objective is to first establish a **stable, observable, and extensible** minimal closed loop: `ingest output -> broker/queue -> consumer/correlator -> alert context -> (optional) LLM inference queue`.
 
-### 3.1 Core-Side Objectives at the Current Stage (README-ready)
+Viewed along the real execution path, the core modules already cooperate around one shared alert contract rather than loosely coupled ad hoc integrations: `core/correlator` turns raw facts into deterministic alerts, `core/alerts_sink` and `core/alerts_store` preserve that same alert stream for audit and hot analytics, and `core/aiops_agent` consumes the alert contract again to build evidence, query recent history, and emit operator-facing suggestions. This separation keeps detection, persistence, and augmentation independently evolvable while preserving a single observable dataflow.
+
+#### Core-Side Objectives at the Current Stage
 - **Data plane ingress**: receive the fact event stream output from `r230` and establish a stable transport/consumption entry point (decoupling edge production from core consumption).
 - **Minimal streaming consumption pipeline**: implement a basic consumer/correlator for window aggregation, rule triggering, and alert context construction.
-- **Minimal AIOps augmentation already landed**: cluster-level suggestion generation, evidence bundle construction, recent-similar context lookup, and suggestion-topic / JSONL output are already connected on top of the alert stream.
-- **Reserved intelligent augmentation entry**: keep an `LLM inference queue` and rate-limiting mechanism on the core side for future alert-level inference (explanation / root-cause assistance / Runbook draft generation), without blocking the main pipeline.
-- **Clear layering boundary**: real-time detection and basic correlation are handled by deterministic streaming modules; LLM/Agent only processes high-value alert clusters and does not participate in per-event full-stream classification.
+- **Minimal AIOps augmentation already landed**: alert-scope suggestion generation, cluster-scope suggestion generation, evidence bundle construction, recent-similar context lookup, and suggestion-topic / JSONL output are already connected on top of the alert stream.
+- **Reserved intelligent augmentation entry**: keep an `LLM inference queue` and rate-limiting mechanism on the core side for future richer alert-level inference (explanation / root-cause assistance / Runbook draft generation), without blocking the main pipeline.
+- **Clear layering boundary**: real-time detection and basic correlation are handled by deterministic streaming modules; LLM/Agent only processes eligible alerts and repeated clusters, and does not participate in per-event full-stream classification.
 
-### 3.2 Evaluated but Not Adopted at This Stage (Flink Direction)
+#### Evaluated but Not Adopted at This Stage (Flink Direction)
 A **ByteDance-related Flink solution** was evaluated during the early stage of the project (validation already performed). However, under the current environment constraints (`k3s`, single core node `r450`, limited memory, no GPU, and priority on fast closed-loop delivery with low operational overhead), the conclusion is: **it is not suitable as the main core-side path at this stage**. The primary reason is its relatively high runtime resource requirements, component orchestration complexity, and operational cost, which do not match the current objective of “first establishing the data plane and the minimal analytics closed loop.” Flink-class frameworks may be re-evaluated later if event scale, stateful computation complexity, and throughput requirements increase significantly.
 
-### 3.3 Core Technology Stack and Deployment Plan (Current Mainline)
+#### Core Technology Stack and Deployment Plan (Current Mainline)
 The core side (`netops-node1 / r450`) adopts **Kafka (KRaft, single-node) + Python Consumer/Correlator + (optional) LLM inference service**, running on `k3s`. The current objective is to prioritize the `r230 -> r450` data plane and the minimal correlation-analysis closed loop, while keeping deployment complexity controllable, the pipeline observable, and the future expansion path clear under constrained resources.
 
 **Technology Stack (Current Stage)**
 - **Core Broker**: `Apache Kafka (KRaft mode, single-node)` (event ingress, producer-consumer decoupling, Topic/Consumer Group extensibility)
 - **Core Consumer / Correlator**: `Python 3.11 + Kafka Client + window aggregation / rule-correlation modules` (event consumption, aggregation, anomaly cluster construction, alert context generation)
-- **Minimal AIOps Loop (implemented)**: `Alert cluster aggregator + evidence bundle + provider request/result schema + suggestion topic/jsonl sink` (deterministic, low-cost augmentation for high-value alert clusters)
-- **Inference Entry (next stage)**: `Inference Queue + resident inference service (rate-limited)` (for explanation / root-cause assistance / Runbook draft generation on high-value alert clusters)
+- **Minimal AIOps Loop (implemented)**: `Alert/cluster evidence bundle + provider request/result schema + suggestion topic/jsonl sink` (deterministic, low-cost augmentation for eligible alerts and repeated clusters)
+- **Inference Entry (next stage)**: `Inference Queue + resident inference service (rate-limited)` (for explanation / root-cause assistance / Runbook draft generation on enriched alert evidence)
 
-### 3.4 Phase-2 / Minimal AIOps Current Implementation (Repository State)
+#### Phase-2 / Minimal AIOps Current Implementation (Repository State)
 
 Phase-2 minimal pipeline and the first AIOps augmentation hook have been implemented with clear module boundaries:
 
@@ -443,7 +464,7 @@ Phase-2 minimal pipeline and the first AIOps augmentation hook have been impleme
 - `core/correlator`: core-side consumer/correlator (raw topic -> alert topic)
 - `core/alerts_sink`: alert sink (`netops.alerts.v1` -> hourly JSONL under `/data/netops-runtime/alerts`)
 - `core/alerts_store`: alert hot store (`netops.alerts.v1` -> ClickHouse structured records)
-- `core/aiops_agent`: minimal AIOps loop (`netops.alerts.v1` -> cluster suggestion -> `netops.aiops.suggestions.v1` + hourly JSONL)
+- `core/aiops_agent`: minimal AIOps loop (`netops.alerts.v1` -> alert-scope suggestion + optional cluster-scope suggestion -> `netops.aiops.suggestions.v1` + hourly JSONL)
 - `core/infra`: core-side shared helpers for correlator path
 - `core/benchmark`: load-test, lag probe, alert quality observation, and long-run pipeline watch utilities
 - `core/deployments`: k3s manifests (`namespace`, `kafka`, `topic-init`, `correlator`, `alerts_sink`, `clickhouse`, `alerts_store`, `aiops_agent`)
@@ -466,7 +487,13 @@ Current dataflow:
 
 DLQ channel `netops.dlq.v1` is already wired for malformed or replay-failed records in the correlator / sink path.
 
-### 3.5 Phase-2 Deployment Procedure (k3s)
+From a collaboration standpoint, the core-side components are intentionally split into three cooperative planes:
+
+- **Decision plane**: `core/correlator` turns raw facts into deterministic alerts.
+- **Persistence plane**: `core/alerts_sink` and `core/alerts_store` preserve the same alert stream in file and analytic forms.
+- **Augmentation plane**: `core/aiops_agent` consumes the alert contract, reuses ClickHouse history, and emits operator-facing suggestions without taking over the real-time detection responsibility.
+
+#### Phase-2 Deployment Procedure (k3s)
 
 ```bash
 kubectl apply -f core/deployments/00-namespace.yaml
@@ -492,7 +519,7 @@ Edge-side one-shot release entries:
 ./edge/edge_forwarder/scripts/deploy_edge_forwarder.sh
 ```
 
-### 3.6 Throughput Measurement and Pressure Testing
+#### Throughput Measurement and Pressure Testing
 
 Use `core/benchmark` scripts for partition sizing and throughput baselining:
 

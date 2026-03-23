@@ -1,13 +1,11 @@
 ## Towards NetOps： Hybrid AIOps Driven 分布式深度根因追踪与智能自动化处置系统
 [![English](https://img.shields.io/badge/Language-English-1f6feb)](./README.md) [![简体中文](https://img.shields.io/badge/%E8%AF%AD%E8%A8%80-%E7%AE%80%E4%BD%93%E4%B8%AD%E6%96%87-2ea043)](./README_CN.md)
 
-阅读入口：[English](./README.md) | [简体中文](./README_CN.md) | [PROJECT_STATE](./documentation/PROJECT_STATE.md) | [ISSUES_LOG](./documentation/ISSUES_LOG.md) | [CONTROLLED_VALIDATION_20260322](./documentation/CONTROLLED_VALIDATION_20260322.md)
-
 > **Hybrid AIOps Platform: Deterministic Streaming Core + CPU Local LLM (On-Demand) + Multi-Agent Orchestration**
 
 #### 项目概述（Project Overview）
 
-本项目旨在构建一个面向复杂网络运维场景的 **分布式 AIOps 平台（Towards NetOps）**，以 **边缘事实接入（Edge Fact Ingestion）→ 核心流式分析（Core Streaming Analytics）→ 智能增强决策（LLM-Augmented Reasoning）→ 处置闭环（Remediation Loop）** 为主线，逐步实现从异常发现、证据链归因到处置建议与执行控制的工程化能力演进。平台并不以“全量日志实时 LLM 推理”为目标，而是以稳定的数据面与可解释的证据流为基础，在核心侧对高价值异常簇进行按需智能增强分析，从而在成本、实时性与可运维性之间取得可落地平衡。
+本项目旨在构建一个面向复杂网络运维场景的 **分布式 AIOps 平台（Towards NetOps）**，以 **边缘事实接入（Edge Fact Ingestion）→ 核心流式分析（Core Streaming Analytics）→ 智能增强决策（LLM-Augmented Reasoning）→ 处置闭环（Remediation Loop）** 为主线，逐步实现从异常发现、证据链归因到处置建议与执行控制的工程化能力演进。平台并不以“全量日志实时 LLM 推理”为目标，而是以稳定的数据面与可解释的证据流为基础，在核心侧对满足门槛的告警与重复异常簇进行按需智能增强分析，从而在成本、实时性与可运维性之间取得可落地平衡。
 
 #### 架构范式（Architecture Paradigm）
 
@@ -177,7 +175,7 @@ bash -n core/automatic_scripts/release_core_app.sh
 - 在 `600s / min_alerts=3 / cooldown=300s` 下回放，同样的 `44,733` 条告警共产生 `12,751` 条 AIOps pipeline 输出。
 - Template provider 在回放中的稳定率为 `1.0`，同一请求重复推理没有出现语义漂移。
 - 对当前告警流本身已经携带的上下文字段，证据存在率较高：`service=1.0`、`src_device_key=1.0`、`srcip=1.0`、`dstip=1.0`、`recent_similar_nonzero=1.0`。
-- `site`、`device_profile`、`change_context` 的证据存在率均为 `0.0`，这说明当前 upstream/core schema 还没有把这些上下文真正带到 alert 流里，证据包在生产形态回放下仍然是“部分充实”而非“完整充实”。
+- 在那批历史回放语料中，`site`、`device_profile`、`change_context` 的证据存在率均为 `0.0`。这反映的是当时回放所用 alert 语料生成于后续 edge/core 富上下文修复之前，因此它更适合作为“历史基线”理解，而不是对当前实时链路状态的最终判断。
 - confidence 输出目前是稳定的，但区分度不足：回放结果全部落在 `medium`，因此当前 confidence 只能被视为稳定启发式分数，不能视为已校准的 RCA 可信度。
 - 本轮没有把 HTTP provider 计入验证结果，因为当前环境没有配置真实外部 endpoint；没有使用 mock 数据来冒充有效验证。
 
@@ -214,7 +212,7 @@ bash -n core/automatic_scripts/release_core_app.sh
 **第三阶段**基于AIOps思想，逐步引入Mutiple Agent + LLM的关联分析、网络态势感知、证据链归因与生成自动化自愈操作Runbook；
 **第四阶段**在可解释与可验证前提下扩展至处置建议、人工审批执行与自动化低感知自愈 -->
 
-## 1.1 项目定位与当前架构边界
+## 项目定位与当前架构边界
 项目当架构围绕 **r230（边缘采集）→ r450（核心数据平面与分析处理）** 展开，即在边缘侧完成近源采集与事实化，在核心侧承载后续流式处理、关联分析、证据链归因与自动化处置能力的实现。意味着本项目已完成平台建设中最关键的输入面落地工作，并进入面向核心能力扩展的架构推进阶段。
 
 当前处于 **边缘事实接入层（Edge Fact Ingestion Layer）已部署并稳定运行**、**核心分析与处置层（Core Analytics / Causality / Remediation）持续建设中** 的阶段。系统运行于 **k3s** 集群；其中 `edge` 边缘侧 `fortigate-ingest` 组件 已完成容器化部署并持续运行，承担 FortiGate 日志的边缘侧接入与事实化处理任务。当前节点角色划分为：**netops-node2（r230）负责边缘接入**，**netops-node1（r450）作为核心数据平面与分析侧承载节点**。已进入集群运行态的 AIOps 平台基础组件阶段。
@@ -226,50 +224,72 @@ bash -n core/automatic_scripts/release_core_app.sh
 - **netops-node2（r230）**：边缘接入侧（Edge Ingestion，已完成Ingest Pod开发与部署，并稳定运行）
 - **netops-node1（r450）**：核心侧（Data Plane / Core Analytics，正在持续建设中）
 
-## 1.2 当前已开发组件（Edge / FortiGate Ingestion）
-`edge/fortigate-ingest` 已在 k3s 集群中完成容器化部署并持续运行，当前承担以下职责：
+## 当前已开发组件与协作关系
+当前仓库已经不只是一个 edge ingest 原型，而是已经落下了一条可运行的端到端主链，当前已实现的能力包括：
 
-- 接入 FortiGate syslog 输入（active log + rotated log，含 `.gz`）
-- 按既定顺序处理历史补偿与准实时跟读（rotated → active）
-- 解析 syslog header 与 FortiGate `key=value` payload
-- 完成字段类型标准化与结构化事件生成
-- 输出可直接消费的事实事件流（JSONL）
-- 输出 DLQ 与 ingest metrics（用于异常样本隔离与运行状态观测）
-- 持久化 checkpoint（含 `inode/offset` 与 completed 去重账本），支持重启恢复、轮转处理与可追溯回放定位
+- 边缘侧 FortiGate syslog 接入、回放控制、结构化事实事件生成与审计落盘
+- 从 parsed JSONL 到 core raw topic 的无损边缘转发
+- 核心侧从 raw facts 到 alert 的确定性分析链路（`quality_gate + rules + window correlation`）
+- 告警流的双持久化面：按小时 JSONL 审计面 + ClickHouse 热查询面
+- 建立在 alert contract 之上的最小 AIOps 增强，包括告警级建议、簇级建议、证据包构建与建议审计输出
 
-当前边缘侧已经基于总体环境路由器形成稳定的 **事实事件生产链路**，为后续核心侧流式消费、关联分析与根因推理提供统一输入
+也就是说，当前项目已经具备了从 **设备日志 -> 结构化事实 -> 确定性告警 -> 持久化上下文 -> 运维建议** 的完整主链，这正是当前阶段最有价值的技术边界。
+
+### 按数据流方向理解当前模块协作
+
+当前仓库已经不是“若干单点组件拼在一起”，而是形成了一条职责边界清晰的 NSM/AIOps 数据流主链：
+
+1. **源头接入**
+   - FortiGate 将 syslog 发往 edge 节点。
+2. **边缘事实化**
+   - `edge/fortigate-ingest` 将原始文本日志转换为可回放、可审计、可聚合的结构化 JSONL 事实事件。
+3. **边缘传输**
+   - `edge/edge_forwarder` 读取 parsed JSONL，并把事实事件无损转发到 `netops.facts.raw.v1`。
+4. **核心确定性分析**
+   - `core/correlator` 消费 raw topic，执行质量门禁、滑窗规则和基础关联，输出 `netops.alerts.v1`。
+5. **持久化与上下文**
+   - `core/alerts_sink` 提供按小时 JSONL 审计/回放面。
+   - `core/alerts_store` 提供 ClickHouse 热查询与 AIOps 近历史上下文查询面。
+6. **AIOps 慢路径增强**
+   - `core/aiops_agent` 基于 alert 构建证据包、查询历史上下文，并输出结构化 suggestion 到 `netops.aiops.suggestions.v1`。
+
+当前最值得强调的技术亮点：
+
+- **可回放 edge ingest**：`checkpoint + inode/offset + completed ledger` 保证了重启恢复、补历史和定点 reset 的可控性。
+- **确定性 core 主链优先**：质量门禁、规则滑窗、手动提交 offset 让实时主链可解释、可控、可诊断。
+- **双持久化面**：JSONL 负责审计与回放，ClickHouse 负责热查询与 AIOps 上下文检索。
+- **富上下文字段已打通**：`topology_context / device_profile / change_context` 已能从 edge 派生事实进入 core alert。
+- **双路径 AIOps 输出**：AIOps 层不再只依赖告警簇；现在既能输出 `alert-scope` suggestion，也保留 `cluster-scope` suggestion。
 
 
 ---
-## 2. Edge 边缘侧 组件
-### 2.1 Ingest 组件  
-> ## FortiGate Log Input / Ingest / Parsed Output Specification
-原始日志（`/data/fortigate-runtime/input/fortigate.log`）格式分析
-FortiGate 日志输入格式、结构化事件输出格式（JSONL）、字段语义及 ingest 处理链路，用于数据接入、分析开发、排障审计与后续流式处理对接。
+### Edge 边缘侧组件
+#### Ingest 组件
+这一部分说明当前 FortiGate 边缘接入链路的真实输入/输出契约，包括原始 syslog 文件集合、单行结构、字段语义、解析结果以及 edge 侧已经落实的运行保障。
 
-### 2.1.1 Raw FortiGate Log Format (Input)
+##### 原始 FortiGate 日志格式（输入）
 `edge/fortigate-ingest` 的输入不是单一文件，而是 **同一目录下的一组 FortiGate 日志文件集合**：当前持续追加写入的 active 文件 `fortigate.log`，以及由外部轮转机制生成的历史文件 `fortigate.log-YYYYMMDD-HHMMSS` 和 `fortigate.log-YYYYMMDD-HHMMSS.gz`。ingest 在启动与主循环中会先扫描并按文件名时间戳顺序处理所有匹配命名规则的 rotated 文件（用于补齐历史日志），随后再基于 checkpoint 中记录的 `active.inode + active.offset` 对 `fortigate.log` 执行增量 tail（用于准实时接入新日志）。rotated 文件采用整文件读取（`.gz` 通过 gzip 解压后逐行读取，`source.offset=null`；非 `.gz` rotated 记录逐行 offset），active 文件采用按字节 offset 的持续跟读；在运行过程中，主循环会周期性重新扫描 rotated 列表并结合 `completed(path|inode|size|mtime)` 去重账本避免重复补历史，同时对 active 文件通过 `inode` 变化与文件大小/offset 状态处理轮转切换与截断恢复。该处理模型的职责边界是：**ingest 负责识别并消费 active/rotated 输入集合，外部组件负责产生日志轮转文件**。
 
-- **Active log**
+- **当前活跃日志**
   - `/data/fortigate-runtime/input/fortigate.log`
-- **Rotated logs**
+- **历史轮转日志**
   - `/data/fortigate-runtime/input/fortigate.log-YYYYMMDD-HHMMSS`
   - `/data/fortigate-runtime/input/fortigate.log-YYYYMMDD-HHMMSS.gz`
 
-### Line Format
+##### 每行日志结构
 
-每行日志由两部分组成：
-*Input sample（raw）**：证明原始日志具备可直接抽取的网络语义 + 资产画像语义（接口、策略、动作、设备厂商/类型/OS/MAC）
+每行日志由两部分组成。原始样本本身已经携带了可直接抽取的网络语义与资产画像语义，包括接口、策略、动作、设备厂商、设备类型、操作系统以及 MAC 身份线索：
 1. **Syslog header** - 4 tokens 维度
 2. **FortiGate key-value payload** - 43 维度
-### Input log raw 字段清单（43 个FortiGate KV字段 + 4 个 syslog header 子字段）
 
-**Example (real sample):**
+##### 原始输入字段清单（43 个 FortiGate KV 字段 + 4 个 syslog header 子字段）
+
+**示例（真实样本）:**
 ```text
 Feb 21 15:45:27 _gateway date=2026-02-21 time=15:45:26 devname="DAHUA_FORTIGATE" devid="FG100ETK20014183" logid="0001000014" type="traffic" subtype="local" level="notice" vd="root" eventtime=1771685127249713472 tz="+0100" srcip=192.168.16.41 srcname="es-73847E56DA65" srcport=48689 srcintf="LACP" srcintfrole="lan" dstip=255.255.255.255 dstport=48689 dstintf="unknown0" dstintfrole="undefined" sessionid=1211202700 proto=17 action="deny" policyid=0 policytype="local-in-policy" service="udp/48689" dstcountry="Reserved" srccountry="Reserved" trandisp="noop" app="udp/48689" duration=0 sentbyte=0 rcvdbyte=0 sentpkt=0 appcat="unscanned" srchwvendor="Samsung" devtype="Phone" srcfamily="Galaxy" osname="Android" srcswversion="16" mastersrcmac="78:66:9d:a3:4f:51" srcmac="78:66:9d:a3:4f:51" srcserver=0
 ```
 
-Input 字段分析
+输入字段分析
 | 字段名            | 样本值                   | 作用                   |
 | -------------- | --------------------- | -------------------- |
 | `syslog_month` | `Feb`      | syslog 头时间（月份）  |
@@ -321,16 +341,16 @@ Input 字段分析
 | `srcserver`    | `0`                   | 设备角色提示（终端/非服务器）      |
 
 
-### 2.1.2 Ingest Pod 处理链路（`edge/fortigate-ingest`）
+##### Ingest Pod 处理链路（`edge/fortigate-ingest`）
 
-`edge/fortigate-ingest` 的职责不是“简单转存日志”，而是将 FortiGate 原始 syslog 文本（`/data/fortigate-runtime/input/fortigate.log` 及轮转文件 `fortigate.log-YYYYMMDD-HHMMSS[.gz]`）转换为可审计、可回放、可直接做聚合分析的结构化事实事件流（JSONL）。主循环处理顺序固定为 **先 rotated（补历史）→ 再 active（准实时 tail）**：轮转文件通过文件名时间戳排序后依次扫描，避免启动/重启后漏补历史；active 文件则基于 byte offset 持续跟读，兼顾实时性与可恢复性。输出按小时切分写入 `events-YYYYMMDD-HH.jsonl`（另有 DLQ/metrics JSONL），便于下游批流统一消费。:contentReference[oaicite:0]{index=0} :contentReference[oaicite:1]{index=1}
+`edge/fortigate-ingest` 的职责不是“简单转存日志”，而是将 FortiGate 原始 syslog 文本（`/data/fortigate-runtime/input/fortigate.log` 及轮转文件 `fortigate.log-YYYYMMDD-HHMMSS[.gz]`）转换为可审计、可回放、可直接做聚合分析的结构化事实事件流（JSONL）。主循环处理顺序固定为 **先 rotated（补历史）→ 再 active（准实时 tail）**：轮转文件通过文件名时间戳排序后依次扫描，避免启动/重启后漏补历史；active 文件则基于 byte offset 持续跟读，兼顾实时性与可恢复性。输出按小时切分写入 `events-YYYYMMDD-HH.jsonl`（另有 DLQ/metrics JSONL），便于下游批流统一消费。
 
-处理单行日志时，pipeline 会先拆分 **syslog header** 与 **FortiGate key=value payload**，再执行字段解析与类型标准化（数值类字段转 `int`，缺失字段保留为 `null`），并生成结构化事件：包括标准化 `event_ts`（优先 `date+time+tz`）、保留原始时间语义字段（如 `eventtime`/`tz`）、派生统计字段（如 `bytes_total` / `pkts_total`）、设备归一化键（`src_device_key`，用于资产级聚合/异常关联），以及用于回溯与 schema 扩展的 `kv_subset`。成功解析的事件写入 `events-*.jsonl`，失败行进入 DLQ（附带 `reason/raw/source`），从而保证“原始文本 → 结构化事件”的转换链路具备容错与排障能力。:contentReference[oaicite:2]{index=2} :contentReference[oaicite:3]{index=3}
+处理单行日志时，pipeline 会先拆分 **syslog header** 与 **FortiGate key=value payload**，再执行字段解析与类型标准化（数值类字段转 `int`，缺失字段保留为 `null`），并生成结构化事件：包括标准化 `event_ts`（优先 `date+time+tz`）、保留原始时间语义字段（如 `eventtime`/`tz`）、派生统计字段（如 `bytes_total` / `pkts_total`）、设备归一化键（`src_device_key`，用于资产级聚合/异常关联），以及用于回溯与 schema 扩展的 `kv_subset`。成功解析的事件写入 `events-*.jsonl`，失败行进入 DLQ（附带 `reason/raw/source`），从而保证“原始文本 → 结构化事件”的转换链路具备容错与排障能力。
 
-该组件的关键可靠性设计在于 **checkpoint + inode/offset + completed 去重机制**。`checkpoint.json` 保存三类状态：`active`（当前 active 文件的 `path/inode/offset/last_event_ts_seen`）、`completed`（已完整处理的轮转文件记录，使用 `path|inode|size|mtime` 组成唯一 key，防止重复补历史）、`counters`（lines/bytes/events/dlq/parse_fail/write_fail/checkpoint_fail 等累计计数）。rotated 文件完成后调用 `mark_completed()` 落账；active 文件 tail 时使用 checkpoint 中的 `inode+offset` 从断点续读，并在检测到 **inode 变化（轮转切换）** 或 **文件截断（`size < offset`）** 时执行 offset 重置与重新扫描，避免越界/重复/漏读。checkpoint 通过临时文件写入 + `fsync` + `os.replace` 原子落盘，事件侧统一附加 `ingest_ts`（UTC）与 `source.path/inode/offset`（`.gz` 通常 `offset=null`），从而支持精确审计、回放定位与幂等重处理。:contentReference[oaicite:4]{index=4} :contentReference[oaicite:5]{index=5} :contentReference[oaicite:6]{index=6}
+该组件的关键可靠性设计在于 **checkpoint + inode/offset + completed 去重机制**。`checkpoint.json` 保存三类状态：`active`（当前 active 文件的 `path/inode/offset/last_event_ts_seen`）、`completed`（已完整处理的轮转文件记录，使用 `path|inode|size|mtime` 组成唯一 key，防止重复补历史）、`counters`（lines/bytes/events/dlq/parse_fail/write_fail/checkpoint_fail 等累计计数）。rotated 文件完成后调用 `mark_completed()` 落账；active 文件 tail 时使用 checkpoint 中的 `inode+offset` 从断点续读，并在检测到 **inode 变化（轮转切换）** 或 **文件截断（`size < offset`）** 时执行 offset 重置与重新扫描，避免越界/重复/漏读。checkpoint 通过临时文件写入 + `fsync` + `os.replace` 原子落盘，事件侧统一附加 `ingest_ts`（UTC）与 `source.path/inode/offset`（`.gz` 通常 `offset=null`），从而支持精确审计、回放定位与幂等重处理。
 
 
-### 2.1.3 Output Sample（parsed JSONL）字段清单（62 个顶层字段+3个source 子字段）
+##### Output Sample（parsed JSONL）字段清单（62 个顶层字段+3个source 子字段）
 **Output sample（parsed）**：证明 ingest 已把文本日志稳定转换为可分析 schema（时间标准化、派生字段、设备键、source审计元数据
 
 ```text
@@ -404,30 +424,32 @@ Input 字段分析
 | `ingest_ts`      | `2026-02-16T19:59:59.808411+00:00`             | ingest 输出时间                |
 | `source`         | `{"path":"...","inode":6160578,"offset":null}` | 输入来源元数据（审计/回放定位）           |
 
-## 3. Core 核心侧组件（规划与当前落地边界）
+### Core 核心侧组件（当前范围与已落地边界）
 
 核心侧（`netops-node1 / r450`）定位为 **Data Plane + Core Analytics** 承载节点，负责接收边缘侧 `edge/fortigate-ingest` 输出的结构化事实事件流，并在此基础上完成事件解耦、基础聚合、关联分析、告警簇生成与后续智能增强推理（LLM/Agent）的执行入口。当前架构目标先建立 **可稳定运行、可观测、可扩展** 的最小闭环：`ingest output -> broker/queue -> consumer/correlator -> alert context -> (optional) LLM inference queue`。
 
-### 3.1 当前阶段的核心侧建设目标
+如果按一条真实数据在 core 内部的流动路径来看，模块协作已经很清晰：`core/correlator` 先把 raw facts 转成确定性 alert，`core/alerts_sink` 与 `core/alerts_store` 再把同一条 alert 分别固化为审计文件面和热查询分析面，最后 `core/aiops_agent` 继续消费这份 alert contract，补历史上下文、构建证据包并生成面向运维者的 suggestion。这样的拆分意味着检测、持久化、增强三类能力可以独立演进，但不会破坏同一条主链的数据语义。
+
+#### 当前阶段的核心侧建设目标
 - **数据平面接入**：承接 `r230` 输出的事实事件流，建立稳定的传输与消费入口（解耦边缘生产与核心消费）。
 - **最小流式消费链路**：实现基础 consumer / correlator，对事件进行窗口聚合、规则触发、告警上下文构建。
-- **最小 AIOps 增强已落地**：已具备告警簇级建议生成、证据包构建、近似上下文查询、建议 Topic/JSONL 输出能力。
-- **智能增强入口预留**：核心侧保留 `LLM inference queue` 与限流机制，用于后续告警级推理（解释/归因辅助/Runbook 草案），不阻塞主链路。
-- **分层边界明确**：实时检测与基础关联由确定性流式模块负责；LLM/Agent 仅处理高价值告警簇，不参与全量事件逐条判定。
+- **最小 AIOps 增强已落地**：已具备告警级建议、告警簇级建议、证据包构建、近似上下文查询、建议 Topic/JSONL 输出能力。
+- **智能增强入口预留**：核心侧保留 `LLM inference queue` 与限流机制，用于后续更丰富的告警级推理（解释/归因辅助/Runbook 草案），不阻塞主链路。
+- **分层边界明确**：实时检测与基础关联由确定性流式模块负责；LLM/Agent 只处理满足门槛的告警和重复告警簇，不参与全量事件逐条判定。
 
-### 3.2 已评估但暂不采用的路线（Flink 方向）
+#### 已评估但暂不采用的路线（Flink 方向）
 项目早期曾尝试过 **字节系 Flink 相关方案**（已做过验证），但结合当前环境约束（`k3s`、单核心节点 `r450`、内存有限、无 GPU、优先追求快速闭环与低运维成本），结论为：**现阶段不适合作为核心侧主线**。主要原因是其对运行时资源、组件编排与运维复杂度要求较高，与当前阶段“先打通数据面与最小分析闭环”的目标不匹配。后续仅在事件规模、状态计算复杂度与吞吐要求显著提升时，再评估引入 Flink 类框架的必要性。
 
-### 3.3 Core 核心侧技术栈与部署方案（当前主线）
+#### Core 核心侧技术栈与部署方案（当前主线）
 核心侧（`netops-node1 / r450`）采用 **Kafka（KRaft, 单节点）+ Python Consumer/Correlator +（Pending）LLM 推理服务** 的技术栈，并运行于 `k3s`。当前阶段目标为优先打通 `r230 -> r450` 数据平面与最小关联分析闭环，在资源受限条件下保持部署复杂度可控、链路可观测、后续扩展路径清晰。
 
 **技术栈（当前阶段）**
 - **Core Broker**：`Apache Kafka (KRaft mode, single-node)`（事件接入、生产消费解耦、Topic/Consumer Group 扩展）
 - **Core Consumer / Correlator**：`Python 3.11 + Kafka Client + 窗口聚合/规则关联模块`（事件消费、聚合、异常簇构建、告警上下文生成）
-- **最小 AIOps 闭环（已实现）**：`告警簇聚合 + 证据包构建 + provider 请求/结果 schema + 建议 topic/jsonl 输出`（面向高价值告警簇的低成本增强）
-- **Inference Entry（下一阶段）**：`Inference Queue + 常驻推理服务（限流）`（处理高价值告警簇的解释/归因辅助/Runbook 草案）
+- **最小 AIOps 闭环（已实现）**：`告警/告警簇证据包 + provider 请求/结果 schema + 建议 topic/jsonl 输出`（面向满足门槛的告警和重复告警簇的低成本增强）
+- **Inference Entry（下一阶段）**：`Inference Queue + 常驻推理服务（限流）`（处理富证据告警的解释/归因辅助/Runbook 草案）
 
-### 3.4 Core Phase-2 / 最小 AIOps 闭环（当前仓库已落地）
+#### Core Phase-2 / 最小 AIOps 闭环（当前仓库已落地）
 
 当前仓库已形成模块化实现，职责拆分如下：
 
@@ -436,7 +458,7 @@ Input 字段分析
 - `core/correlator`：运行在 `r450`，消费 Raw Topic，执行窗口规则并输出 Alert Topic
 - `core/alerts_sink`：运行在 `r450`，将告警按小时落盘到 `/data/netops-runtime/alerts`
 - `core/alerts_store`：运行在 `r450`，将告警结构化写入 ClickHouse
-- `core/aiops_agent`：运行在 `r450`，对告警流进行簇级聚合和建议消息输出
+- `core/aiops_agent`：运行在 `r450`，对告警流进行告警级建议输出，并在簇聚合命中时追加簇级建议
 - `core/infra`：core-correlator 共享基础能力
 - `core/benchmark`：压测、吞吐探测、告警质量观测、长时链路观测工具
 - `core/deployments`：k3s 资源清单（namespace、kafka、topic-init、correlator、alerts_sink、clickhouse、alerts_store、aiops_agent）
@@ -452,7 +474,13 @@ Input 字段分析
 
 `netops.dlq.v1` 已用于承接 correlator / sink 路径中的异常记录与重放失败记录。
 
-### 3.5 部署顺序（k3s）
+从模块协作视角看，当前 core 实际上已经分成三层协同平面：
+
+- **决策平面**：`core/correlator` 负责把 raw facts 变成确定性 alert。
+- **持久化平面**：`core/alerts_sink` 与 `core/alerts_store` 对同一 alert 流分别提供文件审计面和分析查询面。
+- **增强平面**：`core/aiops_agent` 复用 alert contract 与 ClickHouse 历史上下文，生成面向运维者的 suggestion，但不接管实时主判定。
+
+#### 部署顺序（k3s）
 
 1. 创建命名空间：
 
@@ -510,7 +538,7 @@ edge 侧一键发布入口：
 ./edge/edge_forwarder/scripts/deploy_edge_forwarder.sh
 ```
 
-### 3.6 镜像分发说明（重点）
+#### 镜像分发说明（重点）
 
 `netops-core-app:0.1` 与 `netops-edge-forwarder:0.1` 为两条独立镜像线，分别用于 core 与 edge 组件。两者都使用 `imagePullPolicy: IfNotPresent` 时，需分别在对应节点本地 containerd 可见。
 
@@ -530,7 +558,7 @@ k3s ctr images import /tmp/netops-edge-forwarder_0.1.tar
 
 > 注意：edge 与 core 独立发布时，避免在同一个发布脚本里跨节点导入镜像，减少环境耦合与变更污染。
 
-### 3.7 运行验证
+#### 运行验证
 
 ```bash
 kubectl get pods -n edge -o wide
