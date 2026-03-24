@@ -1,0 +1,18 @@
+[Unit]
+Description=Hybrid NetOps Console Backend (FastAPI)
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/data/Netops-causality-remediation/frontend
+Environment=PYTHONUNBUFFERED=1
+Environment=NETOPS_RUNTIME_ROOT=/data/netops-runtime
+Environment=NETOPS_CONSOLE_REPO_ROOT=/data/Netops-causality-remediation
+Environment=NETOPS_CONSOLE_FRONTEND_DIST=/data/Netops-causality-remediation/frontend/dist
+ExecStart=/data/Netops-causality-remediation/frontend/.venv/bin/uvicorn gateway.app.main:app --app-dir /data/Netops-causality-remediation/frontend --host 127.0.0.1 --port 8026
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

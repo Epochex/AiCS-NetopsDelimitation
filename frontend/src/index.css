@@ -1,0 +1,97 @@
+@import '@fontsource/ibm-plex-sans-condensed/400.css';
+@import '@fontsource/ibm-plex-sans-condensed/500.css';
+@import '@fontsource/ibm-plex-sans-condensed/600.css';
+@import '@fontsource/ibm-plex-mono/400.css';
+@import '@fontsource/ibm-plex-mono/500.css';
+
+:root {
+  --bg-base: #070b10;
+  --bg-elevated: #0c1118;
+  --line-strong: rgba(152, 181, 211, 0.22);
+  --line-soft: rgba(152, 181, 211, 0.12);
+  --text-main: #f2f7fb;
+  --text-subtle: #b4c3d0;
+  --text-dim: #738699;
+  --signal-alert: #ff7a20;
+  --signal-cyan: #69f9ff;
+  --signal-good: #6cff9b;
+  --signal-bad: #ff5a5a;
+  --font-sans: 'IBM Plex Sans Condensed', 'Arial Narrow', sans-serif;
+  --font-body: 'IBM Plex Sans Condensed', 'Noto Sans SC', sans-serif;
+  --font-mono: 'IBM Plex Mono', 'SFMono-Regular', monospace;
+  color: var(--text-main);
+  background:
+    radial-gradient(circle at top right, rgba(105, 249, 255, 0.12), transparent 24%),
+    radial-gradient(circle at 12% 12%, rgba(255, 122, 32, 0.12), transparent 18%),
+    linear-gradient(180deg, #0a0f15 0%, #06090e 100%);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  font: 400 16px/1.5 var(--font-body);
+  color: var(--text-main);
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+    linear-gradient(180deg, #090d13 0%, #06090e 100%);
+  background-size: 28px 28px, 28px 28px, auto;
+}
+
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.02) 0%,
+      rgba(255, 255, 255, 0) 30%,
+      rgba(255, 255, 255, 0.015) 100%
+    );
+  mix-blend-mode: screen;
+  opacity: 0.35;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button {
+  border-radius: 0;
+}
+
+a {
+  color: inherit;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.04);
+}

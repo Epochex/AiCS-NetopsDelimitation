@@ -75,6 +75,38 @@ flowchart LR
 > 当前仓库状态更准确的表述是：**Core Phase-2 数据面最小闭环已打通，并在其上落地了最小 AIOps 告警级 + 告警簇建议闭环**。  
 > 也就是说，确定性流式检测、告警落盘和热查询已经到位；真正的 LLM 推理、因果证据链归因和自动化处置控制仍属于下一阶段建设内容。
 
+### 前端模块（Frontend Module）
+
+- 模块定位
+  - 面向 `raw -> alert -> suggestion -> remediation boundary` 主链的过程型运维控制台，不走通用 admin dashboard 形态。
+- 核心技术栈
+  - `React 19 + Vite + TypeScript`
+  - 状态管理：以 React 本地状态和自定义 `useRuntimeSnapshot` hook 为主，当前不引入外部全局 store。
+  - 路由：当前未单独引入路由框架，先以应用内双主视图切换（`Live Flow Console`、`Pipeline Topology`）承载核心界面。
+  - UI 方案：自定义 CSS 体系，强调高信息密度、硬边界、非模板化布局。
+  - 实时通信：`FastAPI` 薄网关 + `SSE`，先拉快照，再持续接收增量更新。
+  - 可视化：`React Flow` 承担链路拓扑，`ECharts` 承担节奏与证据覆盖图。
+  - 构建与部署：开发态使用 `Vite`，可部署态由 `FastAPI` 同源托管静态资源，支持 `Docker + k3s Deployment`。
+- 模块职责
+  - 把 runtime 文件与 deployment 控制参数转换成面向运维者可读的过程控制台。
+  - 展示 freshness、backlog、cluster watch、evidence thickness、suggestion detail 等运行态信息，同时保持主链语义连续。
+  - 把 remediation 明确为控制边界，而不是伪装成已经接通的实时执行阶段。
+- 与后端对接方式
+  - `GET /api/runtime/snapshot` 用于页面初始水合。
+  - `GET /api/runtime/stream` 通过 SSE 推送实时 `RuntimeSnapshot`。
+  - 网关直接读取 `/data/netops-runtime` 下的 JSONL sink，并从 `core/`、`edge/` deployment 中提取运行控制参数。
+  - 本地开发由 Vite 代理 `/api` 到 `:8080`；部署态采用同源服务，默认路径不依赖 CORS。
+- 关键交互链路
+  - 实时快照进入前端 -> 选择当前 suggestion slice -> 中央视图保持链路主叙事 -> 右侧证据抽屉切换到对应 context / evidence / actions -> cluster pre-trigger watch 暴露是否需要回调后端策略。
+- 核心页面 / 组件职责
+  - `Live Flow Console`：全局运行概览、当天节奏、主链时间推进、实时 feed、预触发 cluster watch。
+  - `Pipeline Topology`：模块 / topic / control graph，可用于联调后端策略与观察运行边界。
+  - `Evidence Drawer`：承载选中 suggestion 的 context、evidence bundle、confidence、recommended actions 与策略控制点。
+- 这样设计的原因
+  - 当前后端语义本质上是事件生命周期推进，不适合被拆成无关联的指标面板墙。
+  - 同源部署能显著降低前端演示面与网关接入面的运维复杂度。
+  - 在前端产品面尚未扩成多产品壳层之前，不引入额外 store/router 复杂度，有利于快速迭代真实语义映射。
+
 ### AIOps Agent 模块图
 
 ```mermaid
