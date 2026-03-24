@@ -96,7 +96,7 @@ flowchart LR
   - `GET /api/runtime/snapshot` hydrates the initial view.
   - `GET /api/runtime/stream` pushes live `RuntimeSnapshot` updates over SSE.
   - The gateway derives state from `/data/netops-runtime` JSONL sinks plus deployment env values in `core/` and `edge/`.
-  - Local dev uses Vite proxying `/api` to `:8080`; deployed mode is same-origin, so CORS is not part of the default path.
+  - Local dev uses Vite proxying `/api` to `:8026`; deployed mode is same-origin, so CORS is not part of the default path.
 - Key interaction chain
   - Live runtime snapshot -> operator selects a suggestion slice -> center views keep the pipeline legible -> right drawer pivots to evidence, hypotheses, actions, and control points -> cluster pre-trigger watch makes policy tuning visible before a cluster-scope hit is emitted.
 - Core surfaces
@@ -107,6 +107,63 @@ flowchart LR
   - The backend semantics are event-lifecycle-driven, so the frontend is process-first rather than panel-first.
   - Same-origin deployment keeps the console operationally light and avoids unnecessary cross-origin plumbing.
   - Avoiding external store/router complexity at this stage keeps iteration fast while the product surface is still a focused console rather than a multi-product shell.
+
+### Current Resource Boundary and Next-Stage Plan
+
+- Observed node utilization (`2026-03-24` sample)
+  - `r230`: about `2%` CPU and `36%` memory (`kubectl top node`)
+  - `r450`: about `3%` CPU and `61%` memory (`kubectl top node`)
+- Resource interpretation
+  - The current `edge -> core -> suggestion` deterministic pipeline is adequately provisioned on the existing two-node layout.
+  - The near-term limitation is not data-plane CPU, but the absence of a resident inference plane for the next-stage `LLM / Multiple Agent` work.
+  - The repository still runs the minimal built-in provider by default, so **current production runtime does not require a GPU to keep the main path alive**.
+- Current practical boundary
+  - `r450` memory expansion remains desirable for on-box model serving, but should not be treated as a short-term assumption.
+  - The practical next step is therefore to keep Kafka / ClickHouse / correlator local on `r450`, and attach GPU-backed inference through the existing provider boundary.
+- GPU sizing estimate for the next stage
+  - Minimum viable: `1 x 16GB VRAM` for one quantized `7B/8B`-class resident model in low-concurrency, rate-limited alert/cluster inference mode.
+  - Recommended: `1 x 24GB VRAM` for one resident model with structured-output, tool-calling, and limited multi-agent orchestration headroom.
+  - Stretch only if justified by measured load: `48GB+ VRAM` or multi-GPU, only when `13B+` local models, multiple resident models, or materially higher agent concurrency become real requirements.
+- Optimization priority for the inference plane
+  - First: async queueing, retries, backpressure, prompt/prefix caching, evidence compression, and model routing (`template -> remote LLM -> fallback`).
+  - Later: continuous batching and speculative decoding / draft-model acceleration, only after the model service itself becomes the dominant bottleneck.
+  - Rationale: the target workload is still low-concurrency and tool/evidence-heavy, so early wins come from orchestration and queue design more than token-level decode tricks.
+
+### Landed vs Next Modules
+
+- Landed in the repository/runtime
+  - `edge/fortigate-ingest`
+  - `edge/edge_forwarder`
+  - `core/correlator`
+  - `core/alerts_sink`
+  - `core/alerts_store`
+  - `core/aiops_agent` (alert-scope + cluster-scope minimal loop)
+  - `core/benchmark/*`
+  - `frontend` operator console + runtime gateway
+- Next-stage modules to build
+  - Remote/local resident inference service behind the provider boundary
+  - Evidence retrieval/cache layer for compact, repeatable model input
+  - Model router / policy gate (`template`, remote LLM, fallback)
+  - Multiple-agent orchestration for triage, RCA, and runbook drafting
+  - Remediation planning / approval / feedback control surface
+  - Evaluation harness for latency, cost, RCA quality, and runbook usefulness
+
+### Remote GPU Integration Path (External Research GPU Provider)
+
+- Expected external resource
+  - The additional inference GPU resource is expected to come from an **external research GPU provider** rather than from an immediate on-box upgrade on `r450`.
+- Recommended system split
+  - Keep `r230` and `r450` as the current data plane and operator plane in the existing environment.
+  - Deploy a GPU-adjacent inference gateway close to the external compute resource.
+  - Use the existing provider abstraction so `core-aiops-agent` can switch from the built-in provider to an HTTP-backed inference service without changing the main deterministic chain.
+- Recommended cross-region data contract
+  - Keep raw logs, Kafka state, ClickHouse, and operational control local.
+  - Send only compressed alert/cluster evidence bundles, retrieval summaries, and bounded structured prompts across the WAN.
+  - Persist final suggestions, confidence, and audit metadata back on the local core side.
+- Operational assumptions
+  - France-side operator access and China-side GPU inference should be treated as an **asynchronous augmentation plane**, not a blocking dependency for real-time detection.
+  - The remote path should include strict timeout policy, request IDs, retry budgets, API-key/TLS protection, and fallback to the local template provider.
+  - If cross-border policy requirements apply in your environment, review what evidence fields are allowed to leave the local core side before enabling the remote path.
 
 ### AIOps Agent Module Diagram
 
@@ -586,7 +643,7 @@ kubectl logs -n netops-core deploy/core-correlator --tail=200 -f
 ```
 
 ## X.0 Potential Required Resources and Support
-This section describes the resources and support required to advance the project from the current stage (`r230 -> r450` data plane and core analytics capability construction) to **core streaming analytics + alert-level LLM-augmented inference (CPU/GPU)**. Resource request priorities are focused on **memory expansion** and **GPU (core-side AI inference acceleration)**,
+This section describes the resources and support required to advance the project from the current stage (`r230 -> r450` data plane and core analytics capability construction) to **core streaming analytics + alert-level LLM-augmented inference (CPU/GPU)**. Resource request priorities are focused on **GPU-backed inference access first**, and on **local memory expansion only when on-box serving becomes feasible**,
 
 if such support can be obtained. Mais je ne retiens pas mon souffle XD
 
@@ -605,13 +662,29 @@ if such support can be obtained. Mais je ne retiens pas mon souffle XD
   - Role: `Core Data Plane / Core Analytics` (future host for broker, correlator, and alert-level LLM-augmented inference)
   - Disk: `2TB SSD` (sufficient for broker data, event cache, and analytics artifact storage)
 
-> The current primary bottlenecks on the core side are not CPU, but **insufficient memory capacity (~16GB)** and the **absence of an inference-capable GPU**.
+> The current deterministic data plane is already adequately provisioned. The next-stage bottleneck is not CPU saturation, but the lack of a resident inference-capable GPU path and the limited memory headroom for on-box model serving on `r450`.
 
-### X.2 P0 (Highest Priority) Resource Request: Core-Side Memory Expansion + GPU
+### X.2 P0 (Highest Priority) Resource Request: GPU-Backed Inference Access
 
-For `r450` (`netops-node1`) to host `broker + correlator + queue + resident LLM service (rate-limited queue mode)`, the P0 resource request priority is **memory expansion + inference GPU**. The current core-side memory (~16GB) is insufficient to stably support concurrent operation of the core data plane and alert-level LLM-augmented inference. The requested memory expansion is **3×16GB (48GB)** of matching specification.
+The practical near-term requirement is **access to one inference-capable GPU endpoint** so the project can move from the current minimal suggestion loop to a resident `LLM / Multiple Agent` augmentation plane without destabilizing the local core node. Because a local `r450` memory upgrade may not be available in the short term, the preferred path is to keep `broker + correlator + ClickHouse + alert persistence` on `r450` and connect a remote inference service through the existing provider boundary.
 
-For GPU resources, the target is **1 GPU suitable for local inference (or a server with such a GPU)** to support a single resident model + rate-limited queue. Suggested examples include **NVIDIA A2 16GB** or **NVIDIA L4 24GB** (or equivalent). Any future upgrade to higher VRAM or multi-GPU should be decided based on actual Agent concurrency and inference load validation results.
+GPU estimate:
+
+- Minimum viable: **`1 x 16GB`** (`A2 16GB`-class) for one quantized `7B/8B` model in low-concurrency queue mode.
+- Recommended: **`1 x 24GB`** (`L4 24GB`-class or equivalent) for one resident model with structured-output, limited tool-calling, and modest multi-agent headroom.
+- Not a default ask yet: **`48GB+` or multi-GPU**, only if later validation proves that multiple resident models, `13B+` targets, or significantly higher agent concurrency are worth the operational cost.
+
+### X.2a Near-Term Practical Deployment Path: Remote GPU Service
+
+If the additional GPU capacity is provided externally rather than installed on `r450`, the preferred integration path is:
+
+- keep `r230` as edge ingestion and `r450` as local core data plane / control plane
+- deploy a GPU-adjacent inference gateway close to the external compute resource
+- switch `core-aiops-agent` to the provider-backed inference path
+- send only compact evidence bundles and retrieval summaries over the WAN
+- keep timeout, retry, audit, and fallback control on the local core side
+
+This path is especially suitable when the operator environment and the inference environment are in different regions, because it preserves the deterministic main path locally while treating remote inference as a bounded augmentation plane.
 
 ### X.3 P1 Resource Request: Edge-Side `r230` Memory Expansion (Stability)
 
@@ -620,6 +693,10 @@ For GPU resources, the target is **1 GPU suitable for local inference (or a serv
 > [!IMPORTANT]
 > Its memory specification is not compatible with the **DDR4 ECC RDIMM** used by `r450` and cannot be mixed.
 
-### X.4 P1 Resource Request: R&D and Training Support (AI / Agent / AIOps)
+### X.4 P1 Resource Request: Local Core Memory Expansion (Only If On-Box Serving Becomes Feasible)
+
+If `r450` later needs to host a resident local model directly, then memory expansion remains recommended. In that case, increasing `r450` from `~16GB` toward **`48GB` total** is the preferred target so the node can keep enough headroom for `Kafka + ClickHouse + correlator + queue + inference service` together. Until on-box serving becomes realistic, this should be treated as a secondary request rather than the immediate blocker.
+
+### X.5 P1 Resource Request: R&D and Training Support (AI / Agent / AIOps)
 
 In addition to hardware, school-side R&D / faculty support is recommended to support implementation of the `Core Analytics + Multiple Agent + LLM` stage, including: **local LLM inference and deployment (CPU/GPU, quantized models, rate-limited queues)**, **LLM application engineering (Prompting, structured output, Tool Calling, RAG)**, **Multiple Agent orchestration and boundary design (responsibility split, fallback handling, observability)**, and **AIOps analytics methods and evaluation (evidence chains, alert consolidation, Runbook quality evaluation)**. Stage-based access to campus GPU servers or private model platforms is also recommended.

@@ -6,6 +6,7 @@ import { LiveFlowConsole } from './components/LiveFlowConsole'
 import { PipelineTopologyView } from './components/PipelineTopologyView'
 import { runtimeSnapshot } from './data/runtimeModel'
 import { useRuntimeSnapshot } from './hooks/useRuntimeSnapshot'
+import { formatMaybeTimestamp, timestampTooltip } from './utils/time'
 
 type ViewMode = 'console' | 'topology'
 
@@ -111,7 +112,12 @@ function App() {
               className={`utility-item tone-${item.tone ?? 'neutral'}`}
             >
               <span className="utility-label">{item.label}</span>
-              <strong className="utility-value">{item.value}</strong>
+              <strong
+                className="utility-value"
+                title={timestampTooltip(item.value)}
+              >
+                {formatMaybeTimestamp(item.value)}
+              </strong>
             </div>
           ))}
         </div>

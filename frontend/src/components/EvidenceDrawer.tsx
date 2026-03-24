@@ -1,4 +1,9 @@
 import type { StrategyControl, SuggestionRecord } from '../types'
+import {
+  formatEvidenceValue,
+  formatMaybeTimestamp,
+  timestampTooltip,
+} from '../utils/time'
 
 interface EvidenceDrawerProps {
   suggestion: SuggestionRecord
@@ -33,7 +38,9 @@ export function EvidenceDrawer({
           <ul className="evidence-list">
             <li>
               <span>suggestion_ts</span>
-              <strong>{suggestion.suggestionTs}</strong>
+              <strong title={timestampTooltip(suggestion.suggestionTs)}>
+                {formatMaybeTimestamp(suggestion.suggestionTs)}
+              </strong>
             </li>
             <li>
               <span>alert_id</span>
@@ -68,7 +75,9 @@ export function EvidenceDrawer({
               <li key={key}>
                 <span>{key}</span>
                 <strong>
-                  {Array.isArray(value) ? value.join(', ') || '-' : value || '-'}
+                  {Array.isArray(value)
+                    ? value.map((item) => formatEvidenceValue(item)).join(', ') || '-'
+                    : formatEvidenceValue(value)}
                 </strong>
               </li>
             ))}
@@ -82,7 +91,9 @@ export function EvidenceDrawer({
               <li key={key}>
                 <span>{key}</span>
                 <strong>
-                  {Array.isArray(value) ? value.join(', ') || '-' : value || '-'}
+                  {Array.isArray(value)
+                    ? value.map((item) => formatEvidenceValue(item)).join(', ') || '-'
+                    : formatEvidenceValue(value)}
                 </strong>
               </li>
             ))}
@@ -97,10 +108,8 @@ export function EvidenceDrawer({
                 <span>{key}</span>
                 <strong>
                   {Array.isArray(value)
-                    ? value.join(', ') || '-'
-                    : value === null
-                      ? '-'
-                      : String(value)}
+                    ? value.map((item) => formatEvidenceValue(item)).join(', ') || '-'
+                    : formatEvidenceValue(value)}
                 </strong>
               </li>
             ))}
@@ -109,7 +118,9 @@ export function EvidenceDrawer({
                 <li key={`hist-${key}`}>
                   <span>{key}</span>
                   <strong>
-                    {Array.isArray(value) ? value.join(', ') || '-' : value}
+                    {Array.isArray(value)
+                      ? value.map((item) => formatEvidenceValue(item)).join(', ') || '-'
+                      : formatEvidenceValue(value)}
                   </strong>
                 </li>
               ),

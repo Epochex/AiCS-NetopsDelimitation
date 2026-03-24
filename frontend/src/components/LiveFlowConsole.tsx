@@ -6,6 +6,7 @@ import type {
   StrategyControl,
   SuggestionRecord,
 } from '../types'
+import { formatMaybeTimestamp, timestampTooltip } from '../utils/time'
 
 interface LiveFlowConsoleProps {
   snapshot: RuntimeSnapshot
@@ -398,7 +399,9 @@ export function LiveFlowConsole({
                 className={`timeline-item ${index <= activeStageIndex ? 'is-active' : ''}`}
                 style={{ animationDelay: `${index * 90}ms` }}
               >
-                <span className="timeline-stamp">{step.stamp}</span>
+                <span className="timeline-stamp" title={timestampTooltip(step.stamp)}>
+                  {formatMaybeTimestamp(step.stamp)}
+                </span>
                 <div className="timeline-body">
                   <h3>{step.title}</h3>
                   <p>{step.detail}</p>
@@ -446,7 +449,12 @@ export function LiveFlowConsole({
                     <span className={`signal-chip tone-${event.kind}`}>
                       {event.scope ? `${event.kind}/${event.scope}` : event.kind}
                     </span>
-                    <span className="event-stamp">{event.stamp}</span>
+                    <span
+                      className="event-stamp"
+                      title={timestampTooltip(event.stamp)}
+                    >
+                      {formatMaybeTimestamp(event.stamp, 'time')}
+                    </span>
                   </div>
                   <strong>{event.title}</strong>
                   <p>{event.detail}</p>
@@ -483,7 +491,12 @@ export function LiveFlowConsole({
                       ? `${activeEvent.kind}/${activeEvent.scope}`
                       : activeEvent.kind}
                   </span>
-                  <span className="event-focus-stamp">{activeEvent.stamp}</span>
+                  <span
+                    className="event-focus-stamp"
+                    title={timestampTooltip(activeEvent.stamp)}
+                  >
+                    {formatMaybeTimestamp(activeEvent.stamp, 'time')}
+                  </span>
                 </div>
                 <h3>{activeEvent.title}</h3>
                 <p>{activeSummary.detail}</p>

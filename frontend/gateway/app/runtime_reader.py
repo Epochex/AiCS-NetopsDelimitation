@@ -722,7 +722,7 @@ def _build_feed(
         raw_ts,
         {
           'id': f"feed-raw-{_format_iso(raw_ts)}-{raw_service}",
-          'stamp': _format_stamp(raw_ts),
+          'stamp': _format_iso(raw_ts),
           'kind': 'raw',
           'title': f'Raw sample observed for {raw_service}',
           'detail': (
@@ -761,7 +761,7 @@ def _build_feed(
         alert_ts,
         {
           'id': f"feed-alert-{_get_text(alert, 'alert_id') or service}",
-          'stamp': _format_stamp(alert_ts),
+          'stamp': _format_iso(alert_ts),
           'kind': 'alert',
           'title': f"Alert {_get_text(alert, 'rule_id') or 'rule'} for {service}",
           'detail': (
@@ -796,7 +796,7 @@ def _build_feed(
         suggestion_ts,
         {
           'id': f"feed-suggestion-{_get_text(suggestion, 'suggestion_id') or service}",
-          'stamp': _format_stamp(suggestion_ts),
+          'stamp': _format_iso(suggestion_ts),
           'kind': 'suggestion',
           'title': f'{scope}-scope suggestion for {service}',
           'detail': (
