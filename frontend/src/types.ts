@@ -94,6 +94,15 @@ export interface FeedEvent {
   kind: 'raw' | 'alert' | 'suggestion'
   title: string
   detail: string
+  service?: string
+  device?: string
+  scope?: 'alert' | 'cluster'
+  relatedAlertId?: string
+  relatedSuggestionId?: string
+  provider?: string
+  actionCount?: string
+  hypothesisCount?: string
+  evidence?: string
 }
 
 export interface RuntimeSnapshot {
