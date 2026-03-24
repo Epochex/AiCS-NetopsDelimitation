@@ -1,0 +1,611 @@
+import type { RuntimeSnapshot } from '../types'
+
+export const runtimeSnapshot: RuntimeSnapshot = {
+  repo: {
+    branch: 'feature/frontend-demo',
+    validation: '31 tests passed · core compileall ok',
+  },
+  runtime: {
+    latestAlertTs: '2026-03-23T10:44:40+00:00',
+    latestSuggestionTs: '2026-03-23T10:44:40.593912+00:00',
+    contextNote:
+      'Derived from repository docs plus the latest /data/netops-runtime alerts and suggestions sinks.',
+  },
+  defaultSuggestionId: 's-udp-10004',
+  overviewMetrics: [
+    {
+      id: 'raw-freshness',
+      label: 'Raw Freshness',
+      value: '7s',
+      hint: 'Last live runtime check reported raw payload age at 7 seconds.',
+      state: 'ok',
+    },
+    {
+      id: 'alert-latest',
+      label: 'Latest Alert',
+      value: '10:44:40 UTC',
+      hint: 'Current sink max alert_ts in alerts-20260323-10.jsonl.',
+      state: 'ok',
+    },
+    {
+      id: 'suggestion-latest',
+      label: 'Latest Suggestion',
+      value: '10:44:40.593 UTC',
+      hint: 'AIOps alert-scope suggestion is keeping pace with current-time alerts.',
+      state: 'ok',
+    },
+    {
+      id: 'backlog',
+      label: 'History Backlog',
+      value: 'false',
+      hint: 'System stayed out of replay/backfill mode in the latest runtime audit.',
+      state: 'ok',
+    },
+    {
+      id: 'lag',
+      label: 'Critical Lag',
+      value: '0 / 4 groups',
+      hint: 'Correlator, sink, store, and AIOps agent consumer groups were all at zero lag.',
+      state: 'ok',
+    },
+    {
+      id: 'closure',
+      label: 'Closed Loop',
+      value: 'Suggestion live',
+      hint: 'Execution feedback is still a reserved control point, not a wired runtime stage yet.',
+      state: 'watch',
+    },
+  ],
+  cadence: {
+    labels: ['07:58', '08:38', '08:42', '08:46', '09:59', '10:27', '10:44'],
+    alerts: [2, 1, 2, 1, 1, 2, 1],
+    suggestions: [2, 1, 2, 1, 1, 2, 1],
+  },
+  evidenceCoverage: {
+    labels: ['Topology', 'Device', 'Change'],
+    values: [100, 100, 100],
+  },
+  stageNodes: [
+    {
+      id: 'fortigate',
+      title: 'FortiGate',
+      subtitle: 'source device log plane',
+      status: 'flowing',
+      x: 0,
+      y: 90,
+      metrics: [
+        { label: 'mode', value: 'syslog source' },
+        { label: 'signal', value: 'real traffic' },
+      ],
+    },
+    {
+      id: 'ingest',
+      title: 'edge/fortigate-ingest',
+      subtitle: 'parse, checkpoint, replay control',
+      status: 'flowing',
+      x: 240,
+      y: 90,
+      metrics: [
+        { label: 'parsed', value: 'events-*.jsonl' },
+        { label: 'backlog', value: 'false' },
+      ],
+    },
+    {
+      id: 'forwarder',
+      title: 'edge-forwarder',
+      subtitle: 'parsed -> Kafka raw',
+      status: 'steady',
+      x: 520,
+      y: 90,
+      metrics: [
+        { label: 'drop local deny', value: 'false' },
+        { label: 'drop mdns/nbns', value: 'false' },
+      ],
+    },
+    {
+      id: 'raw-topic',
+      title: 'netops.facts.raw.v1',
+      subtitle: 'real-time fact stream',
+      status: 'flowing',
+      x: 800,
+      y: 90,
+      metrics: [
+        { label: 'freshness', value: '7s' },
+        { label: 'kind', value: 'raw topic' },
+      ],
+    },
+    {
+      id: 'correlator',
+      title: 'core-correlator',
+      subtitle: 'quality gate + deterministic rules',
+      status: 'flowing',
+      x: 1060,
+      y: 90,
+      metrics: [
+        { label: 'deny threshold', value: '200 / 60s' },
+        { label: 'cooldown', value: '300s' },
+      ],
+    },
+    {
+      id: 'alerts-topic',
+      title: 'netops.alerts.v1',
+      subtitle: 'alert bus',
+      status: 'flowing',
+      x: 1320,
+      y: 90,
+      metrics: [
+        { label: 'latest', value: '10:44:40' },
+        { label: 'today', value: '11 alerts' },
+      ],
+    },
+    {
+      id: 'alerts-sink',
+      title: 'core-alerts-sink',
+      subtitle: 'hourly JSONL audit',
+      status: 'steady',
+      x: 1060,
+      y: 260,
+      metrics: [
+        { label: 'bucket', value: 'alert_ts' },
+        { label: 'file', value: 'alerts-20260323-10' },
+      ],
+    },
+    {
+      id: 'clickhouse',
+      title: 'ClickHouse',
+      subtitle: 'netops.alerts hot query store',
+      status: 'steady',
+      x: 1320,
+      y: 260,
+      metrics: [
+        { label: 'query role', value: 'history + context' },
+        { label: 'table', value: 'netops.alerts' },
+      ],
+    },
+    {
+      id: 'aiops-agent',
+      title: 'core-aiops-agent',
+      subtitle: 'alert evidence + inference',
+      status: 'flowing',
+      x: 1580,
+      y: 90,
+      metrics: [
+        { label: 'scope', value: 'alert + cluster' },
+        { label: 'cluster gate', value: '600 / 3 / 300' },
+      ],
+    },
+    {
+      id: 'suggestions-topic',
+      title: 'netops.aiops.suggestions.v1',
+      subtitle: 'structured operator guidance',
+      status: 'flowing',
+      x: 1840,
+      y: 90,
+      metrics: [
+        { label: 'provider', value: 'template' },
+        { label: 'today', value: '11 suggestions' },
+      ],
+    },
+    {
+      id: 'remediation',
+      title: 'Remediation Loop',
+      subtitle: 'approval / execution / feedback',
+      status: 'planned',
+      x: 1840,
+      y: 260,
+      metrics: [
+        { label: 'status', value: 'reserved control point' },
+        { label: 'feedback', value: 'not yet wired' },
+      ],
+    },
+  ],
+  stageLinks: [
+    { id: 'l1', source: 'fortigate', target: 'ingest', state: 'active' },
+    { id: 'l2', source: 'ingest', target: 'forwarder', state: 'active' },
+    { id: 'l3', source: 'forwarder', target: 'raw-topic', state: 'active' },
+    { id: 'l4', source: 'raw-topic', target: 'correlator', state: 'active' },
+    { id: 'l5', source: 'correlator', target: 'alerts-topic', state: 'active' },
+    { id: 'l6', source: 'alerts-topic', target: 'alerts-sink', state: 'steady' },
+    { id: 'l7', source: 'alerts-topic', target: 'clickhouse', state: 'steady' },
+    { id: 'l8', source: 'alerts-topic', target: 'aiops-agent', state: 'active' },
+    { id: 'l9', source: 'aiops-agent', target: 'suggestions-topic', state: 'active' },
+    { id: 'l10', source: 'suggestions-topic', target: 'remediation', state: 'planned' },
+  ],
+  timeline: [
+    {
+      id: 'step-edge',
+      stamp: '2026-03-23T10:44:40+00:00',
+      title: 'Edge fact observed',
+      detail:
+        'FortiGate traffic/local deny for service udp/10004 was parsed into a structured fact event on the edge.',
+    },
+    {
+      id: 'step-correlation',
+      stamp: '2026-03-23T10:44:40+00:00',
+      title: 'Correlation window satisfied',
+      detail:
+        'deny_burst_v1 reached 200 denies inside the 60 second window and emitted a warning alert.',
+    },
+    {
+      id: 'step-enrichment',
+      stamp: '2026-03-23T10:44:40+00:00',
+      title: 'Alert enrichment attached evidence',
+      detail:
+        'topology_context, device_profile, and change_context were all present in the alert payload for the current-day sample.',
+    },
+    {
+      id: 'step-aiops',
+      stamp: '2026-03-23T10:44:40.593912+00:00',
+      title: 'AIOps alert-scope suggestion emitted',
+      detail:
+        'The agent built a schema_version=2 suggestion with evidence_bundle, inference, recommended actions, and confidence metadata.',
+    },
+    {
+      id: 'step-control',
+      stamp: 'control point',
+      title: 'Remediation loop still reserved',
+      detail:
+        'Execution feedback is intentionally shown as the next control point, not as a fake live stage. This frontend keeps that boundary visible.',
+    },
+  ],
+  clusterWatch: [
+    {
+      key: 'deny_burst_v1 · udp/3702 · f4:b1:c2:88:36:4b',
+      service: 'udp/3702',
+      device: 'f4:b1:c2:88:36:4b',
+      progress: 2,
+      target: 3,
+      windowSec: 600,
+      note:
+        'Historical replay hotspot. This is where cluster-scope becomes naturally legible when live cadence converges.',
+    },
+    {
+      key: 'deny_burst_v1 · Dahua SDK · d4:43:0e:1a:c5:88',
+      service: 'Dahua SDK',
+      device: 'd4:43:0e:1a:c5:88',
+      progress: 1,
+      target: 3,
+      windowSec: 600,
+      note:
+        'Real device path with change markers. Keep surfaced even when the cluster threshold has not been met.',
+    },
+    {
+      key: 'deny_burst_v1 · udp/5353 · 20:7b:d2:ac:75:4e',
+      service: 'udp/5353',
+      device: '20:7b:d2:ac:75:4e',
+      progress: 1,
+      target: 3,
+      windowSec: 600,
+      note:
+        'Today live alert path is healthy, but still below the natural cluster trigger threshold.',
+    },
+  ],
+  suggestions: [
+    {
+      id: 's-udp-10004',
+      alertId: 'b052d76166c7b2cc43b13a6fccf3a3880e45efe0',
+      suggestionTs: '2026-03-23T10:44:40.593912+00:00',
+      scope: 'alert',
+      ruleId: 'deny_burst_v1',
+      severity: 'warning',
+      priority: 'P2',
+      summary:
+        'deny_burst_v1 triggered for service=udp/10004 device=20:7b:d2:ac:75:4e',
+      context: {
+        service: 'udp/10004',
+        srcDeviceKey: '20:7b:d2:ac:75:4e',
+        clusterSize: 1,
+        clusterWindowSec: 0,
+        clusterFirstAlertTs: '2026-03-23T10:44:40+00:00',
+        clusterLastAlertTs: '2026-03-23T10:44:40+00:00',
+        clusterSampleAlertIds: ['b052d76166c7b2cc43b13a6fccf3a3880e45efe0'],
+        recentSimilar1h: 0,
+        provider: 'template',
+      },
+      evidenceBundle: {
+        topology: {
+          service: 'udp/10004',
+          src_device_key: '20:7b:d2:ac:75:4e',
+          srcip: '192.168.16.152',
+          dstip: '255.255.255.255',
+          site: '',
+          zone: 'lan',
+          neighbor_refs: [],
+        },
+        device: {
+          src_device_key: '20:7b:d2:ac:75:4e',
+          device_name: 'LEON-PC',
+          osname: 'Windows',
+          srcmac: '20:7b:d2:ac:75:4e',
+          asset_tags: ['None'],
+          known_services: ['udp/10004'],
+        },
+        change: {
+          suspected_change: false,
+          change_window_min: 0,
+          change_refs: [],
+          score: null,
+          action: '',
+          level: '',
+        },
+        historical: {
+          recent_similar_1h: 0,
+          cluster_size: 1,
+          cluster_window_sec: 0,
+          cluster_first_alert_ts: '2026-03-23T10:44:40+00:00',
+          cluster_last_alert_ts: '2026-03-23T10:44:40+00:00',
+          cluster_sample_alert_ids: ['b052d76166c7b2cc43b13a6fccf3a3880e45efe0'],
+        },
+      },
+      hypotheses: [
+        'The alert may indicate a localized policy or traffic anomaly on this source device.',
+        'The observed traffic class may have drifted from the current deterministic rule baseline.',
+      ],
+      recommendedActions: [
+        'Inspect the source device session trace and recent deny history in ClickHouse.',
+        'Check whether the affected service is expected for this device profile and interface path.',
+        'If this repeats, compare it with the cluster-level suggestion stream before tuning thresholds.',
+      ],
+      confidence: 0.66,
+      confidenceLabel: 'medium',
+      confidenceReason:
+        'Confidence is based on alert severity, one-hour recurrence, and whether change/risk markers exist.',
+    },
+    {
+      id: 's-udp-1900',
+      alertId: '3042e9a47eb1943be446ac9a6b2d5126db25be15',
+      suggestionTs: '2026-03-23T10:27:29.362830+00:00',
+      scope: 'alert',
+      ruleId: 'deny_burst_v1',
+      severity: 'warning',
+      priority: 'P2',
+      summary:
+        'deny_burst_v1 triggered for service=udp/1900 device=fe80::19f6:8fb1:57ea:abd',
+      context: {
+        service: 'udp/1900',
+        srcDeviceKey: 'fe80::19f6:8fb1:57ea:abd',
+        clusterSize: 1,
+        clusterWindowSec: 0,
+        clusterFirstAlertTs: '2026-03-23T10:27:17+00:00',
+        clusterLastAlertTs: '2026-03-23T10:27:17+00:00',
+        clusterSampleAlertIds: ['3042e9a47eb1943be446ac9a6b2d5126db25be15'],
+        recentSimilar1h: 0,
+        provider: 'template',
+      },
+      evidenceBundle: {
+        topology: {
+          service: 'udp/1900',
+          src_device_key: 'fe80::19f6:8fb1:57ea:abd',
+          srcip: 'fe80::19f6:8fb1:57ea:abd',
+          dstip: 'ff02::c',
+          site: '',
+          zone: 'lan',
+          neighbor_refs: [],
+        },
+        device: {
+          src_device_key: 'fe80::19f6:8fb1:57ea:abd',
+          device_name: '',
+          osname: '',
+          srcmac: '',
+          asset_tags: ['None'],
+          known_services: ['udp/1900'],
+        },
+        change: {
+          suspected_change: false,
+          change_window_min: 0,
+          change_refs: [],
+          score: null,
+          action: '',
+          level: '',
+        },
+        historical: {
+          recent_similar_1h: 0,
+          cluster_size: 1,
+          cluster_window_sec: 0,
+          cluster_first_alert_ts: '2026-03-23T10:27:17+00:00',
+          cluster_last_alert_ts: '2026-03-23T10:27:17+00:00',
+          cluster_sample_alert_ids: ['3042e9a47eb1943be446ac9a6b2d5126db25be15'],
+        },
+      },
+      hypotheses: [
+        'The alert may indicate a localized policy or traffic anomaly on this source device.',
+        'The observed traffic class may have drifted from the current deterministic rule baseline.',
+      ],
+      recommendedActions: [
+        'Inspect the source device session trace and recent deny history in ClickHouse.',
+        'Check whether the affected service is expected for this device profile and interface path.',
+        'If this repeats, compare it with the cluster-level suggestion stream before tuning thresholds.',
+      ],
+      confidence: 0.66,
+      confidenceLabel: 'medium',
+      confidenceReason:
+        'Confidence is based on alert severity, one-hour recurrence, and whether change/risk markers exist.',
+    },
+    {
+      id: 's-udp-5353',
+      alertId: '30ea4854e5a7de92c777ea41385208842d086827',
+      suggestionTs: '2026-03-23T10:27:29.301143+00:00',
+      scope: 'alert',
+      ruleId: 'deny_burst_v1',
+      severity: 'warning',
+      priority: 'P2',
+      summary:
+        'deny_burst_v1 triggered for service=udp/5353 device=20:7b:d2:ac:75:4e',
+      context: {
+        service: 'udp/5353',
+        srcDeviceKey: '20:7b:d2:ac:75:4e',
+        clusterSize: 1,
+        clusterWindowSec: 0,
+        clusterFirstAlertTs: '2026-03-23T10:27:13+00:00',
+        clusterLastAlertTs: '2026-03-23T10:27:13+00:00',
+        clusterSampleAlertIds: ['30ea4854e5a7de92c777ea41385208842d086827'],
+        recentSimilar1h: 0,
+        provider: 'template',
+      },
+      evidenceBundle: {
+        topology: {
+          service: 'udp/5353',
+          src_device_key: '20:7b:d2:ac:75:4e',
+          srcip: 'fe80::19f6:8fb1:57ea:abd',
+          dstip: 'ff02::fb',
+          site: '',
+          zone: 'lan',
+          neighbor_refs: [],
+        },
+        device: {
+          src_device_key: '20:7b:d2:ac:75:4e',
+          device_name: '',
+          osname: 'Windows',
+          srcmac: '20:7b:d2:ac:75:4e',
+          asset_tags: ['None'],
+          known_services: ['udp/5353'],
+        },
+        change: {
+          suspected_change: false,
+          change_window_min: 0,
+          change_refs: [],
+          score: null,
+          action: '',
+          level: '',
+        },
+        historical: {
+          recent_similar_1h: 0,
+          cluster_size: 1,
+          cluster_window_sec: 0,
+          cluster_first_alert_ts: '2026-03-23T10:27:13+00:00',
+          cluster_last_alert_ts: '2026-03-23T10:27:13+00:00',
+          cluster_sample_alert_ids: ['30ea4854e5a7de92c777ea41385208842d086827'],
+        },
+      },
+      hypotheses: [
+        'The alert may indicate a localized policy or traffic anomaly on this source device.',
+        'The observed traffic class may have drifted from the current deterministic rule baseline.',
+      ],
+      recommendedActions: [
+        'Inspect the source device session trace and recent deny history in ClickHouse.',
+        'Check whether the affected service is expected for this device profile and interface path.',
+        'If this repeats, compare it with the cluster-level suggestion stream before tuning thresholds.',
+      ],
+      confidence: 0.66,
+      confidenceLabel: 'medium',
+      confidenceReason:
+        'Confidence is based on alert severity, one-hour recurrence, and whether change/risk markers exist.',
+    },
+  ],
+  strategyControls: [
+    {
+      id: 'rule-deny-threshold',
+      label: 'RULE_DENY_THRESHOLD',
+      currentValue: '200',
+      source: 'core/deployments/40-core-correlator.yaml',
+      detail: 'Deterministic alert gate for deny_burst_v1 under normal runtime conditions.',
+    },
+    {
+      id: 'rule-cooldown',
+      label: 'RULE_ALERT_COOLDOWN_SEC',
+      currentValue: '300',
+      source: 'core/deployments/40-core-correlator.yaml',
+      detail: 'Prevents repeated alert emission from dominating the current event story.',
+    },
+    {
+      id: 'cluster-window',
+      label: 'AIOPS_CLUSTER_WINDOW_SEC',
+      currentValue: '600',
+      source: 'core/deployments/80-core-aiops-agent.yaml',
+      detail: 'The live cluster-scope path is coded, tested, and waiting for a natural same-key hit window.',
+    },
+    {
+      id: 'cluster-min',
+      label: 'AIOPS_CLUSTER_MIN_ALERTS',
+      currentValue: '3',
+      source: 'core/deployments/80-core-aiops-agent.yaml',
+      detail: 'This is the watch threshold the UI surfaces as pre-trigger progress.',
+    },
+    {
+      id: 'forwarder-local',
+      label: 'FORWARDER_FILTER_DROP_LOCAL_DENY',
+      currentValue: 'false',
+      source: 'edge/edge_forwarder/deployments/30-edge-forwarder.yaml',
+      detail: 'Current edge-forwarder posture is lossless forwarding rather than aggressive suppression.',
+    },
+    {
+      id: 'forwarder-broadcast',
+      label: 'FORWARDER_FILTER_DROP_BROADCAST_MDNS_NBNS',
+      currentValue: 'false',
+      source: 'edge/edge_forwarder/deployments/30-edge-forwarder.yaml',
+      detail: 'Broadcast and discovery traffic is kept visible, which is important for strategy tuning.',
+    },
+  ],
+  feed: [
+    {
+      id: 'f1',
+      stamp: '10:44:40.593',
+      kind: 'suggestion',
+      title: 'AIOps emitted alert-scope suggestion for udp/10004',
+      detail:
+        'schema_version=2 suggestion with evidence_bundle and recommended_actions was written to suggestions-20260323-10.jsonl.',
+    },
+    {
+      id: 'f2',
+      stamp: '10:44:40.000',
+      kind: 'alert',
+      title: 'Correlator emitted deny_burst_v1 for LEON-PC',
+      detail:
+        'Alert carried topology_context, device_profile, and change_context in the current-day sample.',
+    },
+    {
+      id: 'f3',
+      stamp: '10:27:29.362',
+      kind: 'suggestion',
+      title: 'AIOps emitted alert-scope suggestion for udp/1900',
+      detail:
+        'context.service and context.src_device_key were both populated from the real alert payload path.',
+    },
+    {
+      id: 'f4',
+      stamp: '10:27:17.000',
+      kind: 'alert',
+      title: 'Correlator emitted deny_burst_v1 for fe80::19f6:8fb1:57ea:abd',
+      detail:
+        'One of today’s current-time alerts that proves suggestion generation is no longer stuck at the historical 07:58 window.',
+    },
+    {
+      id: 'f5',
+      stamp: '10:27:13.000',
+      kind: 'alert',
+      title: 'Correlator emitted deny_burst_v1 for udp/5353',
+      detail:
+        'This alert is also present in the AIOps feed and is used in the evidence drawer for device-level explanation.',
+    },
+    {
+      id: 'f6',
+      stamp: 'edge/live',
+      kind: 'raw',
+      title: 'Raw stream remained real-time during latest audit',
+      detail:
+        'Latest runtime check kept history_backlog_suspected=false with raw payload age in single-digit seconds.',
+    },
+  ],
+  topologyNotes: [
+    {
+      title: 'Deterministic before AI',
+      detail:
+        'The interface puts correlator and alert topics ahead of AIOps because the backend is explicitly deterministic-stream-first.',
+    },
+    {
+      title: 'Evidence is a first-class payload',
+      detail:
+        'The drawer mirrors the real schema_version=2 suggestion shape: context, evidence_bundle, inference-derived actions, and confidence.',
+    },
+    {
+      title: 'Cluster path stays honest',
+      detail:
+        'Cluster-scope is shown as a real path with live control parameters, not as a fabricated success state.',
+    },
+    {
+      title: 'Remediation is visible as a control boundary',
+      detail:
+        'The topology includes the remediation loop as the next engineering surface, but marks it planned to avoid fake closure.',
+    },
+  ],
+}

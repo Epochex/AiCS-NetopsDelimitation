@@ -76,6 +76,38 @@ flowchart LR
 > The current repository state is best described as: **Phase-2 core data plane closed loop is in place, and a minimal AIOps alert + cluster suggestion loop has landed on top of it**.  
 > Deterministic streaming detection and alert persistence are already implemented; true LLM inference, causal evidence-chain reasoning, and remediation execution control remain the next-stage work.
 
+### Frontend Module
+
+- Scope
+  - Process-centric operator console for the live chain `raw -> alert -> suggestion -> remediation boundary`; not a generic admin dashboard.
+- Core stack
+  - `React 19 + Vite + TypeScript`
+  - State: local React state plus a custom `useRuntimeSnapshot` hook; no external store yet because the UI graph is still shallow and event ownership is singular.
+  - Routing: no dedicated router yet; the current surface is two primary views switched in-app (`Live Flow Console`, `Pipeline Topology`).
+  - UI: custom CSS system with dense, square, non-template layout; no off-the-shelf admin kit.
+  - Realtime: `FastAPI` gateway + `SSE`; initial HTTP snapshot followed by stream updates.
+  - Visualization: `React Flow` for pipeline topology, `ECharts` for cadence and evidence-density views.
+  - Build / deploy: `Vite` for dev/build, same-origin `FastAPI` static serving for deployable mode, optional `Docker + k3s Deployment`.
+- Module responsibilities
+  - Convert runtime files and deployment controls into an operator-readable process console.
+  - Expose freshness, backlog, cluster watch, evidence thickness, and suggestion detail without flattening the pipeline into unrelated metric cards.
+  - Keep remediation explicit as a control boundary rather than pretending execution is already part of the live runtime.
+- Backend integration
+  - `GET /api/runtime/snapshot` hydrates the initial view.
+  - `GET /api/runtime/stream` pushes live `RuntimeSnapshot` updates over SSE.
+  - The gateway derives state from `/data/netops-runtime` JSONL sinks plus deployment env values in `core/` and `edge/`.
+  - Local dev uses Vite proxying `/api` to `:8080`; deployed mode is same-origin, so CORS is not part of the default path.
+- Key interaction chain
+  - Live runtime snapshot -> operator selects a suggestion slice -> center views keep the pipeline legible -> right drawer pivots to evidence, hypotheses, actions, and control points -> cluster pre-trigger watch makes policy tuning visible before a cluster-scope hit is emitted.
+- Core surfaces
+  - `Live Flow Console`: runtime overview, current-day cadence, chain timeline, live feed, and pre-trigger watch.
+  - `Pipeline Topology`: module / topic / control graph for backend tuning and runtime legibility.
+  - `Evidence Drawer`: selected suggestion context, evidence bundle, confidence, recommended actions, and strategy controls.
+- Design value
+  - The backend semantics are event-lifecycle-driven, so the frontend is process-first rather than panel-first.
+  - Same-origin deployment keeps the console operationally light and avoids unnecessary cross-origin plumbing.
+  - Avoiding external store/router complexity at this stage keeps iteration fast while the product surface is still a focused console rather than a multi-product shell.
+
 ### AIOps Agent Module Diagram
 
 ```mermaid
