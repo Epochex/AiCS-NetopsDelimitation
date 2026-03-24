@@ -117,13 +117,20 @@ flowchart LR
   - The current `edge -> core -> suggestion` deterministic pipeline is adequately provisioned on the existing two-node layout.
   - The near-term limitation is not data-plane CPU, but the absence of a resident inference plane for the next-stage `LLM / Multiple Agent` work.
   - The repository still runs the minimal built-in provider by default, so **current production runtime does not require a GPU to keep the main path alive**.
+- Current flow-intensity indicators
+  - More reliable live-path baseline from the formal observability window (`2026-03-22 18:54:10 UTC` -> `2026-03-23 08:34:08 UTC`, `13.67h`): `raw ≈ 7.48 events/s`, `alerts ≈ 21.5/hour`, `suggestions ≈ 20.8/hour`.
+  - Current local sink cadence (`2026-03-24 12:10 UTC` sample): `suggestions = 83 / 10m` (`≈0.14/s`), `406 / 60m` (`≈0.11/s`), `4055 / 6h`; `alerts = 0 / 60m`.
+  - Latest local timestamps at the same sample point: `latest_alert_ts = 2026-03-23T20:53:49+00:00`, `latest_suggestion_ts = 2026-03-24T12:10:13.943421+00:00`.
+  - Interpretation: the current suggestion cadence should not be read as fresh live alert ingress. It is consistent with processing-time suggestion emission over older alert context / replay-like semantics, and should be used as an upper operational load indicator rather than as the true live alert rate.
+  - Practical sizing implication: even the elevated current suggestion cadence is still well below `1 inference request/sec`, which means latency budget and queue design matter more than raw multi-GPU scale at this stage.
 - Current practical boundary
   - `r450` memory expansion remains desirable for on-box model serving, but should not be treated as a short-term assumption.
   - The practical next step is therefore to keep Kafka / ClickHouse / correlator local on `r450`, and attach GPU-backed inference through the existing provider boundary.
 - GPU sizing estimate for the next stage
-  - Minimum viable: `1 x 16GB VRAM` for one quantized `7B/8B`-class resident model in low-concurrency, rate-limited alert/cluster inference mode.
-  - Recommended: `1 x 24GB VRAM` for one resident model with structured-output, tool-calling, and limited multi-agent orchestration headroom.
-  - Stretch only if justified by measured load: `48GB+ VRAM` or multi-GPU, only when `13B+` local models, multiple resident models, or materially higher agent concurrency become real requirements.
+  - Minimum viable: `1 x 16GB VRAM` plus entry-level inference compute (`A2 16GB`-class) for one quantized `7B/8B`-class resident model in low-concurrency, rate-limited alert/cluster inference mode.
+  - Recommended: `1 x 24GB VRAM` plus stronger inference compute (`L4 / A10 / 4090`-class) for one resident model with structured-output, tool-calling, and limited multi-agent orchestration headroom.
+  - Stretch only if justified by measured load: `48GB+ VRAM` or multi-GPU (`A40 / A6000`-class or beyond), only when `13B+` local models, multiple resident models, or materially higher agent concurrency become real requirements.
+  - Note: VRAM is the hard fit constraint; compute class determines latency. Exact tokens/sec and p95 response time depend on the serving stack (`vLLM` / `TGI` / `llama.cpp`), quantization level, prompt size, output length, and tool-calling round trips, so they must be benchmarked on the chosen model/service combination rather than inferred from VRAM alone.
 - Optimization priority for the inference plane
   - First: async queueing, retries, backpressure, prompt/prefix caching, evidence compression, and model routing (`template -> remote LLM -> fallback`).
   - Later: continuous batching and speculative decoding / draft-model acceleration, only after the model service itself becomes the dominant bottleneck.

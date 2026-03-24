@@ -116,13 +116,20 @@ flowchart LR
   - 现有两节点架构已经足以稳定承载当前 `edge -> core -> suggestion` 的确定性主链。
   - 近期真正的限制不是数据面 CPU，而是下一阶段 `LLM / Multiple Agent` 增强平面的常驻推理能力尚未接入。
   - 仓库当前默认仍是内置 provider，因此**当前生产态主链本身并不依赖 GPU 才能运行**。
+- 当前流量/事件强度指标
+  - 更可信的 live 基线来自正式观测窗口（`2026-03-22 18:54:10 UTC` -> `2026-03-23 08:34:08 UTC`，共 `13.67h`）：`raw ≈ 7.48 events/s`，`alerts ≈ 21.5/hour`，`suggestions ≈ 20.8/hour`。
+  - 当前本地 sink 节奏（`2026-03-24 12:10 UTC` 样本）：`suggestions = 83 / 10m`（`≈0.14/s`）、`406 / 60m`（`≈0.11/s`）、`4055 / 6h`；`alerts = 0 / 60m`。
+  - 同一采样点的最新本地时间戳：`latest_alert_ts = 2026-03-23T20:53:49+00:00`，`latest_suggestion_ts = 2026-03-24T12:10:13.943421+00:00`。
+  - 解释：当前 suggestion cadence 不能直接等同于“实时新 alert 进入速率”。它更像处理时间 suggestion emission 叠加历史 alert context / replay 语义，因此更适合作为“操作负载上界”而不是“真实 live alert 速率”。
+  - 对算力估算的含义：即使按当前偏高的 suggestion cadence 计算，也依然远低于 `1 inference request/sec`，所以现阶段更关键的是时延预算和队列设计，而不是一上来就追求多卡并行规模。
 - 当前现实边界
   - `r450` 本地扩内存在中短期内仍应视为“不一定拿得到”的条件，不能作为下一阶段设计的默认前提。
   - 因此更现实的演进路径是：保留 `r450` 上的 Kafka / ClickHouse / correlator，本地继续承担数据面与控制面，把 GPU 推理能力通过 provider 边界外挂进来。
 - 下一阶段 GPU 需求估算
-  - 最低可用：`1 x 16GB VRAM`，用于单个量化 `7B/8B` 级常驻模型，配合低并发、限流队列的 alert/cluster 推理。
-  - 推荐配置：`1 x 24GB VRAM`，用于单个常驻模型，同时为结构化输出、tool-calling、有限的 multi-agent 编排保留余量。
-  - 更高档位仅在有实测依据时再申请：`48GB+ VRAM` 或多卡，仅当 `13B+` 本地模型、多常驻模型或明显更高的 agent 并发成为真实需求时再考虑。
+  - 最低可用：`1 x 16GB VRAM`，配合入门级推理算力（`A2 16GB` 级别），用于单个量化 `7B/8B` 级常驻模型，支撑低并发、限流队列的 alert/cluster 推理。
+  - 推荐配置：`1 x 24GB VRAM`，配合更强的推理算力（`L4 / A10 / 4090` 级别），用于单个常驻模型，同时为结构化输出、tool-calling、有限的 multi-agent 编排保留余量。
+  - 更高档位仅在有实测依据时再申请：`48GB+ VRAM` 或多卡（`A40 / A6000` 级别及以上），仅当 `13B+` 本地模型、多常驻模型或明显更高的 agent 并发成为真实需求时再考虑。
+  - 说明：显存决定“模型能不能放进去”，而具体算力等级决定时延。精确的 tokens/sec 与 p95 响应时间还取决于 `vLLM / TGI / llama.cpp` 这类 serving stack、量化方式、prompt 长度、输出长度以及 tool-calling 往返，因此不能只从显存容量反推出真实推理性能，后续仍需要按选定模型和服务栈做实测。
 - 推理优化优先级
   - 第一优先级：异步队列、超时/重试、背压、prompt/prefix cache、证据压缩、模型路由（`template -> remote LLM -> fallback`）。
   - 第二优先级：continuous batching，以及 speculative decoding / draft-model acceleration。
