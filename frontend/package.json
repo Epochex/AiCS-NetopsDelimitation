@@ -5,9 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "dev:api": "PYTHONPATH=/data/.local/netops-console-py:$PYTHONPATH python3 -m uvicorn gateway.app.main:app --app-dir . --host 0.0.0.0 --port 8080 --reload",
-    "serve": "PYTHONPATH=/data/.local/netops-console-py:$PYTHONPATH python3 -m uvicorn gateway.app.main:app --app-dir . --host 0.0.0.0 --port 8080",
-    "serve:2026": "PYTHONPATH=/data/.local/netops-console-py:$PYTHONPATH python3 -m uvicorn gateway.app.main:app --app-dir . --host 0.0.0.0 --port 2026",
+    "dev:gateway": "PYTHONPATH=/data/.local/netops-console-py:$PYTHONPATH python3 -m uvicorn gateway.app.main:app --app-dir . --host 0.0.0.0 --port 8026 --reload",
+    "serve:gateway": "PYTHONPATH=/data/.local/netops-console-py:$PYTHONPATH python3 -m uvicorn gateway.app.main:app --app-dir . --host 0.0.0.0 --port 8026",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview"

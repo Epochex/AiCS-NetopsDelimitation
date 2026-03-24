@@ -95,7 +95,7 @@ flowchart LR
   - `GET /api/runtime/snapshot` 用于页面初始水合。
   - `GET /api/runtime/stream` 通过 SSE 推送实时 `RuntimeSnapshot`。
   - 网关直接读取 `/data/netops-runtime` 下的 JSONL sink，并从 `core/`、`edge/` deployment 中提取运行控制参数。
-  - 本地开发由 Vite 代理 `/api` 到 `:8080`；部署态采用同源服务，默认路径不依赖 CORS。
+  - 本地开发由 Vite 代理 `/api` 到 `:8026`；部署态采用同源服务，默认路径不依赖 CORS。
 - 关键交互链路
   - 实时快照进入前端 -> 选择当前 suggestion slice -> 中央视图保持链路主叙事 -> 右侧证据抽屉切换到对应 context / evidence / actions -> cluster pre-trigger watch 暴露是否需要回调后端策略。
 - 核心页面 / 组件职责
@@ -106,6 +106,63 @@ flowchart LR
   - 当前后端语义本质上是事件生命周期推进，不适合被拆成无关联的指标面板墙。
   - 同源部署能显著降低前端演示面与网关接入面的运维复杂度。
   - 在前端产品面尚未扩成多产品壳层之前，不引入额外 store/router 复杂度，有利于快速迭代真实语义映射。
+
+### 当前资源边界与下一阶段规划
+
+- 当前观测到的节点利用率（`2026-03-24` 样本）
+  - `r230`：约 `2%` CPU、`36%` 内存（`kubectl top node`）
+  - `r450`：约 `3%` CPU、`61%` 内存（`kubectl top node`）
+- 资源解释
+  - 现有两节点架构已经足以稳定承载当前 `edge -> core -> suggestion` 的确定性主链。
+  - 近期真正的限制不是数据面 CPU，而是下一阶段 `LLM / Multiple Agent` 增强平面的常驻推理能力尚未接入。
+  - 仓库当前默认仍是内置 provider，因此**当前生产态主链本身并不依赖 GPU 才能运行**。
+- 当前现实边界
+  - `r450` 本地扩内存在中短期内仍应视为“不一定拿得到”的条件，不能作为下一阶段设计的默认前提。
+  - 因此更现实的演进路径是：保留 `r450` 上的 Kafka / ClickHouse / correlator，本地继续承担数据面与控制面，把 GPU 推理能力通过 provider 边界外挂进来。
+- 下一阶段 GPU 需求估算
+  - 最低可用：`1 x 16GB VRAM`，用于单个量化 `7B/8B` 级常驻模型，配合低并发、限流队列的 alert/cluster 推理。
+  - 推荐配置：`1 x 24GB VRAM`，用于单个常驻模型，同时为结构化输出、tool-calling、有限的 multi-agent 编排保留余量。
+  - 更高档位仅在有实测依据时再申请：`48GB+ VRAM` 或多卡，仅当 `13B+` 本地模型、多常驻模型或明显更高的 agent 并发成为真实需求时再考虑。
+- 推理优化优先级
+  - 第一优先级：异步队列、超时/重试、背压、prompt/prefix cache、证据压缩、模型路由（`template -> remote LLM -> fallback`）。
+  - 第二优先级：continuous batching，以及 speculative decoding / draft-model acceleration。
+  - 原因：当前目标工作负载仍是低并发、证据/工具调用占比较高，前期收益主要来自编排与队列设计，而不是 token 级解码技巧。
+
+### 已落地与下一阶段模块规划
+
+- 已落地
+  - `edge/fortigate-ingest`
+  - `edge/edge_forwarder`
+  - `core/correlator`
+  - `core/alerts_sink`
+  - `core/alerts_store`
+  - `core/aiops_agent`（告警级 + 簇级最小闭环）
+  - `core/benchmark/*`
+  - `frontend` 运维控制台 + runtime 薄网关
+- 下一阶段待建设模块
+  - provider 边界后的远端/本地常驻推理服务
+  - 面向模型输入压缩与复用的 evidence retrieval / cache 层
+  - 模型路由与策略门控（`template`、remote LLM、fallback）
+  - 面向 triage、RCA、runbook drafting 的 multiple-agent orchestration
+  - remediation planning / approval / feedback 控制面
+  - 面向时延、成本、RCA 质量、Runbook 有效性的评测 harness
+
+### 外部 GPU 资源接入路径
+
+- 预期外部算力来源
+  - 额外 GPU 推理资源预计来自**外部研究算力提供方**，而不是短期内直接加装到 `r450`。
+- 推荐系统拆分方式
+  - 继续保留 `r230` 与 `r450` 作为现有数据面和运维控制面。
+  - 在靠近外部 GPU 资源的位置部署一个 inference gateway。
+  - 通过现有 provider 抽象，让 `core-aiops-agent` 在不改动主链的前提下切到 HTTP/远端推理路径。
+- 推荐跨地域数据契约
+  - 原始日志、Kafka 状态、ClickHouse 热库、运维控制权仍留在本地环境。
+  - 仅将压缩后的 alert/cluster evidence bundle、检索摘要和受限结构化 prompt 跨 WAN 发送。
+  - 最终 suggestion、confidence 与审计元数据继续回写到本地 core 侧。
+- 运维假设
+  - “法国侧操作 / 中国侧推理”应被视为**异步增强平面**，而不是阻塞实时检测的同步依赖。
+  - 远端链路必须具备严格的 timeout、request_id、retry budget、API key / TLS、防抖限流以及本地 template provider fallback。
+  - 如果你的环境存在跨境数据约束，启用远端推理前应先审查哪些 evidence 字段允许离开本地 core。
 
 ### AIOps Agent 模块图
 
@@ -604,7 +661,7 @@ kubectl logs -n netops-core deploy/core-correlator --tail=100 -f
 - `bitnamilegacy/kafka:3.7`
 
 ## X.0 可能需要的资源和支持
-本节用于说明项目从当前阶段（`r230 -> r450` 数据平面与核心分析能力建设）继续推进至 **核心流式分析 + 告警级 LLM 增强推理（CPU/GPU）** 所需的资源与支持。；资源申请优先级集中在 **内存扩容** 与 **GPU（核心侧 AI 推理加速）** , 如果能申请下来的话 XD -- (个人不报有过大期望)
+本节用于说明项目从当前阶段（`r230 -> r450` 数据平面与核心分析能力建设）继续推进至 **核心流式分析 + 告警级 LLM 增强推理（CPU/GPU）** 所需的资源与支持。当前更现实的优先级是 **先获得 GPU 推理接入能力**，本地 **内存扩容仅在未来要把模型直接驻留到 `r450` 时再作为硬性前提**。
 
 ### X.1 当前硬件基础（已具备）
 
@@ -621,15 +678,39 @@ kubectl logs -n netops-core deploy/core-correlator --tail=100 -f
   - Role: `Core Data Plane / Core Analytics`（后续承载 broker、correlator、告警级 LLM 增强推理）
   - Disk: `2TB SSD`（可满足 broker 数据、事件缓存、分析产物落盘）
 
-> 当前核心侧主要瓶颈不是 CPU，而是 **内存容量不足（约 16GB）** 与 **缺少可用于推理的 GPU**。
-### X.2 P0（最高优先级）资源申请：核心侧内存扩容 + GPU
+> 当前确定性数据面已经够用；下一阶段真正的瓶颈不是 CPU 饱和，而是缺少常驻推理 GPU 路径，以及 `r450` 在本地驻留模型场景下可用内存余量不足。
+### X.2 P0（最高优先级）资源申请：GPU 推理接入能力
 
-面向 `r450`（`netops-node1`）后续承载 `broker + correlator + queue + 常驻 LLM 服务（限流队列模式）`，P0 资源申请优先级为 **内存扩容 + 推理 GPU**。当前核心侧约 16GB 内存，不足以稳定支撑核心数据平面与告警级 LLM 增强推理并行运行。希望申请同规格额外内存 **3×16GB（48GB）**。
+面向下一阶段 `LLM / Multiple Agent` 增强分析能力，近期最实际的需求是 **获得 1 路可用于推理的 GPU 服务入口**，以便在不扰动 `r450` 现有数据面的前提下，把当前最小 suggestion loop 升级到常驻推理平面。由于 `r450` 本地扩内存在短期内不宜作为默认前提，更推荐先保留 `broker + correlator + ClickHouse + alert persistence` 在本地 `r450`，再通过 provider 边界接入远端推理服务。
 
-GPU 资源希望获得 **1 张可用于本地推理的 GPU或者带有GPU的服务器**（支撑单模型常驻 + 限流队列），建议NVIDIA A2 16GB 或者NVIDIA L4 24GB 类似；后续是否升级更高显存或多卡，需要按实际 Agent 并发与推理负载验证结果再决定。
+GPU 需求估算：
+
+- 最低可用：**`1 x 16GB`**（`A2 16GB` 级别），用于单个量化 `7B/8B` 模型的低并发限流推理。
+- 推荐配置：**`1 x 24GB`**（`L4 24GB` 级别或等效），用于单个常驻模型，并为结构化输出、有限 tool-calling 和 modest multi-agent 编排保留余量。
+- 目前不建议默认申请：**`48GB+` 或多卡**，只有在未来验证表明确实需要多常驻模型、`13B+` 本地模型或明显更高的 agent 并发时再考虑。
+
+### X.2a 近期最可行部署路径：远端 GPU 推理服务
+
+如果额外 GPU 算力是以外部资源而不是 `r450` 本机升级的形式提供，推荐路径为：
+
+- 保持 `r230` 负责边缘接入，`r450` 负责本地 core 数据面 / 控制面
+- 在外部 GPU 资源附近部署 inference gateway
+- 让 `core-aiops-agent` 通过 provider 路径切换到远端推理
+- 仅跨 WAN 发送压缩后的 evidence bundle 与检索摘要
+- timeout、retry、审计与 fallback 控制继续保留在本地 core 侧
+
+这种方式尤其适合“操作面与推理面不在同一地域”的场景，因为它可以把远端推理明确为增强平面，而不是实时主链的同步依赖。
 
 ### X.3 P1 资源申请：边缘侧 r230 内存扩容（稳定性）
 
 `r230`（`netops-node2`）当前约 8GB 内存，可支撑现阶段 `fortigate-ingest`；若后续引入多设备日志接入、历史补偿增量与前置转发组件，建议补充内存以提升边缘侧稳定性与缓冲余量。该节点内存规格应申请 **DDR4 ECC UDIMM（R230 / Xeon E3-1220 v5 兼容）**，推荐组合为 **2×16GB（32GB）**，至少可扩至 **2×8GB（16GB）**。
 > [!IMPORTANT]
 > 注意其规格与 `r450` 使用的 **DDR4 ECC RDIMM** 不兼容，不能混用。
+
+### X.4 P1 资源申请：核心侧本地内存扩容（仅在准备 on-box serving 时）
+
+如果未来要把常驻本地模型直接部署到 `r450`，那么本地内存扩容仍然有必要。此时建议把 `r450` 从当前约 `16GB` 提升到 **总计约 `48GB`**，为 `Kafka + ClickHouse + correlator + queue + inference service` 同机运行预留足够余量。在真正准备做 on-box serving 之前，这一项更适合作为次级请求，而不是当前最硬的阻塞点。
+
+### X.5 P1 资源申请：研发与训练支持（AI / Agent / AIOps）
+
+除硬件之外，也建议争取学校/导师侧的研发支持，用于推进 `Core Analytics + Multiple Agent + LLM` 阶段的实现，包括：**本地/远端 LLM 推理与部署（CPU/GPU、量化模型、限流队列）**、**LLM 应用工程（Prompting、结构化输出、Tool Calling、RAG）**、**Multiple Agent 编排与边界设计（职责拆分、fallback、可观测性）**，以及 **AIOps 方法与评测（证据链、告警归并、Runbook 质量评估）**。如果能以阶段性方式获得外部学术/研究 GPU 平台接入，会比单纯申请更大规格本地硬件更贴合当前路线。

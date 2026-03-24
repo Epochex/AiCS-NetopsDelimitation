@@ -6,8 +6,13 @@ import { LiveFlowConsole } from './components/LiveFlowConsole'
 import { PipelineTopologyView } from './components/PipelineTopologyView'
 import { runtimeSnapshot } from './data/runtimeModel'
 import { useRuntimeSnapshot } from './hooks/useRuntimeSnapshot'
+import { formatMaybeTimestamp, timestampTooltip } from './utils/time'
 
 type ViewMode = 'console' | 'topology'
+
+function metricValue(snapshot: ReturnType<typeof useRuntimeSnapshot>['snapshot'], id: string) {
+  return snapshot.overviewMetrics.find((metric) => metric.id === id)?.value ?? 'n/a'
+}
 
 function App() {
   const { snapshot, connectionState } = useRuntimeSnapshot()
@@ -32,6 +37,17 @@ function App() {
         (suggestion) => suggestion.id === activeSuggestionId,
       ) ?? suggestionPool[0],
     [activeSuggestionId, suggestionPool],
+  )
+  const utilityItems = useMemo(
+    () => [
+      { label: 'branch', value: snapshot.repo.branch },
+      { label: 'validation', value: snapshot.repo.validation },
+      { label: 'stream', value: connectionState, tone: connectionState },
+      { label: 'latest alert', value: snapshot.runtime.latestAlertTs },
+      { label: 'latest suggestion', value: snapshot.runtime.latestSuggestionTs },
+      { label: 'closure', value: metricValue(snapshot, 'closure') },
+    ],
+    [connectionState, snapshot],
   )
 
   if (!selectedSuggestion) {
@@ -60,61 +76,59 @@ function App() {
 
   return (
     <div className="app-shell">
-      <header className="topbar">
-        <div>
-          <p className="eyebrow">Hybrid NetOps / Narrative Runtime Console</p>
-          <h1>Live Flow Console</h1>
-          <p className="lede">
-            Process-centric frontend for a real FortiGate -{'>'} Kafka -{'>'}{' '}
-            Correlator -{'>'} AIOps runtime.
-          </p>
+      <header className="utility-rail">
+        <div className="rail-brand">
+          <p className="rail-kicker">Hybrid NetOps / Tactical Runtime Console</p>
+          <div className="rail-title-row">
+            <h1>Live Flow Console</h1>
+            <span
+              className={`live-dot state-${connectionState}`}
+              aria-hidden="true"
+            />
+          </div>
         </div>
-        <div className="topbar-meta">
-          <div className="meta-block">
-            <span className="meta-label">Branch</span>
-            <strong>{snapshot.repo.branch}</strong>
-          </div>
-          <div className="meta-block">
-            <span className="meta-label">Baseline</span>
-            <strong>{snapshot.repo.validation}</strong>
-          </div>
-          <div className="meta-block">
-            <span className="meta-label">Latest Suggestion</span>
-            <strong>{snapshot.runtime.latestSuggestionTs}</strong>
-          </div>
-          <div className="meta-block">
-            <span className="meta-label">Feed Mode</span>
-            <strong>{connectionState}</strong>
-            <span className={`status-pill status-${connectionState}`}>
-              {connectionState}
-            </span>
-          </div>
+
+        <nav className="view-switch" aria-label="Primary views">
+          <button
+            type="button"
+            className={view === 'console' ? 'tab is-active' : 'tab'}
+            onClick={() => setView('console')}
+          >
+            Live Flow Console
+          </button>
+          <button
+            type="button"
+            className={view === 'topology' ? 'tab is-active' : 'tab'}
+            onClick={() => setView('topology')}
+          >
+            Pipeline Topology
+          </button>
+        </nav>
+
+        <div className="utility-track">
+          {utilityItems.map((item) => (
+            <div
+              key={item.label}
+              className={`utility-item tone-${item.tone ?? 'neutral'}`}
+            >
+              <span className="utility-label">{item.label}</span>
+              <strong
+                className="utility-value"
+                title={timestampTooltip(item.value)}
+              >
+                {formatMaybeTimestamp(item.value)}
+              </strong>
+            </div>
+          ))}
         </div>
       </header>
-
-      <nav className="view-switch" aria-label="Primary views">
-        <button
-          type="button"
-          className={view === 'console' ? 'tab is-active' : 'tab'}
-          onClick={() => setView('console')}
-        >
-          Live Flow Console
-        </button>
-        <button
-          type="button"
-          className={view === 'topology' ? 'tab is-active' : 'tab'}
-          onClick={() => setView('topology')}
-        >
-          Pipeline Topology
-        </button>
-      </nav>
 
       <main className="workspace">
         <ErrorBoundary title="Primary View">
           {view === 'console' ? (
             <LiveFlowConsole
               snapshot={snapshot}
-              selectedSuggestionId={selectedSuggestion.id}
+              selectedSuggestion={selectedSuggestion}
               onSelectSuggestion={setPreferredSuggestionId}
             />
           ) : (
@@ -128,6 +142,7 @@ function App() {
 
         <ErrorBoundary title="Evidence Drawer">
           <EvidenceDrawer
+            key={selectedSuggestion.id}
             suggestion={selectedSuggestion}
             controls={snapshot.strategyControls}
           />

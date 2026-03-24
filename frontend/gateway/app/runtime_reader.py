@@ -721,14 +721,16 @@ def _build_feed(
       (
         raw_ts,
         {
-          'id': 'feed-raw',
-          'stamp': _format_stamp(raw_ts),
+          'id': f"feed-raw-{_format_iso(raw_ts)}-{raw_service}",
+          'stamp': _format_iso(raw_ts),
           'kind': 'raw',
           'title': f'Raw sample observed for {raw_service}',
           'detail': (
             f"src_device_key={raw_device} action={_get_text(raw_payload, 'action') or 'event'} "
             'from the latest runtime audit.'
           ),
+          'service': raw_service,
+          'device': raw_device,
         },
       ),
     )
@@ -759,13 +761,17 @@ def _build_feed(
         alert_ts,
         {
           'id': f"feed-alert-{_get_text(alert, 'alert_id') or service}",
-          'stamp': _format_stamp(alert_ts),
+          'stamp': _format_iso(alert_ts),
           'kind': 'alert',
           'title': f"Alert {_get_text(alert, 'rule_id') or 'rule'} for {service}",
           'detail': (
             f"device={device}; evidence="
             + (', '.join(evidence_flags) if evidence_flags else 'none')
           ),
+          'service': service,
+          'device': device,
+          'relatedAlertId': _get_text(alert, 'alert_id') or '',
+          'evidence': ', '.join(evidence_flags) if evidence_flags else 'none',
         },
       ),
     )
@@ -780,20 +786,31 @@ def _build_feed(
       continue
     context = suggestion.get('context', {}) if isinstance(suggestion.get('context'), dict) else {}
     service = _get_text(context, 'service') or 'unknown'
+    device = _get_text(context, 'src_device_key') or 'unknown'
     scope = _get_text(suggestion, 'suggestion_scope') or 'alert'
     provider = _get_text(context, 'provider') or 'template'
+    action_count = len(_string_list(suggestion.get('recommended_actions')))
+    hypothesis_count = len(_string_list(suggestion.get('hypotheses')))
     feed_items.append(
       (
         suggestion_ts,
         {
           'id': f"feed-suggestion-{_get_text(suggestion, 'suggestion_id') or service}",
-          'stamp': _format_stamp(suggestion_ts),
+          'stamp': _format_iso(suggestion_ts),
           'kind': 'suggestion',
           'title': f'{scope}-scope suggestion for {service}',
           'detail': (
-            f"provider={provider}; actions={len(_string_list(suggestion.get('recommended_actions')))} "
-            f"hypotheses={len(_string_list(suggestion.get('hypotheses')))}"
+            f"provider={provider}; actions={action_count} "
+            f"hypotheses={hypothesis_count}"
           ),
+          'service': service,
+          'device': device,
+          'scope': 'cluster' if scope == 'cluster' else 'alert',
+          'relatedAlertId': _get_text(suggestion, 'alert_id') or '',
+          'relatedSuggestionId': _get_text(suggestion, 'suggestion_id') or '',
+          'provider': provider,
+          'actionCount': str(action_count),
+          'hypothesisCount': str(hypothesis_count),
         },
       ),
     )

@@ -51,14 +51,14 @@ PATH=/data/.local/node/bin:$PATH npm install
 python3 -m pip install --target /data/.local/netops-console-py -r frontend/gateway/requirements.txt
 
 PATH=/data/.local/node/bin:$PATH npm run dev
-PATH=/data/.local/node/bin:$PATH npm run dev:api
+PATH=/data/.local/node/bin:$PATH npm run dev:gateway
 PATH=/data/.local/node/bin:$PATH npm run build
 ```
 
 Local development uses:
 
 - frontend UI on `:5173`
-- FastAPI gateway on `:8080`
+- FastAPI gateway on `:8026`
 - Vite proxy for `/api`, so the browser does not need CORS during normal local work
 
 ## Runtime shape
@@ -90,15 +90,15 @@ When you want a shareable or reviewable environment, the recommended production
 shape is:
 
 - build the frontend once
-- let FastAPI serve the built static assets
-- expose a single HTTP port from one container
+- expose `:2026` through `nginx`
+- keep the FastAPI gateway on internal `:8026`
 
 That gives you:
 
 - one origin
 - no production CORS problem
-- no separate nginx layer required for the first deployable demo
-- simpler k3s manifests and fewer moving parts
+- static assets on a real web server
+- a long-lived gateway process that can keep streaming over `SSE`
 
 ## k3s option
 
@@ -121,8 +121,9 @@ That deployment shape is intentionally single-service:
 
 Recommended shape:
 
-- local dev: two ports, `5173` for UI and `8080` for API
-- production or k3s demo: one port, `8080`, same origin
+- local dev: two ports, `5173` for UI and `8026` for API
+- review / shared host: `2026` public via `nginx`, `8026` internal via `FastAPI`
+- k3s single-service option: one port, `8026`, same origin inside the pod
 
 CORS is therefore not the primary design.
 
@@ -139,6 +140,7 @@ If you do need cross-origin access later, the gateway supports
 - `ECharts` for compact time-series evidence
 - `React Flow` for visible pipeline topology and control boundaries
 - `FastAPI + SSE` for a thin live gateway with minimal operational overhead
+- `nginx + systemd` for the current host-level production shape
 - `PyYAML` for reading deployment env controls directly from the repo
 - `Docker + k3s Deployment` as an optional packaging layer, not the default dev loop
 

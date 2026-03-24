@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { startTransition, useEffect, useState } from 'react'
 import { runtimeSnapshot as fallbackSnapshot } from '../data/runtimeModel'
 import type { RuntimeSnapshot } from '../types'
 
@@ -29,7 +29,7 @@ export function useRuntimeSnapshot() {
           throw new Error(`snapshot request failed: ${response.status}`)
         }
         const nextSnapshot = (await response.json()) as RuntimeSnapshot
-        setSnapshot(nextSnapshot)
+        startTransition(() => setSnapshot(nextSnapshot))
         setConnectionState('live')
       } catch {
         if (!controller.signal.aborted) {
@@ -62,7 +62,7 @@ export function useRuntimeSnapshot() {
           if (!isMounted) {
             return
           }
-          setSnapshot(nextSnapshot)
+          startTransition(() => setSnapshot(nextSnapshot))
           setConnectionState('live')
         } catch {
           if (isMounted) {

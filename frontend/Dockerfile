@@ -23,7 +23,6 @@ ENV NETOPS_CONSOLE_REPO_ROOT=/app/repo
 ENV NETOPS_CONSOLE_FRONTEND_DIST=/app/frontend/dist
 ENV NETOPS_RUNTIME_ROOT=/data/netops-runtime
 
-EXPOSE 8080
+EXPOSE 8026
 
-CMD ["uvicorn", "gateway.app.main:app", "--host", "0.0.0.0", "--port", "8080"]
-
+CMD ["uvicorn", "gateway.app.main:app", "--host", "0.0.0.0", "--port", "8026"]

@@ -5,25 +5,22 @@
 @import '@fontsource/ibm-plex-mono/500.css';
 
 :root {
-  --bg-base: #070b10;
-  --bg-elevated: #0c1118;
-  --line-strong: rgba(152, 181, 211, 0.22);
-  --line-soft: rgba(152, 181, 211, 0.12);
+  --bg-base: #05080c;
+  --bg-elevated: #0a0e13;
+  --line-strong: rgba(157, 176, 196, 0.22);
+  --line-soft: rgba(157, 176, 196, 0.12);
   --text-main: #f2f7fb;
-  --text-subtle: #b4c3d0;
-  --text-dim: #738699;
-  --signal-alert: #ff7a20;
+  --text-subtle: #bcc6d0;
+  --text-dim: #6f7f8f;
+  --signal-alert: #ff893d;
   --signal-cyan: #69f9ff;
-  --signal-good: #6cff9b;
-  --signal-bad: #ff5a5a;
+  --signal-good: #6fffae;
+  --signal-bad: #ff6262;
   --font-sans: 'IBM Plex Sans Condensed', 'Arial Narrow', sans-serif;
   --font-body: 'IBM Plex Sans Condensed', 'Noto Sans SC', sans-serif;
   --font-mono: 'IBM Plex Mono', 'SFMono-Regular', monospace;
   color: var(--text-main);
-  background:
-    radial-gradient(circle at top right, rgba(105, 249, 255, 0.12), transparent 24%),
-    radial-gradient(circle at 12% 12%, rgba(255, 122, 32, 0.12), transparent 18%),
-    linear-gradient(180deg, #0a0f15 0%, #06090e 100%);
+  background-color: var(--bg-base);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -45,11 +42,11 @@ body {
   min-width: 320px;
   font: 400 16px/1.5 var(--font-body);
   color: var(--text-main);
-  background:
-    linear-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.025) 1px, transparent 1px),
-    linear-gradient(180deg, #090d13 0%, #06090e 100%);
-  background-size: 28px 28px, 28px 28px, auto;
+  background-color: var(--bg-base);
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+  background-size: 28px 28px;
 }
 
 body::before {
@@ -57,15 +54,8 @@ body::before {
   position: fixed;
   inset: 0;
   pointer-events: none;
-  background:
-    linear-gradient(
-      180deg,
-      rgba(255, 255, 255, 0.02) 0%,
-      rgba(255, 255, 255, 0) 30%,
-      rgba(255, 255, 255, 0.015) 100%
-    );
-  mix-blend-mode: screen;
-  opacity: 0.35;
+  border: 1px solid rgba(255, 255, 255, 0.02);
+  opacity: 0.24;
 }
 
 button,

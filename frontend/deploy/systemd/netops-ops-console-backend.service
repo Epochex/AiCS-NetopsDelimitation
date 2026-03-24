@@ -13,6 +13,8 @@ Environment=NETOPS_CONSOLE_FRONTEND_DIST=/data/Netops-causality-remediation/fron
 ExecStart=/data/Netops-causality-remediation/frontend/.venv/bin/uvicorn gateway.app.main:app --app-dir /data/Netops-causality-remediation/frontend --host 127.0.0.1 --port 8026
 Restart=always
 RestartSec=3
+TimeoutStopSec=8
+KillMode=mixed
 
 [Install]
 WantedBy=multi-user.target
