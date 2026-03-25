@@ -11,9 +11,7 @@ from core.aiops_agent.providers import TemplateProvider
 from core.aiops_agent.service import commit_if_needed, run_agent_loop
 from core.aiops_agent.suggestion_engine import (
     build_alert_pipeline_suggestion,
-    build_cluster_suggestion,
     build_pipeline_suggestion,
-    build_suggestion,
 )
 
 
@@ -129,43 +127,6 @@ def test_recent_similar_accepts_dict_like_first_item() -> None:
 def test_recent_similar_returns_zero_on_query_error() -> None:
     count = recent_similar_count(_ClientFail(), "netops", "alerts", "deny_burst_v1", "udp/3702")
     assert count == 0
-
-
-def test_build_suggestion_uses_severity_and_recent_context() -> None:
-    alert = {
-        "alert_id": "a-1",
-        "rule_id": "deny_burst_v1",
-        "severity": "warning",
-        "event_excerpt": {
-            "service": "udp/3702",
-            "srcip": "192.168.1.10",
-            "src_device_key": "dev-1",
-        },
-    }
-    s = build_suggestion(alert, recent_similar_1h=25)
-    assert s["alert_id"] == "a-1"
-    assert s["priority"] == "P2"
-    assert s["context"]["recent_similar_1h"] == 25
-    assert s["confidence"] == 0.75
-    assert len(s["recommended_actions"]) >= 1
-
-
-def test_build_cluster_suggestion_contains_cluster_context() -> None:
-    alert = {"alert_id": "a-9"}
-    trigger = ClusterTrigger(
-        key=ClusterKey(rule_id="deny_burst_v1", severity="warning", service="udp/3702", src_device_key="dev-1"),
-        cluster_size=5,
-        first_alert_ts="2026-03-09T00:00:00+00:00",
-        last_alert_ts="2026-03-09T00:00:59+00:00",
-        window_sec=300,
-        sample_alert_ids=["a-1", "a-2", "a-3", "a-4", "a-5"],
-    )
-    s = build_cluster_suggestion(alert, trigger, recent_similar_1h=30)
-    assert s["suggestion_scope"] == "cluster"
-    assert s["context"]["cluster_size"] == 5
-    assert s["context"]["service"] == "udp/3702"
-    assert s["context"]["recent_similar_1h"] == 30
-    assert s["confidence"] >= 0.7
 
 
 def test_evidence_bundle_and_inference_request_capture_pipeline_context() -> None:

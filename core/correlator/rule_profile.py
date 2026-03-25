@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from core.correlator.rules import RuleConfig
-from core.infra.config import env_int, env_str
+from common.infra.config import env_int, env_str
 
 LOGGER = logging.getLogger(__name__)
 

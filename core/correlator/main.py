@@ -6,10 +6,10 @@ from typing import Any
 
 from kafka import KafkaConsumer, KafkaProducer
 
-from core.infra.config import env_int, env_str
+from common.infra.config import env_int, env_str
+from common.infra.logging_utils import configure_logging
 from core.correlator.quality_gate import QualityGate
 from core.correlator.rule_profile import load_rule_config
-from core.infra.logging_utils import configure_logging
 from core.correlator.rules import RuleEngine
 
 LOGGER = logging.getLogger(__name__)

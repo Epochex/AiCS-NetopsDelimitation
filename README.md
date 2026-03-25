@@ -556,12 +556,11 @@ The core side (`netops-node1 / r450`) adopts **Kafka (KRaft, single-node) + Pyth
 Phase-2 minimal pipeline and the first AIOps augmentation hook have been implemented with clear module boundaries:
 
 - `edge/edge_forwarder`: edge-side producer (`events-*.jsonl` -> Kafka raw topic)
-- `edge/edge_forwarder/infra`: edge-forwarder local infra utilities (`env` config, logging, checkpoint I/O)
+- `common/infra`: shared edge/core infra utilities (`env` config, logging, checkpoint I/O)
 - `core/correlator`: core-side consumer/correlator (raw topic -> alert topic)
 - `core/alerts_sink`: alert sink (`netops.alerts.v1` -> hourly JSONL under `/data/netops-runtime/alerts`)
 - `core/alerts_store`: alert hot store (`netops.alerts.v1` -> ClickHouse structured records)
 - `core/aiops_agent`: minimal AIOps loop (`netops.alerts.v1` -> alert-scope suggestion + optional cluster-scope suggestion -> `netops.aiops.suggestions.v1` + hourly JSONL)
-- `core/infra`: core-side shared helpers for correlator path
 - `core/benchmark`: load-test, lag probe, alert quality observation, and long-run pipeline watch utilities
 - `core/deployments`: k3s manifests (`namespace`, `kafka`, `topic-init`, `correlator`, `alerts_sink`, `clickhouse`, `alerts_store`, `aiops_agent`)
 - `core/docker`: core app image build entry

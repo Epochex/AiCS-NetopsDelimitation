@@ -5,7 +5,7 @@ Edge components and release scripts are intentionally separated under `edge/`.
 
 ## Module Layout
 
-- `core/infra`: shared config, logging, checkpoint helpers
+- `common/infra`: shared config, logging, checkpoint helpers used by both edge and core runtimes
 - `core/correlator`: consumes raw topic and emits alert topic using deterministic rules
 - `core/alerts_sink`: consumes alert topic and persists hourly JSONL in runtime volume
 - `core/alerts_store`: consumes alert topic and writes structured records to ClickHouse

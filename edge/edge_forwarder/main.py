@@ -8,9 +8,9 @@ from typing import Any
 
 from kafka import KafkaProducer
 
-from edge.edge_forwarder.infra.config import env_float, env_int, env_str
-from edge.edge_forwarder.infra.jsonl_checkpoint import load_checkpoint, save_checkpoint
-from edge.edge_forwarder.infra.logging_utils import configure_logging
+from common.infra.config import env_float, env_int, env_str
+from common.infra.jsonl_checkpoint import load_checkpoint, save_checkpoint
+from common.infra.logging_utils import configure_logging
 
 LOGGER = logging.getLogger(__name__)
 

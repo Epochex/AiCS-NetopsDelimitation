@@ -550,12 +550,11 @@ Feb 21 15:45:27 _gateway date=2026-02-21 time=15:45:26 devname="DAHUA_FORTIGATE"
 当前仓库已形成模块化实现，职责拆分如下：
 
 - `edge/edge_forwarder`：运行在 `r230`，将 edge 侧 JSONL 事件推送到 Kafka Raw Topic
-- `edge/edge_forwarder/infra`：edge-forwarder 基础设施能力（配置读取、日志封装、checkpoint 落盘）
+- `common/infra`：edge/core 共用基础设施能力（配置读取、日志封装、checkpoint 落盘）
 - `core/correlator`：运行在 `r450`，消费 Raw Topic，执行窗口规则并输出 Alert Topic
 - `core/alerts_sink`：运行在 `r450`，将告警按小时落盘到 `/data/netops-runtime/alerts`
 - `core/alerts_store`：运行在 `r450`，将告警结构化写入 ClickHouse
 - `core/aiops_agent`：运行在 `r450`，对告警流进行告警级建议输出，并在簇聚合命中时追加簇级建议
-- `core/infra`：core-correlator 共享基础能力
 - `core/benchmark`：压测、吞吐探测、告警质量观测、长时链路观测工具
 - `core/deployments`：k3s 资源清单（namespace、kafka、topic-init、correlator、alerts_sink、clickhouse、alerts_store、aiops_agent）
 - `core/docker`：core-correlator 镜像构建入口
