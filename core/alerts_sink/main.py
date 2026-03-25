@@ -6,8 +6,8 @@ from typing import Any
 
 from kafka import KafkaConsumer, KafkaProducer
 
-from core.infra.config import env_int, env_str
-from core.infra.logging_utils import configure_logging
+from common.infra.config import env_int, env_str
+from common.infra.logging_utils import configure_logging
 
 LOGGER = logging.getLogger(__name__)
 

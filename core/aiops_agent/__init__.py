@@ -7,7 +7,10 @@ from core.aiops_agent.inference_schema import (
     build_alert_inference_request,
     build_cluster_inference_request,
 )
-from core.aiops_agent.suggestion_engine import build_suggestion
+from core.aiops_agent.suggestion_engine import (
+    build_alert_pipeline_suggestion,
+    build_pipeline_suggestion,
+)
 
 __all__ = [
     "AgentConfig",
@@ -18,6 +21,7 @@ __all__ = [
     "build_alert_inference_request",
     "build_cluster_evidence_bundle",
     "build_cluster_inference_request",
-    "build_suggestion",
+    "build_alert_pipeline_suggestion",
     "load_config",
+    "build_pipeline_suggestion",
 ]

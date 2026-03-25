@@ -27,9 +27,9 @@ This file is a quick map for "which folder to edit" during feature changes.
 
 ## Shared Infra
 
-- `core/infra`
-  - Responsibility: config parsing, logging setup, checkpoint utilities.
-  - Typical changes: shared env parsing, logging format, safe checkpointing.
+- `common/infra`
+  - Responsibility: shared config parsing, logging setup, and checkpoint utilities used by both edge and core runtimes.
+  - Typical changes: env parsing, logging format, safe checkpointing.
 
 ## Deployment
 

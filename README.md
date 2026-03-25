@@ -108,6 +108,78 @@ flowchart LR
   - Same-origin deployment keeps the console operationally light and avoids unnecessary cross-origin plumbing.
   - Avoiding external store/router complexity at this stage keeps iteration fast while the product surface is still a focused console rather than a multi-product shell.
 
+### Operational Safety Boundary
+
+- The current frontend console and runtime gateway are **observation-only**.
+- They read JSONL sinks, deployment env values, and live runtime audit files, but do **not** write back to:
+  - FortiGate routers
+  - edge/core runtime configuration
+  - Kubernetes deployments
+  - remediation execution channels
+- `Remediation Loop` is intentionally rendered as a reserved control boundary rather than as a live write-back stage. Any future approval/execution path must remain explicitly separated from the current read-only console.
+
+### Live Event Lifecycle (Current 10-Stage Operator View)
+
+- `01 FortiGate`
+  - Source device log plane. This is the real traffic/log origin and the upstream source of all later runtime states.
+- `02 edge/fortigate-ingest`
+  - Parses raw FortiGate syslog into structured JSONL facts, keeps checkpoint/replay semantics, and hands clean edge facts to the next stage.
+- `03 edge-forwarder`
+  - Reads parsed edge facts and forwards them into the core-side Kafka raw topic. This is the transport bridge between edge file-backed runtime and the core streaming plane.
+- `04 netops.facts.raw.v1`
+  - Real-time fact topic. It is the first core-visible event stream and the immediate upstream input of deterministic alerting.
+- `05 core-correlator`
+  - Applies quality gates, dedup policy, and deterministic rules. This is where the current system still makes its actual alert/no-alert decision.
+- `06 netops.alerts.v1`
+  - Alert bus. It carries emitted alerts downstream to persistence and AIOps enrichment. It is the handoff point between deterministic detection and suggestion generation.
+- `07 cluster window`
+  - Same-key aggregation gate over emitted alerts. This is a logical stage inside the AIOps path rather than a separate deployed service; it decides whether repeated alerts should also become `cluster-scope` suggestions.
+- `08 core-aiops-agent`
+  - Builds evidence bundles, looks up recent history from ClickHouse, and invokes the configured provider. Today this means template inference by default; later it is the attachment point for remote/local LLM inference.
+- `09 netops.aiops.suggestions.v1`
+  - Structured suggestion topic. It is the operator-facing output of the current AIOps path and the immediate upstream source of the frontend evidence drawer/event queue.
+- `10 Remediation Loop`
+  - Reserved approval/execution/feedback boundary. It is shown so the user can see where the system would hand over into execution later, but it is not yet wired as a real runtime stage.
+
+Relationship between stages:
+
+- `01 -> 04` is the ingest/transport path.
+- `05 -> 06` is the real alert decision path.
+- `06 -> 09` is the evidence/suggestion path.
+- `07` is a logical gate between alert repetition and cluster-scope suggestion emission.
+- `10` is downstream of suggestion generation but remains a visible boundary rather than an active control loop.
+
+### Realtime UI Update Model
+
+- Current implementation
+  - The gateway serves an initial `GET /api/runtime/snapshot`, then pushes a full `RuntimeSnapshot` over SSE every `5` seconds by default (`NETOPS_CONSOLE_STREAM_INTERVAL_SEC=5`).
+  - This is intentionally simple and robust for the current demo/operations phase, but it means the frontend is refreshed as a coarse full-state heartbeat rather than as a stage-by-stage event stream.
+- Why the public proxy path can feel less “live”
+  - The current SSE stream carries whole-snapshot refreshes, not per-stage deltas.
+  - The public demo path adds WAN + proxy + tailnet hops on top of that heartbeat model, so motion feels less immediate than local/Tailscale-direct viewing.
+- Planned next step
+  - Move from `full snapshot every N seconds` to `event-triggered delta stream`.
+  - Emit stage/state changes such as:
+    - raw fact observed
+    - alert emitted
+    - cluster progress updated
+    - suggestion emitted
+    - remediation boundary entered
+  - Let the frontend maintain a stable local state model and animate only the affected stage/event block.
+- Stage timers
+  - Yes, per-stage/per-action timers are feasible, but they should be driven by real stage timestamps rather than decorative client timers.
+  - For each visible stage transition, the recommended model is:
+    - `started_at`
+    - `ended_at`
+    - `duration_ms`
+    - `source_event_id / alert_id / suggestion_id`
+  - Not every stage currently exposes enough audit timestamps to calculate a real duration, so some stages would initially show `known boundary timestamps` while the richer timer model is added incrementally.
+- Resource impact
+  - Moving to event-triggered updates will **not** materially increase resource usage if the stream is limited to stage transitions and operator-relevant events.
+  - It may even reduce gateway I/O compared with repeatedly rebuilding full snapshots from JSONL every `5` seconds.
+  - The expensive version would be pushing every raw fact directly to the UI; that is not recommended.
+  - The practical target is: keep raw/high-volume data in Kafka/runtime files, and push only stage deltas plus timing metadata to the frontend.
+
 ### Current Resource Boundary and Next-Stage Plan
 
 - Observed node utilization (`2026-03-24` sample)
@@ -556,12 +628,11 @@ The core side (`netops-node1 / r450`) adopts **Kafka (KRaft, single-node) + Pyth
 Phase-2 minimal pipeline and the first AIOps augmentation hook have been implemented with clear module boundaries:
 
 - `edge/edge_forwarder`: edge-side producer (`events-*.jsonl` -> Kafka raw topic)
-- `edge/edge_forwarder/infra`: edge-forwarder local infra utilities (`env` config, logging, checkpoint I/O)
+- `common/infra`: shared edge/core infra utilities (`env` config, logging, checkpoint I/O)
 - `core/correlator`: core-side consumer/correlator (raw topic -> alert topic)
 - `core/alerts_sink`: alert sink (`netops.alerts.v1` -> hourly JSONL under `/data/netops-runtime/alerts`)
 - `core/alerts_store`: alert hot store (`netops.alerts.v1` -> ClickHouse structured records)
 - `core/aiops_agent`: minimal AIOps loop (`netops.alerts.v1` -> alert-scope suggestion + optional cluster-scope suggestion -> `netops.aiops.suggestions.v1` + hourly JSONL)
-- `core/infra`: core-side shared helpers for correlator path
 - `core/benchmark`: load-test, lag probe, alert quality observation, and long-run pipeline watch utilities
 - `core/deployments`: k3s manifests (`namespace`, `kafka`, `topic-init`, `correlator`, `alerts_sink`, `clickhouse`, `alerts_store`, `aiops_agent`)
 - `core/docker`: core app image build entry

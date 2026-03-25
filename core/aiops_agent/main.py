@@ -2,7 +2,7 @@ import logging
 from core.aiops_agent.app_config import load_config
 from core.aiops_agent.runtime_io import build_clickhouse_client, build_consumer, build_producer
 from core.aiops_agent.service import run_agent_loop
-from core.infra.logging_utils import configure_logging
+from common.infra.logging_utils import configure_logging
 
 LOGGER = logging.getLogger(__name__)
 

@@ -5,7 +5,7 @@
 ## Module Layout
 
 - `edge/edge_forwarder/main.py`: forwarder runtime loop
-- `edge/edge_forwarder/infra`: config/logging/checkpoint helpers
+- `common/infra`: shared config/logging/checkpoint helpers
 - `edge/edge_forwarder/deployments/30-edge-forwarder.yaml`: k3s deployment manifest
 - `edge/edge_forwarder/docker/Dockerfile.app`: forwarder-only image build entry
 - `edge/edge_forwarder/scripts/deploy_edge_forwarder.sh`: edge-only release helper

@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from core.infra.config import env_int, env_str
+from common.infra.config import env_int, env_str
 
 SEVERITY_RANK = {"warning": 1, "critical": 2}
 

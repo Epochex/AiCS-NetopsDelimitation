@@ -107,6 +107,78 @@ flowchart LR
   - 同源部署能显著降低前端演示面与网关接入面的运维复杂度。
   - 在前端产品面尚未扩成多产品壳层之前，不引入额外 store/router 复杂度，有利于快速迭代真实语义映射。
 
+### 运行安全边界
+
+- 当前前端控制台和 runtime 薄网关都是**只读观察面**。
+- 它们读取 JSONL sink、deployment 环境变量和 live runtime audit 文件，但**不会**回写到：
+  - FortiGate 路由器
+  - edge/core 运行配置
+  - Kubernetes deployment
+  - remediation 执行通道
+- `Remediation Loop` 现在被故意画成一个“保留的控制边界”，而不是一个真实会写回生产环境的执行阶段。后续如果接审批/执行，也必须与当前只读控制台明确隔离。
+
+### Live Event Lifecycle（当前 10 阶段运维视图）
+
+- `01 FortiGate`
+  - 源设备日志平面，是整条链路最上游的真实流量/日志来源。
+- `02 edge/fortigate-ingest`
+  - 把原始 FortiGate syslog 解析成结构化 JSONL facts，同时保留 checkpoint / replay 语义，再把整理后的 edge facts 交给下一阶段。
+- `03 edge-forwarder`
+  - 读取 edge 侧的解析结果并转发到 core 侧 Kafka raw topic。它是 edge 文件态运行时和 core 流式数据面的桥梁。
+- `04 netops.facts.raw.v1`
+  - 实时 fact topic，是 core 侧第一次看见事实事件的地方，也是确定性告警链路的直接上游。
+- `05 core-correlator`
+  - 执行质量门禁、去重和确定性规则。当前系统真正做“发不发 alert”判断的地方就在这里。
+- `06 netops.alerts.v1`
+  - Alert bus。它把已经发出的告警交给后续持久化和 AIOps 增强，是“确定性检测”和“建议生成”之间的交接点。
+- `07 cluster window`
+  - 基于已发出的 alerts 做 same-key 聚合门控。这是 AIOps 路径内部的一个逻辑阶段，不是独立部署服务；它决定重复告警是否还要形成 `cluster-scope` suggestion。
+- `08 core-aiops-agent`
+  - 构建 evidence bundle、从 ClickHouse 查询近期历史、调用 provider。当前默认还是 template 推理，未来这里就是远端/本地 LLM 推理的挂接点。
+- `09 netops.aiops.suggestions.v1`
+  - 结构化建议 topic，是当前 AIOps 路径面向操作员的输出，也是前端 evidence drawer / event queue 的直接上游。
+- `10 Remediation Loop`
+  - 预留的审批/执行/反馈边界。它现在存在的意义是告诉用户“系统未来会在这里进入执行闭环”，但当前还没有接成真实运行阶段。
+
+阶段之间的转承关系：
+
+- `01 -> 04` 是接入/传输路径。
+- `05 -> 06` 是真实告警决策路径。
+- `06 -> 09` 是证据增强/建议输出路径。
+- `07` 是 alert 重复聚合到 cluster-scope suggestion 的逻辑门。
+- `10` 位于 suggestion 之后，但当前仍是可见边界而不是活动闭环。
+
+### 前端实时更新模型
+
+- 当前实现
+  - 网关先提供一次 `GET /api/runtime/snapshot`，然后默认每 `5` 秒通过 SSE 推送一份完整 `RuntimeSnapshot`（`NETOPS_CONSOLE_STREAM_INTERVAL_SEC=5`）。
+  - 这个实现的优点是简单、稳定、适合当前 demo/观测阶段；缺点是前端拿到的是“整包状态心跳”，不是“按阶段推进的事件流”。
+- 为什么公网代理路径看起来没那么“活”
+  - 现在 SSE 传的是完整 snapshot，不是逐阶段 delta。
+  - 公网演示链路又叠加了 WAN + proxy + tailnet 多跳，所以视觉上会比本地/Tailscale 直连更钝。
+- 下一步建议
+  - 从“每 N 秒全量快照”切到“按事件触发的 delta stream”。
+  - 只推送关键阶段变化，例如：
+    - raw fact observed
+    - alert emitted
+    - cluster progress updated
+    - suggestion emitted
+    - remediation boundary entered
+  - 前端本地维护稳定状态，只重绘受影响的阶段/事件块。
+- 阶段计时
+  - 可以做，而且应该基于真实阶段时间戳来做，而不是前端装饰性计时器。
+  - 推荐的数据结构是：
+    - `started_at`
+    - `ended_at`
+    - `duration_ms`
+    - `source_event_id / alert_id / suggestion_id`
+  - 但要诚实说明：当前并不是每个阶段都已经暴露了足够的审计时间戳，所以一开始只能先展示“已知边界时间”，再逐步补全更真实的阶段耗时模型。
+- 资源影响
+  - 如果只推送“阶段转移”和“对操作员有意义的事件”，资源消耗**不会明显上升**。
+  - 相反，它甚至可能比现在每 `5` 秒从 JSONL 全量重建 snapshot 更省网关 I/O。
+  - 真正不建议的是把所有 raw facts 直接高频推给前端。
+  - 更合理的目标是：高吞吐数据继续留在 Kafka/runtime files，前端只接收带时序元数据的阶段 delta。
+
 ### 当前资源边界与下一阶段规划
 
 - 当前观测到的节点利用率（`2026-03-24` 样本）
@@ -550,12 +622,11 @@ Feb 21 15:45:27 _gateway date=2026-02-21 time=15:45:26 devname="DAHUA_FORTIGATE"
 当前仓库已形成模块化实现，职责拆分如下：
 
 - `edge/edge_forwarder`：运行在 `r230`，将 edge 侧 JSONL 事件推送到 Kafka Raw Topic
-- `edge/edge_forwarder/infra`：edge-forwarder 基础设施能力（配置读取、日志封装、checkpoint 落盘）
+- `common/infra`：edge/core 共用基础设施能力（配置读取、日志封装、checkpoint 落盘）
 - `core/correlator`：运行在 `r450`，消费 Raw Topic，执行窗口规则并输出 Alert Topic
 - `core/alerts_sink`：运行在 `r450`，将告警按小时落盘到 `/data/netops-runtime/alerts`
 - `core/alerts_store`：运行在 `r450`，将告警结构化写入 ClickHouse
 - `core/aiops_agent`：运行在 `r450`，对告警流进行告警级建议输出，并在簇聚合命中时追加簇级建议
-- `core/infra`：core-correlator 共享基础能力
 - `core/benchmark`：压测、吞吐探测、告警质量观测、长时链路观测工具
 - `core/deployments`：k3s 资源清单（namespace、kafka、topic-init、correlator、alerts_sink、clickhouse、alerts_store、aiops_agent）
 - `core/docker`：core-correlator 镜像构建入口
