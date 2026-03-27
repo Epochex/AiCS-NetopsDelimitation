@@ -264,7 +264,7 @@
 
 .stage-segment {
   display: grid;
-  grid-template-rows: minmax(164px, auto) minmax(52px, auto) 22px;
+  grid-template-rows: minmax(164px, auto) minmax(42px, auto) 22px;
   gap: 0.55rem;
 }
 
@@ -402,15 +402,15 @@
 }
 
 .stage-action {
-  min-height: 3.25rem;
+  min-height: 2.65rem;
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
-  gap: 0.38rem;
-  padding: 0.48rem 0.58rem 0.5rem;
+  gap: 0.24rem;
+  padding: 0.34rem 0.48rem 0.42rem;
   border: 1px solid var(--line-soft);
   background: rgba(6, 10, 14, 0.9);
   transition: border-color 140ms ease;
+  overflow: hidden;
 }
 
 .stage-action.state-complete,
@@ -443,25 +443,66 @@
 
 .stage-action-head strong {
   color: var(--text-main);
-  font: 600 0.68rem/1 var(--font-mono);
+  font: 600 0.64rem/1 var(--font-mono);
 }
 
+.stage-action.tone-raw .stage-action-head strong,
 .stage-action.mode-duration .stage-action-head strong {
   color: var(--signal-cyan);
 }
 
+.stage-action.tone-alert .stage-action-head strong,
 .stage-action.mode-gate .stage-action-head strong {
   color: var(--signal-alert);
 }
 
-.stage-action.mode-reserved .stage-action-head strong {
+.stage-action.tone-suggestion .stage-action-head strong {
+  color: var(--signal-good);
+}
+
+.stage-action.mode-reserved .stage-action-head strong,
+.stage-action.tone-planned .stage-action-head strong {
   color: var(--text-dim);
 }
 
-.stage-action p {
-  margin: 0;
+.stage-action-caption {
   color: var(--text-subtle);
-  font: 400 0.68rem/1.35 var(--font-body);
+  font: 400 0.58rem/1.1 var(--font-body);
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.stage-action-meter {
+  position: relative;
+  height: 3px;
+  border: 1px solid rgba(157, 176, 196, 0.14);
+  background: rgba(3, 6, 9, 0.92);
+}
+
+.stage-action-meter > span {
+  display: block;
+  height: 100%;
+  background: rgba(157, 176, 196, 0.46);
+  transition: width 220ms ease;
+}
+
+.stage-action.tone-raw .stage-action-meter > span {
+  background: rgba(105, 249, 255, 0.86);
+}
+
+.stage-action.tone-alert .stage-action-meter > span {
+  background: rgba(255, 137, 61, 0.88);
+}
+
+.stage-action.tone-suggestion .stage-action-meter > span {
+  background: rgba(111, 255, 173, 0.82);
+}
+
+.stage-action.tone-planned .stage-action-meter > span,
+.stage-action.tone-neutral .stage-action-meter > span {
+  background: rgba(157, 176, 196, 0.42);
 }
 
 .stage-action.pulse-0 {
@@ -470,6 +511,11 @@
 
 .stage-action.pulse-1 {
   animation: stagePulseB 1.2s ease-out;
+}
+
+.stage-action.pulse-0 .stage-action-meter > span,
+.stage-action.pulse-1 .stage-action-meter > span {
+  animation: meterFlash 1.1s ease-out;
 }
 
 .micro-metric-rail {
@@ -1274,6 +1320,18 @@
   100% {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+@keyframes meterFlash {
+  0% {
+    filter: brightness(1.55);
+    opacity: 0.96;
+  }
+
+  100% {
+    filter: brightness(1);
+    opacity: 1;
   }
 }
 

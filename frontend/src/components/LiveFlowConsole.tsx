@@ -26,8 +26,10 @@ interface LifecycleAction {
   state: StageTelemetry['state']
   label: string
   value: string
-  secondary: string
+  caption?: string
   stamp?: string
+  meter: number
+  tone: 'raw' | 'alert' | 'suggestion' | 'neutral' | 'planned'
 }
 
 interface LifecycleBlock {
@@ -111,10 +113,11 @@ function buildLifecycle(
       },
     ],
     action: stageAction(
+      'cluster-window',
       telemetryLookup.get('cluster-window'),
       clusterStatus,
-      'cluster gate',
-      `${clusterProgress}/${Number.isFinite(clusterTarget) ? clusterTarget : 3} in ${clusterWindow}s`,
+      'cluster window',
+      `${clusterProgress}/${Number.isFinite(clusterTarget) ? clusterTarget : 3}`,
     ),
   }
 
@@ -122,9 +125,10 @@ function buildLifecycle(
     ...orderedStages.slice(0, 6).map((stage) => ({
       ...stage,
       action: stageAction(
+        stage.id,
         telemetryLookup.get(stage.id),
         stage.status,
-        stage.subtitle,
+        stage.title,
         stage.metrics[0]?.value ?? 'steady',
       ),
     })),
@@ -132,9 +136,10 @@ function buildLifecycle(
     ...orderedStages.slice(6).map((stage) => ({
       ...stage,
       action: stageAction(
+        stage.id,
         telemetryLookup.get(stage.id),
         stage.status,
-        stage.subtitle,
+        stage.title,
         stage.metrics[0]?.value ?? 'steady',
       ),
     })),
@@ -142,19 +147,14 @@ function buildLifecycle(
 }
 
 function stageAction(
+  stageId: string,
   telemetry: StageTelemetry | undefined,
   status: StageNode['status'],
   fallbackLabel: string,
   fallbackValue: string,
 ): LifecycleAction {
   if (!telemetry) {
-    return {
-      mode: status === 'planned' ? 'reserved' : 'status',
-      state: status === 'planned' ? 'planned' : 'steady',
-      label: fallbackLabel,
-      value: fallbackValue,
-      secondary: status === 'planned' ? 'not wired' : 'waiting for live delta',
-    }
+    return fallbackStageAction(stageId, status, fallbackLabel)
   }
 
   if (telemetry.mode === 'duration') {
@@ -163,10 +163,12 @@ function stageAction(
       state: telemetry.state,
       label: telemetry.label,
       value: formatDurationMs(telemetry.durationMs),
-      secondary: telemetry.startedAt && telemetry.endedAt
+      caption: telemetry.startedAt && telemetry.endedAt
         ? `${formatMaybeTimestamp(telemetry.startedAt, 'time')} -> ${formatMaybeTimestamp(telemetry.endedAt, 'time')}`
         : 'timing unavailable',
       stamp: telemetry.endedAt,
+      meter: 100,
+      tone: telemetry.label.includes('alert') ? 'alert' : 'suggestion',
     }
   }
 
@@ -176,22 +178,37 @@ function stageAction(
       state: telemetry.state,
       label: telemetry.label,
       value: formatMaybeTimestamp(telemetry.endedAt, 'time'),
-      secondary: telemetry.endedAt ? 'last completed stage event' : 'waiting for event',
+      caption: stageId === 'raw-topic' ? 'latest raw fact' : 'last completed event',
       stamp: telemetry.endedAt,
+      meter: 82,
+      tone:
+        stageId === 'raw-topic' || stageId === 'ingest'
+          ? 'raw'
+          : stageId === 'alerts-topic'
+            ? 'alert'
+            : 'suggestion',
     }
   }
 
   if (telemetry.mode === 'gate') {
+    const parts = (telemetry.value ?? '0/1').split(' in ')
+    const ratio = parts[0] ?? telemetry.value ?? fallbackValue
+    const [progressText, targetText] = ratio.split('/')
+    const progress = Number.parseInt(progressText ?? '0', 10)
+    const target = Number.parseInt(targetText ?? '1', 10)
     return {
       mode: telemetry.mode,
       state: telemetry.state,
       label: telemetry.label,
-      value: telemetry.value ?? fallbackValue,
-      secondary:
+      value: ratio,
+      caption:
         telemetry.durationMs !== null && telemetry.durationMs !== undefined
-          ? `span ${formatDurationMs(telemetry.durationMs)}`
-          : 'window is semantic, not a service call',
+          ? `window ${parts[1] ?? ''} · span ${formatDurationMs(telemetry.durationMs)}`
+          : `${Math.max(0, target - progress)} more needed in ${parts[1] ?? 'window'}`,
       stamp: telemetry.endedAt,
+      meter:
+        target > 0 ? Math.max(10, Math.min(100, (progress / target) * 100)) : 0,
+      tone: 'alert',
     }
   }
 
@@ -200,13 +217,63 @@ function stageAction(
     state: telemetry.state,
     label: telemetry.label,
     value: telemetry.value ?? fallbackValue,
-    secondary:
+    caption:
       telemetry.mode === 'reserved'
-        ? 'control boundary only'
+        ? 'manual approval / execution boundary'
         : telemetry.endedAt
           ? `updated ${formatMaybeTimestamp(telemetry.endedAt, 'time')}`
-          : 'state-driven, not duration-driven',
+          : 'state surface',
     stamp: telemetry.endedAt,
+    meter: telemetry.mode === 'reserved' ? 10 : telemetry.state === 'active' ? 84 : 64,
+    tone: telemetry.mode === 'reserved' ? 'planned' : stageId === 'fortigate' ? 'raw' : 'neutral',
+  }
+}
+
+function fallbackStageAction(
+  stageId: string,
+  status: StageNode['status'],
+  fallbackLabel: string,
+): LifecycleAction {
+  if (stageId === 'fortigate') {
+    return {
+      mode: 'status',
+      state: 'active',
+      label: 'source',
+      value: 'live',
+      caption: 'always-on ingress plane',
+      meter: 88,
+      tone: 'raw',
+    }
+  }
+
+  if (stageId === 'remediation') {
+    return {
+      mode: 'reserved',
+      state: 'planned',
+      label: 'boundary',
+      value: 'manual',
+      caption: 'approval path not wired',
+      meter: 10,
+      tone: 'planned',
+    }
+  }
+
+  return {
+    mode: status === 'planned' ? 'reserved' : 'status',
+    state: status === 'planned' ? 'planned' : 'steady',
+    label: 'state',
+    value: status === 'flowing' ? 'active' : status,
+    caption:
+      stageId === 'cluster-window'
+        ? 'waiting for same-key threshold'
+        : `${fallbackLabel} ready`,
+    meter: status === 'flowing' ? 76 : status === 'watch' ? 42 : 58,
+    tone:
+      stageId === 'ingest' || stageId === 'forwarder' || stageId === 'raw-topic'
+        ? 'raw'
+        : stageId === 'correlator' || stageId === 'alerts-topic' || stageId === 'cluster-window'
+          ? 'alert'
+          : 'suggestion',
   }
 }
 
@@ -442,14 +509,19 @@ export function LiveFlowConsole({
                 </article>
 
                 <div
-                  className={`stage-action mode-${block.action.mode} state-${block.action.state} ${pulseClass}`}
+                  className={`stage-action mode-${block.action.mode} state-${block.action.state} tone-${block.action.tone} ${pulseClass}`}
                   title={timestampTooltip(block.action.stamp)}
                 >
                   <div className="stage-action-head">
                     <span>{block.action.label}</span>
                     <strong>{block.action.value}</strong>
                   </div>
-                  <p>{block.action.secondary}</p>
+                  {block.action.caption ? (
+                    <span className="stage-action-caption">{block.action.caption}</span>
+                  ) : null}
+                  <div className="stage-action-meter" aria-hidden="true">
+                    <span style={{ width: `${block.action.meter}%` }} />
+                  </div>
                 </div>
 
                 {index < lifecycle.length - 1 ? (
@@ -482,7 +554,7 @@ export function LiveFlowConsole({
             <div>
               <h2 className="section-title">Cluster Watch</h2>
               <span className="section-subtitle">
-                Same-key pre-trigger surface for the live cluster path.
+                Same rule + severity + service + device inside the live cluster gate.
               </span>
             </div>
             <span className="section-kicker">600s / min=3</span>

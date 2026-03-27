@@ -532,6 +532,7 @@ def _build_cluster_watch(
     latest_ts = timestamps[-1]
     window_start = latest_ts - timedelta(seconds=cluster_window_sec)
     progress = sum(1 for ts in timestamps if ts >= window_start)
+    remaining = max(0, cluster_min_alerts - progress)
     items.append(
       {
         'key': f'{rule_id} · {service} · {device}',
@@ -541,8 +542,11 @@ def _build_cluster_watch(
         'target': cluster_min_alerts,
         'windowSec': cluster_window_sec,
         'note': (
-          f"{severity} path currently has {progress} alert(s) inside the last "
-          f"{cluster_window_sec}s window."
+          f'{progress} matching {severity} alert(s) seen in the last '
+          f'{cluster_window_sec}s.'
+          if remaining <= 0
+          else f'{progress} matching {severity} alert(s) seen in the last '
+          f'{cluster_window_sec}s; {remaining} more needed for cluster trigger.'
         ),
         '_latestTs': latest_ts,
       },
