@@ -1128,12 +1128,29 @@
 }
 
 .flow-frame {
-  min-height: 360px;
   padding: 0 1rem 1rem;
 }
 
 .flow-frame.compact {
-  min-height: 320px;
+  padding-bottom: 0;
+}
+
+.flow-surface {
+  height: clamp(420px, 54vh, 640px);
+  border: 1px solid var(--line-soft);
+  background: rgba(5, 8, 12, 0.64);
+}
+
+.flow-frame.compact .flow-surface {
+  height: clamp(320px, 42vh, 480px);
+}
+
+.flow-surface .react-flow {
+  background: transparent;
+}
+
+.flow-surface .react-flow__panel {
+  margin: 0.7rem;
 }
 
 .flow-legend {

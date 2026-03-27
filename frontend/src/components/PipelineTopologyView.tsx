@@ -27,8 +27,8 @@ export function PipelineTopologyView({
             <div>
               <h2 className="section-title">Pipeline Topology</h2>
               <span className="section-subtitle">
-                Watch Dogs-style network legibility without drifting into fake
-                sci-fi decoration.
+                Shows which real module, topic, or control boundary each event
+                passes through after it enters the platform.
               </span>
             </div>
             <span className="section-kicker">module / topic / control graph</span>
@@ -48,7 +48,8 @@ export function PipelineTopologyView({
             <div>
               <h2 className="section-title">Registry</h2>
               <span className="section-subtitle">
-                Each block is mapped to a repository module or a runtime sink.
+                The graph on the left is the visual map; this list is the exact
+                repository/runtime mapping behind each visible block.
               </span>
             </div>
             <span className="section-kicker">semantic map</span>

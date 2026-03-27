@@ -153,39 +153,41 @@ export function TopologyCanvas({
 
   return (
     <div className={compact ? 'flow-frame compact' : 'flow-frame'}>
-      <ReactFlow<OpsNode, OpsEdge>
-        nodes={flowNodes}
-        edges={flowEdges}
-        nodeTypes={nodeTypes}
-        edgeTypes={edgeTypes}
-        fitView
-        fitViewOptions={{ padding: compact ? 0.12 : 0.18 }}
-        proOptions={{ hideAttribution: true }}
-        nodesDraggable={false}
-        zoomOnDoubleClick={false}
-        panOnDrag
-      >
-        <Background color="rgba(152, 181, 211, 0.08)" gap={20} size={1} />
-        <MiniMap
-          pannable={false}
-          zoomable={false}
-          position="bottom-left"
-          style={{
-            backgroundColor: 'rgba(7,11,16,0.9)',
-            border: '1px solid rgba(152,181,211,0.14)',
-          }}
-          nodeColor={(node) =>
-            (node.data as NodeData | undefined)?.status === 'flowing'
-              ? '#69f9ff'
-              : (node.data as NodeData | undefined)?.status === 'planned'
-                ? '#738699'
-                : '#ff7a20'
-          }
-        />
-        <Panel position="top-right" className="flow-legend">
-          active / steady / planned
-        </Panel>
-      </ReactFlow>
+      <div className="flow-surface">
+        <ReactFlow<OpsNode, OpsEdge>
+          nodes={flowNodes}
+          edges={flowEdges}
+          nodeTypes={nodeTypes}
+          edgeTypes={edgeTypes}
+          fitView
+          fitViewOptions={{ padding: compact ? 0.12 : 0.18 }}
+          proOptions={{ hideAttribution: true }}
+          nodesDraggable={false}
+          zoomOnDoubleClick={false}
+          panOnDrag
+        >
+          <Background color="rgba(152, 181, 211, 0.08)" gap={20} size={1} />
+          <MiniMap
+            pannable={false}
+            zoomable={false}
+            position="bottom-left"
+            style={{
+              backgroundColor: 'rgba(7,11,16,0.9)',
+              border: '1px solid rgba(152,181,211,0.14)',
+            }}
+            nodeColor={(node) =>
+              (node.data as NodeData | undefined)?.status === 'flowing'
+                ? '#69f9ff'
+                : (node.data as NodeData | undefined)?.status === 'planned'
+                  ? '#738699'
+                  : '#ff7a20'
+            }
+          />
+          <Panel position="top-right" className="flow-legend">
+            active / steady / planned
+          </Panel>
+        </ReactFlow>
+      </div>
     </div>
   )
 }
