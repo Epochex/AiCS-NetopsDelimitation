@@ -2,10 +2,11 @@
 
 本文件给“新会话 AI / 新协作者 / 未来自己”提供一个稳定、可直接接手的项目状态入口。
 
-- 最后更新：2026-03-22 21:56 UTC
-- 当前开发分支：`core-dev`
+- 最后更新：2026-03-28 15:20 UTC
+- 当前开发分支：`feature/frontend-demo`
 - 配套问题日志：[ISSUES_LOG.md](./ISSUES_LOG.md)
 - 本轮详细过程记录：[CONTROLLED_VALIDATION_20260322.md](./CONTROLLED_VALIDATION_20260322.md)
+- 前端 runtime 架构与复盘：[FRONTEND_RUNTIME_ARCHITECTURE_20260328.md](./FRONTEND_RUNTIME_ARCHITECTURE_20260328.md)
 
 ## 1. 当前真实目标
 

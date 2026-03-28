@@ -94,7 +94,7 @@ flowchart LR
   - Keep remediation explicit as a control boundary rather than pretending execution is already part of the live runtime.
 - Backend integration
   - `GET /api/runtime/snapshot` hydrates the initial view.
-  - `GET /api/runtime/stream` pushes live `RuntimeSnapshot` updates over SSE.
+  - `GET /api/runtime/stream` pushes SSE envelopes (`snapshot`, `delta`, `heartbeat`) so the UI can update only the affected stage/event region.
   - The gateway derives state from `/data/netops-runtime` JSONL sinks plus deployment env values in `core/` and `edge/`.
   - Local dev uses Vite proxying `/api` to `:8026`; deployed mode is same-origin, so CORS is not part of the default path.
 - Key interaction chain
@@ -118,65 +118,43 @@ flowchart LR
   - remediation execution channels
 - `Remediation Loop` is intentionally rendered as a reserved control boundary rather than as a live write-back stage. Any future approval/execution path must remain explicitly separated from the current read-only console.
 
-### Live Event Lifecycle (Current 10-Stage Operator View)
+### Live Event Lifecycle (Current Action View)
 
-- `01 FortiGate`
-  - Source device log plane. This is the real traffic/log origin and the upstream source of all later runtime states.
-- `02 edge/fortigate-ingest`
-  - Parses raw FortiGate syslog into structured JSONL facts, keeps checkpoint/replay semantics, and hands clean edge facts to the next stage.
-- `03 edge-forwarder`
-  - Reads parsed edge facts and forwards them into the core-side Kafka raw topic. This is the transport bridge between edge file-backed runtime and the core streaming plane.
-- `04 netops.facts.raw.v1`
-  - Real-time fact topic. It is the first core-visible event stream and the immediate upstream input of deterministic alerting.
-- `05 core-correlator`
-  - Applies quality gates, dedup policy, and deterministic rules. This is where the current system still makes its actual alert/no-alert decision.
-- `06 netops.alerts.v1`
-  - Alert bus. It carries emitted alerts downstream to persistence and AIOps enrichment. It is the handoff point between deterministic detection and suggestion generation.
-- `07 cluster window`
-  - Same-key aggregation gate over emitted alerts. This is a logical stage inside the AIOps path rather than a separate deployed service; it decides whether repeated alerts should also become `cluster-scope` suggestions.
-- `08 core-aiops-agent`
-  - Builds evidence bundles, looks up recent history from ClickHouse, and invokes the configured provider. Today this means template inference by default; later it is the attachment point for remote/local LLM inference.
-- `09 netops.aiops.suggestions.v1`
-  - Structured suggestion topic. It is the operator-facing output of the current AIOps path and the immediate upstream source of the frontend evidence drawer/event queue.
-- `10 Remediation Loop`
-  - Reserved approval/execution/feedback boundary. It is shown so the user can see where the system would hand over into execution later, but it is not yet wired as a real runtime stage.
+- The live console no longer leads with a wall of ten technical modules. Its primary lifecycle view is now grouped into the operator-meaningful actions below; the full module/topic graph remains on `Pipeline Topology`.
+- `01 Source Signal`
+  - A real FortiGate device log has entered the platform. This makes the ingress plane legible without pretending the source itself is a timed service hop.
+- `02 Edge Parse + Handoff`
+  - `fortigate-ingest`, `edge-forwarder`, and `netops.facts.raw.v1` are collapsed into one action phase: normalize the log, preserve replay/checkpoint semantics, and hand the fact into the raw stream.
+- `03 Deterministic Alert`
+  - `core-correlator` plus `netops.alerts.v1`. This is the first true decision point: the system either crosses the rule threshold or it does not.
+- `04 Cluster Gate`
+  - The same-key aggregation window. It answers “how close is this path to becoming cluster-scope?” rather than exposing the user to a raw implementation detail first.
+- `05 AIOps Suggestion`
+  - `core-aiops-agent` plus `netops.aiops.suggestions.v1`. Evidence is assembled, provider logic runs, and structured operator guidance is emitted.
+- `06 Remediation Boundary`
+  - Approval / execution / feedback remains visible as the next boundary, but is still intentionally read-only and not wired into production write-back.
 
-Relationship between stages:
+Why this action view is preferable on the homepage:
 
-- `01 -> 04` is the ingest/transport path.
-- `05 -> 06` is the real alert decision path.
-- `06 -> 09` is the evidence/suggestion path.
-- `07` is a logical gate between alert repetition and cluster-scope suggestion emission.
-- `10` is downstream of suggestion generation but remains a visible boundary rather than an active control loop.
+- First-time users can understand what the platform is doing without already knowing every internal topic or service name.
+- Timing bands stay honest: only phases with meaningful start/end semantics show elapsed time; gate phases show progress; source/boundary phases show live state rather than fake latency numbers.
+- The technical ten-module decomposition still exists, but it belongs on the topology view rather than as the first thing operators must decode.
 
 ### Realtime UI Update Model
 
 - Current implementation
-  - The gateway serves an initial `GET /api/runtime/snapshot`, then pushes a full `RuntimeSnapshot` over SSE every `5` seconds by default (`NETOPS_CONSOLE_STREAM_INTERVAL_SEC=5`).
-  - This is intentionally simple and robust for the current demo/operations phase, but it means the frontend is refreshed as a coarse full-state heartbeat rather than as a stage-by-stage event stream.
+  - The gateway serves an initial `GET /api/runtime/snapshot`, then keeps an SSE stream open with event envelopes: initial `snapshot`, event-triggered `delta`, and low-rate `heartbeat`.
+  - Runtime deltas are emitted when the feed or cluster gate actually changes; the default poll interval for detecting file-based updates is now `NETOPS_CONSOLE_STREAM_INTERVAL_SEC=1`.
 - Why the public proxy path can feel less “live”
-  - The current SSE stream carries whole-snapshot refreshes, not per-stage deltas.
-  - The public demo path adds WAN + proxy + tailnet hops on top of that heartbeat model, so motion feels less immediate than local/Tailscale-direct viewing.
-- Planned next step
-  - Move from `full snapshot every N seconds` to `event-triggered delta stream`.
-  - Emit stage/state changes such as:
-    - raw fact observed
-    - alert emitted
-    - cluster progress updated
-    - suggestion emitted
-    - remediation boundary entered
-  - Let the frontend maintain a stable local state model and animate only the affected stage/event block.
+  - The stream now carries stage deltas, but the public demo path still adds WAN + proxy + tailnet hops on top of the local file-poll detection loop.
+  - This means public viewers should see materially better responsiveness than the old 5-second heartbeat, but still not the same feel as direct local/Tailscale access.
 - Stage timers
-  - Yes, per-stage/per-action timers are feasible, but they should be driven by real stage timestamps rather than decorative client timers.
-  - For each visible stage transition, the recommended model is:
-    - `started_at`
-    - `ended_at`
-    - `duration_ms`
-    - `source_event_id / alert_id / suggestion_id`
-  - Not every stage currently exposes enough audit timestamps to calculate a real duration, so some stages would initially show `known boundary timestamps` while the richer timer model is added incrementally.
+  - The lifecycle cards now reserve a consistent action/timing band under each stage.
+  - Only stages with meaningful boundaries render a real elapsed duration; other stages use the same band to show state, gate semantics, or reserved-control status.
+  - This keeps the UI honest: `FortiGate` and `Remediation Loop` are not faked into “latency measurements”, while `edge -> alert`, cluster window span, and `alert -> suggestion` can show real timing metadata.
 - Resource impact
-  - Moving to event-triggered updates will **not** materially increase resource usage if the stream is limited to stage transitions and operator-relevant events.
-  - It may even reduce gateway I/O compared with repeatedly rebuilding full snapshots from JSONL every `5` seconds.
+  - Event-triggered stage updates do **not** materially increase resource usage if the stream is limited to operator-relevant transitions.
+  - It can reduce perceived latency while keeping bandwidth/I/O bounded, because the UI only animates changed regions instead of treating every refresh as a full-screen state change.
   - The expensive version would be pushing every raw fact directly to the UI; that is not recommended.
   - The practical target is: keep raw/high-volume data in Kafka/runtime files, and push only stage deltas plus timing metadata to the frontend.
 

@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, PlainTextResponse, StreamingResponse
 
 from .config import Settings
-from .runtime_reader import load_runtime_snapshot
+from .runtime_reader import build_runtime_stream_delta, load_runtime_snapshot
 
 settings = Settings.from_env()
 
@@ -44,11 +44,53 @@ def runtime_snapshot():
 @app.get('/api/runtime/stream')
 async def runtime_stream(request: Request):
   async def event_stream():
+    previous_payload: dict[str, object] | None = None
+    idle_cycles = 0
+
     while True:
       if await request.is_disconnected():
         break
+
       payload = load_runtime_snapshot(settings)
-      yield f"retry: 5000\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+      if previous_payload is None:
+        envelope = {
+          'type': 'snapshot',
+          'emittedAt': payload['runtime']['latestSuggestionTs'],
+          'snapshot': payload,
+        }
+        yield (
+          'retry: 2000\n'
+          f"event: snapshot\ndata: {json.dumps(envelope, ensure_ascii=False)}\n\n"
+        )
+        previous_payload = payload
+        idle_cycles = 0
+        await asyncio.sleep(settings.stream_interval_sec)
+        continue
+
+      delta = build_runtime_stream_delta(previous_payload, payload)
+      if delta:
+        envelope = {
+          'type': 'delta',
+          'emittedAt': delta['emittedAt'],
+          'snapshot': payload,
+          'delta': delta,
+        }
+        yield (
+          'retry: 2000\n'
+          f"event: delta\ndata: {json.dumps(envelope, ensure_ascii=False)}\n\n"
+        )
+        previous_payload = payload
+        idle_cycles = 0
+      else:
+        idle_cycles += 1
+        if idle_cycles * settings.stream_interval_sec >= 15:
+          heartbeat = {
+            'type': 'heartbeat',
+            'emittedAt': payload['runtime']['latestSuggestionTs'],
+          }
+          yield f"event: heartbeat\ndata: {json.dumps(heartbeat, ensure_ascii=False)}\n\n"
+          idle_cycles = 0
+
       await asyncio.sleep(settings.stream_interval_sec)
 
   return StreamingResponse(
@@ -80,4 +122,3 @@ def serve_frontend(full_path: str = ''):
   ):
     return FileResponse(requested_path)
   return FileResponse(dist_root / 'index.html')
-

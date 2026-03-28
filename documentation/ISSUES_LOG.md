@@ -9,6 +9,85 @@
 
 ---
 
+## Issue-2026-03-28-001：frontend runtime console 先显示 fallback 再被坏 live snapshot 覆盖，且公网 `2088` 入口长期转圈
+- 日期：2026-03-28
+- 状态：Mitigated
+- 影响范围：`frontend` runtime console、`FastAPI` runtime gateway、`nginx :2026`、公网 `:2088` 演示链路。
+- 关联架构复盘：[FRONTEND_RUNTIME_ARCHITECTURE_20260328.md](./FRONTEND_RUNTIME_ARCHITECTURE_20260328.md)
+
+### 现象
+- 页面刷新后会先短暂显示一份“看起来正常”的 lifecycle 视图。
+- 随后页面又退化成：
+  - `gateway drift`
+  - `Runtime Integrity Warning`
+  - 各阶段 `pending / n/a`
+- 公网入口 `http://38.207.130.214:2088/` 经常长时间转圈，看不到完整页面。
+
+### 根因
+1. 前端旧逻辑里，`useRuntimeSnapshot` 先用 `runtimeModel.ts` 里的静态 fallback snapshot 起页。
+2. 旧逻辑只要拿到 `GET /api/runtime/snapshot` 的 `200 OK`，就无条件用 live snapshot 覆盖 fallback。
+3. 2026-03-28 实测时，`127.0.0.1:2026` 与 `38.207.130.214:2088` 返回的 live snapshot 都存在：
+   - `latestAlertTs` 停留在 `2026-03-25T23:00:40+00:00`
+   - `latestSuggestionTs` 已推进到 `2026-03-28`
+   - `current_day_volume = 0 / 598x`
+   - active suggestion 的 `stageTelemetry = 0`
+   - active suggestion 的 `timeline = 0`
+4. 同时，直接在工作区调用 `load_runtime_snapshot()`，却能得到：
+   - `stageTelemetry = 10`
+   - `timeline = 5`
+   说明运行中的 live 服务进程与当前仓库代码不一致，或者仍是旧内存态。
+5. 公网入口 `2088` 还叠加了代理/传输层问题：
+   - CSS 在最后几 KB 处超时
+   - JS 在最后几 KB 处超时
+   - `/api/runtime/stream` 虽回 `200` 和 `text/event-stream` 头，但长时间不 flush body
+
+### 处理过程
+1. 在前端增加 snapshot 完整性校验
+- 如果 active suggestion 缺少 `timeline` / `stageTelemetry`
+- 不再直接用 live snapshot 替换当前可用视图
+
+2. 在前端增加 stream handshake timeout
+- 如果 `SSE` 在限定时间内既没有 `snapshot` 也没有 `delta/heartbeat`
+- 前端进入 `degraded / fallback`
+- 保留 last-known-good 视图并显示硬告警
+
+3. 增加 transport issue 显示
+- 将“请求成功但数据不可信”与“连接失败”明确区分
+- 把问题直接显示为 `Runtime Integrity Warning`
+
+4. 拆分首屏重资源依赖
+- `RuntimeVisualPanels` 改为懒加载
+- `CompareMode` 改为懒加载
+- 将 `echarts` 从首屏入口包拆出去
+- 从 `index.html` 中移除对 `echarts` chunk 的预加载
+
+### 验证结果
+1. 代码层验证
+- `npm run build` 通过
+- `pytest -q tests/frontend/test_runtime_reader_snapshot.py tests/frontend/test_runtime_stream_delta.py` 通过
+
+2. 构建结果
+- 入口主包已降到约 `243 kB`
+- `echarts` 被拆为独立 chunk，不再由 `index.html` 首屏预加载
+
+3. 仍然存在的部署侧事实
+- `127.0.0.1:2026/api/runtime/snapshot` 仍返回缺失 telemetry 的 live snapshot
+- `38.207.130.214:2088/api/runtime/snapshot` 仍返回缺失 telemetry 的 live snapshot
+- `2088` 的 CSS/JS 尾包与 `SSE` flush 问题仍未在本轮代码修改中被根除
+
+### 后续动作
+1. 确认 `netops-ops-console-backend.service` 实际运行的代码版本，并与当前工作区 SHA 对齐。
+2. 给 snapshot / healthz 增加：
+   - `build_sha`
+   - `startup_ts`
+   - `schema_version`
+3. 将 last-known-good snapshot 语义下沉到网关，而不只由前端兜底。
+4. 排查 `Caddy -> nginx -> FastAPI` 链路中：
+   - SSE buffering
+   - gzip / chunked transfer
+   - 静态资源尾包传输
+5. 逐步把“本地静态 fallback”从线上 runtime 兜底职责中降级，只保留给 story / offline / docs 场景。
+
 ## Issue-2026-03-22-001：edge replay/backfill 导致 raw 长期停留在历史时间，且 core 需要受控验证才能证明 enrichment 生效
 - 日期：2026-03-22
 - 状态：Resolved

@@ -76,3 +76,36 @@ export function formatEvidenceValue(
 
   return String(value)
 }
+
+export function formatDurationMs(value: number | null | undefined) {
+  if (value === null || value === undefined) {
+    return 'n/a'
+  }
+
+  if (value < 1000) {
+    return `${value} ms`
+  }
+
+  if (value < 60_000) {
+    return `${(value / 1000).toFixed(value < 10_000 ? 2 : 1)} s`
+  }
+
+  const totalSeconds = Math.floor(value / 1000)
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
+  if (minutes < 60) {
+    return `${minutes}m ${seconds}s`
+  }
+
+  const hours = Math.floor(minutes / 60)
+  const remainingMinutes = minutes % 60
+  return `${hours}h ${remainingMinutes}m`
+}
+
+export function formatPreciseDurationMs(value: number | null | undefined) {
+  if (value === null || value === undefined) {
+    return 'n/a'
+  }
+
+  return `${(Math.max(value, 0) / 1000).toFixed(3)} s`
+}

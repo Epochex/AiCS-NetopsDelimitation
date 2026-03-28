@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { lazy, Suspense, useMemo, useState } from 'react'
 import './App.css'
 import { EvidenceDrawer } from './components/EvidenceDrawer'
 import { ErrorBoundary } from './components/ErrorBoundary'
@@ -8,14 +8,21 @@ import { runtimeSnapshot } from './data/runtimeModel'
 import { useRuntimeSnapshot } from './hooks/useRuntimeSnapshot'
 import { formatMaybeTimestamp, timestampTooltip } from './utils/time'
 
-type ViewMode = 'console' | 'topology'
+type ViewMode = 'console' | 'topology' | 'compare'
+
+const CompareModeView = lazy(() =>
+  import('./components/CompareModeView').then((module) => ({
+    default: module.CompareModeView,
+  })),
+)
 
 function metricValue(snapshot: ReturnType<typeof useRuntimeSnapshot>['snapshot'], id: string) {
   return snapshot.overviewMetrics.find((metric) => metric.id === id)?.value ?? 'n/a'
 }
 
 function App() {
-  const { snapshot, connectionState } = useRuntimeSnapshot()
+  const { snapshot, latestDelta, connectionState, transportIssue } =
+    useRuntimeSnapshot()
   const suggestionPool =
     snapshot.suggestions.length > 0
       ? snapshot.suggestions
@@ -39,16 +46,40 @@ function App() {
     [activeSuggestionId, suggestionPool],
   )
   const utilityItems = useMemo(
-    () => [
-      { label: 'branch', value: snapshot.repo.branch },
-      { label: 'validation', value: snapshot.repo.validation },
-      { label: 'stream', value: connectionState, tone: connectionState },
-      { label: 'latest alert', value: snapshot.runtime.latestAlertTs },
-      { label: 'latest suggestion', value: snapshot.runtime.latestSuggestionTs },
-      { label: 'closure', value: metricValue(snapshot, 'closure') },
-    ],
-    [connectionState, snapshot],
+    () =>
+      view === 'console'
+        ? [
+            { label: 'active service', value: selectedSuggestion.context.service },
+            { label: 'active device', value: selectedSuggestion.context.srcDeviceKey },
+            {
+              label: 'judgment',
+              value: `${selectedSuggestion.scope} · ${selectedSuggestion.confidenceLabel}`,
+            },
+            { label: 'stream', value: connectionState, tone: connectionState },
+            { label: 'latest suggestion', value: snapshot.runtime.latestSuggestionTs },
+            {
+              label: 'next action',
+              value:
+                selectedSuggestion.recommendedActions[0] ??
+                'inspect evidence bundle',
+            },
+          ]
+        : [
+            { label: 'branch', value: snapshot.repo.branch },
+            { label: 'validation', value: snapshot.repo.validation },
+            { label: 'stream', value: connectionState, tone: connectionState },
+            { label: 'latest alert', value: snapshot.runtime.latestAlertTs },
+            { label: 'latest suggestion', value: snapshot.runtime.latestSuggestionTs },
+            { label: 'closure', value: metricValue(snapshot, 'closure') },
+          ],
+    [connectionState, selectedSuggestion, snapshot, view],
   )
+  const primaryTitle =
+    view === 'console'
+      ? 'Guided Runtime Overview'
+      : view === 'topology'
+        ? 'Pipeline Topology'
+        : 'Compare Mode'
 
   if (!selectedSuggestion) {
     return (
@@ -80,7 +111,7 @@ function App() {
         <div className="rail-brand">
           <p className="rail-kicker">Hybrid NetOps / Tactical Runtime Console</p>
           <div className="rail-title-row">
-            <h1>Live Flow Console</h1>
+            <h1>{primaryTitle}</h1>
             <span
               className={`live-dot state-${connectionState}`}
               aria-hidden="true"
@@ -94,7 +125,7 @@ function App() {
             className={view === 'console' ? 'tab is-active' : 'tab'}
             onClick={() => setView('console')}
           >
-            Live Flow Console
+            Guided Overview
           </button>
           <button
             type="button"
@@ -102,6 +133,13 @@ function App() {
             onClick={() => setView('topology')}
           >
             Pipeline Topology
+          </button>
+          <button
+            type="button"
+            className={view === 'compare' ? 'tab is-active' : 'tab'}
+            onClick={() => setView('compare')}
+          >
+            Compare Mode
           </button>
         </nav>
 
@@ -123,30 +161,47 @@ function App() {
         </div>
       </header>
 
-      <main className="workspace">
+      <main className={view === 'compare' ? 'workspace workspace-compare' : 'workspace'}>
         <ErrorBoundary title="Primary View">
           {view === 'console' ? (
             <LiveFlowConsole
+              connectionState={connectionState}
               snapshot={snapshot}
+              latestDelta={latestDelta}
               selectedSuggestion={selectedSuggestion}
               onSelectSuggestion={setPreferredSuggestionId}
+              transportIssue={transportIssue}
             />
-          ) : (
+          ) : view === 'topology' ? (
             <PipelineTopologyView
               snapshot={snapshot}
               selectedSuggestionId={selectedSuggestion.id}
               onSelectSuggestion={setPreferredSuggestionId}
             />
+          ) : (
+            <Suspense
+              fallback={
+                <section className="page">
+                  <section className="section chart-fallback">
+                    loading compare mode...
+                  </section>
+                </section>
+              }
+            >
+              <CompareModeView />
+            </Suspense>
           )}
         </ErrorBoundary>
 
-        <ErrorBoundary title="Evidence Drawer">
-          <EvidenceDrawer
-            key={selectedSuggestion.id}
-            suggestion={selectedSuggestion}
-            controls={snapshot.strategyControls}
-          />
-        </ErrorBoundary>
+        {view !== 'compare' ? (
+          <ErrorBoundary title="Evidence Drawer">
+            <EvidenceDrawer
+              key={selectedSuggestion.id}
+              suggestion={selectedSuggestion}
+              controls={snapshot.strategyControls}
+            />
+          </ErrorBoundary>
+        ) : null}
       </main>
     </div>
   )

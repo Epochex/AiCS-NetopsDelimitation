@@ -4,10 +4,112 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>frontend</title>
+    <title>NetOps Guided Runtime Overview</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+        background: #05080c;
+      }
+
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+        background:
+          radial-gradient(circle at top, rgba(31, 58, 79, 0.28), transparent 42%),
+          #05080c;
+        color: #eef5ff;
+      }
+
+      #root {
+        min-height: 100vh;
+      }
+
+      .boot-shell {
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+        box-sizing: border-box;
+      }
+
+      .boot-card {
+        width: min(680px, 100%);
+        padding: 28px;
+        border: 1px solid rgba(105, 249, 255, 0.18);
+        background: rgba(8, 12, 17, 0.92);
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.28);
+      }
+
+      .boot-kicker {
+        margin: 0 0 10px;
+        color: #8ea3ba;
+        font: 500 11px/1.2 "IBM Plex Mono", "Consolas", monospace;
+        letter-spacing: 0.22em;
+        text-transform: uppercase;
+      }
+
+      .boot-card h1 {
+        margin: 0 0 10px;
+        font: 600 clamp(28px, 6vw, 44px) / 1 "IBM Plex Sans", "Segoe UI", sans-serif;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+
+      .boot-card p {
+        margin: 0;
+        color: #b7c6d6;
+        font: 400 15px/1.65 "IBM Plex Sans", "Segoe UI", sans-serif;
+      }
+
+      .boot-status {
+        margin-top: 18px;
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        color: #69f9ff;
+        font: 500 12px/1 "IBM Plex Mono", "Consolas", monospace;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+      }
+
+      .boot-status::before {
+        content: "";
+        width: 10px;
+        height: 10px;
+        background: #69f9ff;
+        box-shadow: 0 0 18px rgba(105, 249, 255, 0.7);
+        animation: bootPulse 1.4s linear infinite;
+      }
+
+      @keyframes bootPulse {
+        0%,
+        100% {
+          opacity: 1;
+        }
+
+        50% {
+          opacity: 0.28;
+        }
+      }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div class="boot-shell">
+        <div class="boot-card">
+          <p class="boot-kicker">Hybrid NetOps / Guided Runtime Overview</p>
+          <h1>Loading Runtime Console</h1>
+          <p>
+            Preparing the current incident story, evidence summary, and live runtime
+            stream. If this screen stays here for too long, the transport path is
+            stalling before the app bundle finishes loading.
+          </p>
+          <div class="boot-status">Booting UI shell</div>
+        </div>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

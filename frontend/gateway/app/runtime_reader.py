@@ -120,19 +120,18 @@ def load_runtime_snapshot(settings: Settings) -> dict[str, Any]:
   suggestion_records = _build_suggestion_records(
     suggestions_for_day,
     alerts_by_id,
+    control_lookup,
     limit=12,
   )
   if not suggestion_records and latest_suggestion:
     suggestion_records = _build_suggestion_records(
       [latest_suggestion],
       alerts_by_id,
+      control_lookup,
       limit=1,
     )
 
   default_suggestion = suggestion_records[0] if suggestion_records else None
-  selected_alert = (
-    alerts_by_id.get(default_suggestion['alertId']) if default_suggestion else None
-  )
 
   raw_freshness_sec = _get_number(
     live_report,
@@ -226,7 +225,7 @@ def load_runtime_snapshot(settings: Settings) -> dict[str, Any]:
       {'id': 'l9', 'source': 'aiops-agent', 'target': 'suggestions-topic', 'state': 'active'},
       {'id': 'l10', 'source': 'suggestions-topic', 'target': 'remediation', 'state': 'planned'},
     ],
-    'timeline': _build_timeline(default_suggestion, selected_alert, control_lookup),
+    'timeline': default_suggestion.get('timeline') if default_suggestion else _build_timeline(None),
     'clusterWatch': _build_cluster_watch(alerts, control_lookup),
     'suggestions': suggestion_records,
     'strategyControls': strategy_controls,
@@ -443,7 +442,7 @@ def _build_stage_nodes(
       'x': 1580,
       'y': 90,
       'metrics': [
-        {'label': 'scope', 'value': _closure_label(_build_suggestion_records(suggestions_for_day, {}))},
+        {'label': 'scope', 'value': _closure_label(suggestions_for_day)},
         {
           'label': 'cluster gate',
           'value': (
@@ -486,84 +485,18 @@ def _build_stage_nodes(
 
 def _build_timeline(
   suggestion: dict[str, Any] | None,
-  alert: dict[str, Any] | None,
-  control_lookup: dict[str, str],
-) -> list[dict[str, str]]:
+) -> list[dict[str, Any]]:
   if not suggestion:
     return [
       {
         'id': 'step-empty',
+        'stageId': 'suggestions-topic',
         'stamp': 'waiting',
         'title': 'No live suggestion available',
         'detail': 'The gateway could not derive a suggestion record from the local sinks yet.',
       },
     ]
-
-  service = suggestion['context']['service']
-  device = suggestion['context']['srcDeviceKey']
-  event_excerpt = alert.get('event_excerpt', {}) if alert else {}
-  metrics = alert.get('metrics', {}) if alert else {}
-  evidence_blocks = [
-    block
-    for block, value in (
-      ('topology_context', alert.get('topology_context') if alert else None),
-      ('device_profile', alert.get('device_profile') if alert else None),
-      ('change_context', alert.get('change_context') if alert else None),
-    )
-    if value
-  ]
-
-  return [
-    {
-      'id': 'step-edge',
-      'stamp': _format_iso(_parse_ts(_get_text(event_excerpt, 'event_ts'))),
-      'title': 'Edge fact observed',
-      'detail': (
-        f"FortiGate {event_excerpt.get('type', 'traffic')} / "
-        f"{event_excerpt.get('subtype', 'local')} {event_excerpt.get('action', 'event')} "
-        f"for service={service} device={device} was parsed into the live raw path."
-      ),
-    },
-    {
-      'id': 'step-correlation',
-      'stamp': _format_iso(_parse_ts(_get_text(alert, 'alert_ts'))),
-      'title': 'Correlation window satisfied',
-      'detail': (
-        f"{_get_text(alert, 'rule_id') or 'rule'} reached "
-        f"{metrics.get('deny_count', 'n/a')} events inside "
-        f"{metrics.get('window_sec', control_lookup.get('RULE_DENY_WINDOW_SEC', '60'))} seconds."
-      ),
-    },
-    {
-      'id': 'step-enrichment',
-      'stamp': _format_iso(_parse_ts(_get_text(alert, 'alert_ts'))),
-      'title': 'Alert enrichment attached evidence',
-      'detail': (
-        'Current alert payload carried '
-        + (', '.join(evidence_blocks) if evidence_blocks else 'no enriched evidence blocks')
-        + '.'
-      ),
-    },
-    {
-      'id': 'step-aiops',
-      'stamp': _format_iso(_parse_ts(suggestion['suggestionTs'])),
-      'title': f"AIOps {suggestion['scope']}-scope suggestion emitted",
-      'detail': (
-        f"Provider={suggestion['context']['provider']} returned "
-        f"{len(suggestion['hypotheses'])} hypotheses and "
-        f"{len(suggestion['recommendedActions'])} recommended actions."
-      ),
-    },
-    {
-      'id': 'step-control',
-      'stamp': 'control point',
-      'title': 'Remediation loop still reserved',
-      'detail': (
-        'Execution feedback stays visible as the next operator surface rather '
-        'than being faked as a live stage.'
-      ),
-    },
-  ]
+  return suggestion.get('timeline') or []
 
 
 def _build_cluster_watch(
@@ -599,6 +532,7 @@ def _build_cluster_watch(
     latest_ts = timestamps[-1]
     window_start = latest_ts - timedelta(seconds=cluster_window_sec)
     progress = sum(1 for ts in timestamps if ts >= window_start)
+    remaining = max(0, cluster_min_alerts - progress)
     items.append(
       {
         'key': f'{rule_id} · {service} · {device}',
@@ -608,8 +542,11 @@ def _build_cluster_watch(
         'target': cluster_min_alerts,
         'windowSec': cluster_window_sec,
         'note': (
-          f"{severity} path currently has {progress} alert(s) inside the last "
-          f"{cluster_window_sec}s window."
+          f'{progress} matching {severity} alert(s) seen in the last '
+          f'{cluster_window_sec}s.'
+          if remaining <= 0
+          else f'{progress} matching {severity} alert(s) seen in the last '
+          f'{cluster_window_sec}s; {remaining} more needed for cluster trigger.'
         ),
         '_latestTs': latest_ts,
       },
@@ -625,9 +562,243 @@ def _build_cluster_watch(
   return trimmed
 
 
+def _build_suggestion_story_timeline(
+  suggestion: dict[str, Any],
+  alert: dict[str, Any],
+  control_lookup: dict[str, str],
+  *,
+  service: str,
+  src_device_key: str,
+) -> list[dict[str, Any]]:
+  context = suggestion.get('context', {}) if isinstance(suggestion.get('context'), dict) else {}
+  event_excerpt = alert.get('event_excerpt', {}) if isinstance(alert, dict) else {}
+  metrics = alert.get('metrics', {}) if isinstance(alert, dict) else {}
+  event_ts = _parse_ts(_get_text(event_excerpt, 'event_ts'))
+  alert_ts = _parse_ts(_get_text(alert, 'alert_ts'))
+  suggestion_ts = _parse_ts(_get_text(suggestion, 'suggestion_ts'))
+  cluster_first_alert_ts = _parse_ts(_get_text(context, 'cluster_first_alert_ts'))
+  cluster_last_alert_ts = _parse_ts(_get_text(context, 'cluster_last_alert_ts'))
+  cluster_size = _safe_int(context.get('cluster_size'), 1)
+  cluster_window_sec = _safe_int(
+    context.get('cluster_window_sec'),
+    _safe_int(control_lookup.get('AIOPS_CLUSTER_WINDOW_SEC'), 600),
+  )
+
+  evidence_blocks = [
+    block
+    for block, value in (
+      ('topology_context', alert.get('topology_context') if alert else None),
+      ('device_profile', alert.get('device_profile') if alert else None),
+      ('change_context', alert.get('change_context') if alert else None),
+    )
+    if value
+  ]
+
+  timeline = [
+    {
+      'id': 'step-edge',
+      'stageId': 'ingest',
+      'stamp': _format_iso(event_ts),
+      'title': 'Edge fact observed',
+      'detail': (
+        f"FortiGate {event_excerpt.get('type', 'traffic')} / "
+        f"{event_excerpt.get('subtype', 'local')} {event_excerpt.get('action', 'event')} "
+        f"for service={service} device={src_device_key} was parsed into the live raw path."
+      ),
+    },
+    {
+      'id': 'step-correlation',
+      'stageId': 'correlator',
+      'stamp': _format_iso(alert_ts),
+      'title': 'Correlation window satisfied',
+      'detail': (
+        f"{_get_text(alert, 'rule_id') or 'rule'} reached "
+        f"{metrics.get('deny_count', 'n/a')} events inside "
+        f"{metrics.get('window_sec', control_lookup.get('RULE_DENY_WINDOW_SEC', '60'))} seconds."
+      ),
+      'durationMs': _duration_ms(event_ts, alert_ts),
+    },
+    {
+      'id': 'step-enrichment',
+      'stageId': 'alerts-topic',
+      'stamp': _format_iso(alert_ts),
+      'title': 'Alert enrichment attached evidence',
+      'detail': (
+        'Current alert payload carried '
+        + (', '.join(evidence_blocks) if evidence_blocks else 'no enriched evidence blocks')
+        + '.'
+      ),
+    },
+  ]
+
+  if suggestion.get('suggestion_scope') == 'cluster' or cluster_size > 1:
+    timeline.append(
+      {
+        'id': 'step-cluster',
+        'stageId': 'cluster-window',
+        'stamp': _format_iso(cluster_last_alert_ts or cluster_first_alert_ts),
+        'title': 'Cluster gate reached same-key window',
+        'detail': (
+          f'Cluster aggregation observed {cluster_size} alert(s) inside the '
+          f'{cluster_window_sec}s gate before suggestion emission.'
+        ),
+        'durationMs': _duration_ms(cluster_first_alert_ts, cluster_last_alert_ts),
+      },
+    )
+
+  timeline.extend(
+    [
+      {
+        'id': 'step-aiops',
+        'stageId': 'suggestions-topic',
+        'stamp': _format_iso(suggestion_ts),
+        'title': f"AIOps {(_get_text(suggestion, 'suggestion_scope') or 'alert')}-scope suggestion emitted",
+        'detail': (
+          f"Provider={_get_text(context, 'provider') or 'template'} returned "
+          f"{len(_string_list(suggestion.get('hypotheses')))} hypotheses and "
+          f"{len(_string_list(suggestion.get('recommended_actions')))} recommended actions."
+        ),
+        'durationMs': _duration_ms(
+          cluster_last_alert_ts
+          if (_get_text(suggestion, 'suggestion_scope') == 'cluster' and cluster_last_alert_ts)
+          else alert_ts,
+          suggestion_ts,
+        ),
+      },
+      {
+        'id': 'step-control',
+        'stageId': 'remediation',
+        'stamp': 'control point',
+        'title': 'Remediation loop still reserved',
+        'detail': (
+          'Execution feedback stays visible as the next operator surface rather '
+          'than being faked as a live stage.'
+        ),
+      },
+    ],
+  )
+  return timeline
+
+
+def _build_stage_telemetry(
+  suggestion: dict[str, Any],
+  alert: dict[str, Any],
+  control_lookup: dict[str, str],
+  *,
+  service: str,
+  src_device_key: str,
+) -> list[dict[str, Any]]:
+  context = suggestion.get('context', {}) if isinstance(suggestion.get('context'), dict) else {}
+  event_excerpt = alert.get('event_excerpt', {}) if isinstance(alert, dict) else {}
+  event_ts = _parse_ts(_get_text(event_excerpt, 'event_ts'))
+  alert_ts = _parse_ts(_get_text(alert, 'alert_ts'))
+  suggestion_ts = _parse_ts(_get_text(suggestion, 'suggestion_ts'))
+  cluster_first_alert_ts = _parse_ts(_get_text(context, 'cluster_first_alert_ts'))
+  cluster_last_alert_ts = _parse_ts(_get_text(context, 'cluster_last_alert_ts'))
+  cluster_size = _safe_int(context.get('cluster_size'), 1)
+  cluster_window_sec = _safe_int(
+    context.get('cluster_window_sec'),
+    _safe_int(control_lookup.get('AIOPS_CLUSTER_WINDOW_SEC'), 600),
+  )
+  cluster_min_alerts = _safe_int(control_lookup.get('AIOPS_CLUSTER_MIN_ALERTS'), 3)
+  scope = 'cluster' if _get_text(suggestion, 'suggestion_scope') == 'cluster' else 'alert'
+
+  return [
+    {
+      'stageId': 'fortigate',
+      'mode': 'status',
+      'state': 'active',
+      'label': 'source',
+      'value': 'live plane',
+      'endedAt': _format_iso(event_ts),
+    },
+    {
+      'stageId': 'ingest',
+      'mode': 'timestamp',
+      'state': 'complete',
+      'label': 'parsed',
+      'endedAt': _format_iso(event_ts),
+    },
+    {
+      'stageId': 'forwarder',
+      'mode': 'status',
+      'state': 'complete',
+      'label': 'handoff',
+      'value': 'edge -> raw',
+      'endedAt': _format_iso(event_ts),
+    },
+    {
+      'stageId': 'raw-topic',
+      'mode': 'timestamp',
+      'state': 'complete',
+      'label': 'observed',
+      'endedAt': _format_iso(event_ts),
+    },
+    {
+      'stageId': 'correlator',
+      'mode': 'duration',
+      'state': 'complete',
+      'label': 'edge -> alert',
+      'startedAt': _format_iso(event_ts),
+      'endedAt': _format_iso(alert_ts),
+      'durationMs': _duration_ms(event_ts, alert_ts),
+    },
+    {
+      'stageId': 'alerts-topic',
+      'mode': 'timestamp',
+      'state': 'complete',
+      'label': 'emitted',
+      'endedAt': _format_iso(alert_ts),
+    },
+    {
+      'stageId': 'cluster-window',
+      'mode': 'gate',
+      'state': 'complete' if scope == 'cluster' or cluster_size >= cluster_min_alerts else 'watch',
+      'label': 'gate',
+      'value': f'{cluster_size}/{cluster_min_alerts} in {cluster_window_sec}s',
+      'startedAt': _format_iso(cluster_first_alert_ts),
+      'endedAt': _format_iso(cluster_last_alert_ts),
+      'durationMs': _duration_ms(cluster_first_alert_ts, cluster_last_alert_ts),
+    },
+    {
+      'stageId': 'aiops-agent',
+      'mode': 'duration',
+      'state': 'complete',
+      'label': 'alert -> suggestion',
+      'startedAt': _format_iso(
+        cluster_last_alert_ts
+        if scope == 'cluster' and cluster_last_alert_ts
+        else alert_ts
+      ),
+      'endedAt': _format_iso(suggestion_ts),
+      'durationMs': _duration_ms(
+        cluster_last_alert_ts
+        if scope == 'cluster' and cluster_last_alert_ts
+        else alert_ts,
+        suggestion_ts,
+      ),
+    },
+    {
+      'stageId': 'suggestions-topic',
+      'mode': 'timestamp',
+      'state': 'complete',
+      'label': 'published',
+      'endedAt': _format_iso(suggestion_ts),
+    },
+    {
+      'stageId': 'remediation',
+      'mode': 'reserved',
+      'state': 'planned',
+      'label': 'next',
+      'value': f'manual boundary · {service}/{src_device_key}',
+    },
+  ]
+
+
 def _build_suggestion_records(
   suggestions: list[dict[str, Any]],
   alerts_by_id: dict[str, dict[str, Any]],
+  control_lookup: dict[str, str],
   *,
   limit: int | None = None,
 ) -> list[dict[str, Any]]:
@@ -662,6 +833,20 @@ def _build_suggestion_records(
       or 'unknown'
     )
     confidence = float(suggestion.get('confidence', 0) or 0)
+    timeline = _build_suggestion_story_timeline(
+      suggestion,
+      alert,
+      control_lookup,
+      service=service,
+      src_device_key=src_device_key,
+    )
+    stage_telemetry = _build_stage_telemetry(
+      suggestion,
+      alert,
+      control_lookup,
+      service=service,
+      src_device_key=src_device_key,
+    )
     records.append(
       {
         'id': _get_text(suggestion, 'suggestion_id') or _get_text(suggestion, 'alert_id') or 'unknown',
@@ -695,6 +880,8 @@ def _build_suggestion_records(
         'confidenceLabel': _get_text(suggestion, 'confidence_label') or _confidence_label(confidence),
         'confidenceReason': _get_text(suggestion, 'confidence_reason')
         or 'Confidence is based on current alert evidence and recurrence context.',
+        'timeline': timeline,
+        'stageTelemetry': stage_telemetry,
       },
     )
   return records
@@ -940,7 +1127,10 @@ def _freshness_state(value: int | None) -> str:
 
 
 def _closure_label(suggestions: list[dict[str, Any]]) -> str:
-  if any(item.get('scope') == 'cluster' for item in suggestions):
+  if any(
+    (item.get('scope') == 'cluster') or (item.get('suggestion_scope') == 'cluster')
+    for item in suggestions
+  ):
     return 'cluster-scope live'
   if suggestions:
     return 'alert-scope live'
@@ -979,6 +1169,12 @@ def _format_iso(value: datetime | None) -> str:
   if not value:
     return 'n/a'
   return value.isoformat()
+
+
+def _duration_ms(start: datetime | None, end: datetime | None) -> int | None:
+  if not start or not end:
+    return None
+  return max(0, int((end - start).total_seconds() * 1000))
 
 
 def _normalize_mapping(value: Any) -> dict[str, Any]:
@@ -1067,3 +1263,100 @@ def _get_nested_value(item: Any, path: tuple[str, ...] | list[str]) -> Any:
 def _max_dt(*items: datetime | None) -> datetime:
   available = [item for item in items if item is not None]
   return max(available) if available else datetime.now(timezone.utc)
+
+
+def build_runtime_stream_delta(
+  previous: dict[str, Any],
+  current: dict[str, Any],
+) -> dict[str, Any] | None:
+  previous_feed_ids = {
+    item.get('id')
+    for item in previous.get('feed', [])
+    if isinstance(item, dict) and item.get('id')
+  }
+  current_feed = [
+    item for item in current.get('feed', []) if isinstance(item, dict) and item.get('id')
+  ]
+  new_feed = [item for item in current_feed if item.get('id') not in previous_feed_ids]
+
+  if new_feed:
+    primary = new_feed[0]
+    delta_kind = primary.get('kind') or 'system'
+    if any(
+      item.get('kind') == 'suggestion' and item.get('scope') == 'cluster'
+      for item in new_feed
+    ):
+      delta_kind = 'cluster'
+
+    return {
+      'id': f"delta-{primary.get('id')}",
+      'emittedAt': _format_iso(datetime.now(timezone.utc)),
+      'kind': delta_kind,
+      'stageIds': _stage_ids_for_feed_items(new_feed),
+      'feedIds': [item['id'] for item in new_feed],
+      'reason': 'feed',
+    }
+
+  previous_cluster = tuple(
+    (item.get('key'), item.get('progress'), item.get('target'))
+    for item in previous.get('clusterWatch', [])
+    if isinstance(item, dict)
+  )
+  current_cluster = tuple(
+    (item.get('key'), item.get('progress'), item.get('target'))
+    for item in current.get('clusterWatch', [])
+    if isinstance(item, dict)
+  )
+  if previous_cluster != current_cluster:
+    return {
+      'id': f"delta-cluster-{_format_iso(datetime.now(timezone.utc))}",
+      'emittedAt': _format_iso(datetime.now(timezone.utc)),
+      'kind': 'cluster',
+      'stageIds': ['cluster-window'],
+      'feedIds': [],
+      'reason': 'cluster-watch',
+    }
+
+  previous_runtime = (
+    _get_nested_value(previous, ('runtime', 'latestAlertTs')),
+    _get_nested_value(previous, ('runtime', 'latestSuggestionTs')),
+    _get_nested_value(previous, ('defaultSuggestionId',)),
+  )
+  current_runtime = (
+    _get_nested_value(current, ('runtime', 'latestAlertTs')),
+    _get_nested_value(current, ('runtime', 'latestSuggestionTs')),
+    _get_nested_value(current, ('defaultSuggestionId',)),
+  )
+  if previous_runtime != current_runtime:
+    return {
+      'id': f"delta-system-{_format_iso(datetime.now(timezone.utc))}",
+      'emittedAt': _format_iso(datetime.now(timezone.utc)),
+      'kind': 'system',
+      'stageIds': [],
+      'feedIds': [],
+      'reason': 'system',
+    }
+
+  return None
+
+
+def _stage_ids_for_feed_items(items: list[dict[str, Any]]) -> list[str]:
+  ordered_ids: list[str] = []
+  for item in items:
+    for stage_id in _stage_ids_for_feed_item(item):
+      if stage_id not in ordered_ids:
+        ordered_ids.append(stage_id)
+  return ordered_ids
+
+
+def _stage_ids_for_feed_item(item: dict[str, Any]) -> list[str]:
+  kind = item.get('kind')
+  if kind == 'raw':
+    return ['fortigate', 'ingest', 'forwarder', 'raw-topic']
+  if kind == 'alert':
+    return ['correlator', 'alerts-topic', 'cluster-window']
+  if kind == 'suggestion':
+    if item.get('scope') == 'cluster':
+      return ['cluster-window', 'aiops-agent', 'suggestions-topic', 'remediation']
+    return ['aiops-agent', 'suggestions-topic', 'remediation']
+  return []

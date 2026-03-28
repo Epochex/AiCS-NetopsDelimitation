@@ -1,0 +1,71 @@
+{
+  "id": "agent-enhanced",
+  "label": "Agent Enhanced",
+  "mode": "agent-enhanced",
+  "timeWindow": {
+    "start": "2026-03-23T10:40:00+00:00",
+    "end": "2026-03-23T10:50:00+00:00",
+    "label": "2026-03-23 10:40-10:50 UTC"
+  },
+  "summary": "The same alert window is upgraded with structured evidence, operator guidance, and replay-friendly export artifacts.",
+  "currentSlice": {
+    "title": "deny_burst_v1 triggered for service=udp/10004 on device=4c:7b:02:a2:c7:af",
+    "alertId": "alert-udp-10004-20260323T104440Z",
+    "service": "udp/10004",
+    "device": "4c:7b:02:a2:c7:af",
+    "ruleId": "deny_burst_v1",
+    "focus": "The same current slice advances past alerting into evidence-backed suggestion emission, leaving a replayable narrative instead of a dead-end alert."
+  },
+  "metrics": {
+    "alertCount": 11,
+    "clusterTriggerCount": 1,
+    "suggestionEmissionCount": 11,
+    "operatorActionCount": 3,
+    "remediationClosureCount": 2,
+    "medianTransitionMs": 594,
+    "tokenCost": 18432,
+    "cpuProxyPct": 27
+  },
+  "timeline": [
+    {
+      "stamp": "2026-03-23T10:44:40+00:00",
+      "title": "Deterministic threshold crossed",
+      "detail": "The rule path emits the same warning alert as the baseline branch.",
+      "state": "observed"
+    },
+    {
+      "stamp": "2026-03-23T10:44:40.593912+00:00",
+      "title": "Suggestion packet emitted",
+      "detail": "A structured evidence bundle with hypotheses, recommended actions, and confidence metadata is published for the active slice.",
+      "state": "generated"
+    },
+    {
+      "stamp": "2026-03-23T10:45:12+00:00",
+      "title": "Operator action selected",
+      "detail": "The responder approves the top-ranked action path after reviewing topology and recent change context in one place.",
+      "state": "acted"
+    },
+    {
+      "stamp": "2026-03-23T10:47:06+00:00",
+      "title": "Remediation feedback recorded",
+      "detail": "Closure metadata is attached back to the branch, making the run exportable for replay and later conference comparison.",
+      "state": "closed"
+    }
+  ],
+  "controlBoundary": {
+    "status": "guided-execution",
+    "detail": "The operator still owns the action, but the branch now exposes a structured path from alert to evidence to response.",
+    "exportReadiness": "ready"
+  },
+  "exportArtifacts": {
+    "status": "ready",
+    "detail": "This branch can support replay, review, and figure generation because the alert, suggestion, action, and closure path are all visible.",
+    "items": [
+      "alert envelope",
+      "suggestion bundle",
+      "operator action trace",
+      "closure packet",
+      "replay narrative"
+    ]
+  }
+}

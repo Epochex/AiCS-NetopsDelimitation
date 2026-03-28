@@ -93,7 +93,7 @@ flowchart LR
   - 把 remediation 明确为控制边界，而不是伪装成已经接通的实时执行阶段。
 - 与后端对接方式
   - `GET /api/runtime/snapshot` 用于页面初始水合。
-  - `GET /api/runtime/stream` 通过 SSE 推送实时 `RuntimeSnapshot`。
+  - `GET /api/runtime/stream` 通过 SSE 推送事件信封（`snapshot`、`delta`、`heartbeat`），让前端只更新受影响的阶段和事件区块。
   - 网关直接读取 `/data/netops-runtime` 下的 JSONL sink，并从 `core/`、`edge/` deployment 中提取运行控制参数。
   - 本地开发由 Vite 代理 `/api` 到 `:8026`；部署态采用同源服务，默认路径不依赖 CORS。
 - 关键交互链路
@@ -117,65 +117,43 @@ flowchart LR
   - remediation 执行通道
 - `Remediation Loop` 现在被故意画成一个“保留的控制边界”，而不是一个真实会写回生产环境的执行阶段。后续如果接审批/执行，也必须与当前只读控制台明确隔离。
 
-### Live Event Lifecycle（当前 10 阶段运维视图）
+### Live Event Lifecycle（当前动作视图）
 
-- `01 FortiGate`
-  - 源设备日志平面，是整条链路最上游的真实流量/日志来源。
-- `02 edge/fortigate-ingest`
-  - 把原始 FortiGate syslog 解析成结构化 JSONL facts，同时保留 checkpoint / replay 语义，再把整理后的 edge facts 交给下一阶段。
-- `03 edge-forwarder`
-  - 读取 edge 侧的解析结果并转发到 core 侧 Kafka raw topic。它是 edge 文件态运行时和 core 流式数据面的桥梁。
-- `04 netops.facts.raw.v1`
-  - 实时 fact topic，是 core 侧第一次看见事实事件的地方，也是确定性告警链路的直接上游。
-- `05 core-correlator`
-  - 执行质量门禁、去重和确定性规则。当前系统真正做“发不发 alert”判断的地方就在这里。
-- `06 netops.alerts.v1`
-  - Alert bus。它把已经发出的告警交给后续持久化和 AIOps 增强，是“确定性检测”和“建议生成”之间的交接点。
-- `07 cluster window`
-  - 基于已发出的 alerts 做 same-key 聚合门控。这是 AIOps 路径内部的一个逻辑阶段，不是独立部署服务；它决定重复告警是否还要形成 `cluster-scope` suggestion。
-- `08 core-aiops-agent`
-  - 构建 evidence bundle、从 ClickHouse 查询近期历史、调用 provider。当前默认还是 template 推理，未来这里就是远端/本地 LLM 推理的挂接点。
-- `09 netops.aiops.suggestions.v1`
-  - 结构化建议 topic，是当前 AIOps 路径面向操作员的输出，也是前端 evidence drawer / event queue 的直接上游。
-- `10 Remediation Loop`
-  - 预留的审批/执行/反馈边界。它现在存在的意义是告诉用户“系统未来会在这里进入执行闭环”，但当前还没有接成真实运行阶段。
+- 首页的 `Live Event Lifecycle` 不再先铺 10 个技术模块，而是先按“对操作员有意义的动作阶段”来组织；完整模块 / topic 图仍保留在 `Pipeline Topology`。
+- `01 Source Signal`
+  - 真实的 FortiGate 设备日志进入平台。这里强调的是“源头已经活着”，而不是把源设备伪装成一个带精确耗时的服务调用。
+- `02 Edge Parse + Handoff`
+  - 把 `fortigate-ingest`、`edge-forwarder`、`netops.facts.raw.v1` 收成一个动作阶段：解析、保留 replay/checkpoint 语义、再把 fact 送进 raw stream。
+- `03 Deterministic Alert`
+  - 对应 `core-correlator` 和 `netops.alerts.v1`。这是系统第一次真正做“这个事件是否跨过规则门槛”的判断。
+- `04 Cluster Gate`
+  - 对应 same-key 聚合窗口。它回答的是“这条路径离 cluster-scope 还差多远”，而不是先把用户扔进内部实现细节。
+- `05 AIOps Suggestion`
+  - 对应 `core-aiops-agent` 和 `netops.aiops.suggestions.v1`。在这里把证据装配好、执行 provider 逻辑，并形成结构化建议。
+- `06 Remediation Boundary`
+  - 审批 / 执行 / 反馈边界继续保持可见，但当前仍是只读保留面，没有接成真实生产回写通道。
 
-阶段之间的转承关系：
+为什么首页更适合动作视图：
 
-- `01 -> 04` 是接入/传输路径。
-- `05 -> 06` 是真实告警决策路径。
-- `06 -> 09` 是证据增强/建议输出路径。
-- `07` 是 alert 重复聚合到 cluster-scope suggestion 的逻辑门。
-- `10` 位于 suggestion 之后，但当前仍是可见边界而不是活动闭环。
+- 第一次使用平台的人，不需要先理解每个内部 topic / service 名称，也能知道系统正在干什么。
+- 计时条更诚实：只有真正有开始/结束边界的阶段显示耗时；门控阶段显示进度；源头和边界阶段只显示 live state，不伪造 latency。
+- 技术上那 10 个模块依然存在，但它们更适合放在拓扑页，而不是作为首页第一视觉负担。
 
 ### 前端实时更新模型
 
 - 当前实现
-  - 网关先提供一次 `GET /api/runtime/snapshot`，然后默认每 `5` 秒通过 SSE 推送一份完整 `RuntimeSnapshot`（`NETOPS_CONSOLE_STREAM_INTERVAL_SEC=5`）。
-  - 这个实现的优点是简单、稳定、适合当前 demo/观测阶段；缺点是前端拿到的是“整包状态心跳”，不是“按阶段推进的事件流”。
+  - 网关先提供一次 `GET /api/runtime/snapshot`，然后保持 SSE 长连接，并发送 `snapshot`、按变化触发的 `delta`、低频 `heartbeat`。
+  - 现在用于检测 runtime 文件变化的默认轮询间隔是 `NETOPS_CONSOLE_STREAM_INTERVAL_SEC=1`，但只有真正发生 feed/cluster 变化时才会向前端发 delta。
 - 为什么公网代理路径看起来没那么“活”
-  - 现在 SSE 传的是完整 snapshot，不是逐阶段 delta。
-  - 公网演示链路又叠加了 WAN + proxy + tailnet 多跳，所以视觉上会比本地/Tailscale 直连更钝。
-- 下一步建议
-  - 从“每 N 秒全量快照”切到“按事件触发的 delta stream”。
-  - 只推送关键阶段变化，例如：
-    - raw fact observed
-    - alert emitted
-    - cluster progress updated
-    - suggestion emitted
-    - remediation boundary entered
-  - 前端本地维护稳定状态，只重绘受影响的阶段/事件块。
+  - 现在已经切到阶段 delta，但公网演示链路仍然叠加了 WAN + proxy + tailnet 多跳，以及本地文件轮询探测。
+  - 所以公网体验会明显好于旧的 5 秒整包心跳，但仍然不会像本地/Tailscale 直连那样“贴着源站”。
 - 阶段计时
-  - 可以做，而且应该基于真实阶段时间戳来做，而不是前端装饰性计时器。
-  - 推荐的数据结构是：
-    - `started_at`
-    - `ended_at`
-    - `duration_ms`
-    - `source_event_id / alert_id / suggestion_id`
-  - 但要诚实说明：当前并不是每个阶段都已经暴露了足够的审计时间戳，所以一开始只能先展示“已知边界时间”，再逐步补全更真实的阶段耗时模型。
+  - 现在生命周期卡片下方已经统一预留了 action/timing band。
+  - 只有真正有边界时间的阶段显示实际耗时；没有真实开始/结束语义的阶段，用同一块区域显示状态、门控语义或保留边界。
+  - 这样可以保持风格一致，同时避免把 `FortiGate`、`Remediation Loop` 这类环节伪装成“有精确耗时”的服务调用。
 - 资源影响
   - 如果只推送“阶段转移”和“对操作员有意义的事件”，资源消耗**不会明显上升**。
-  - 相反，它甚至可能比现在每 `5` 秒从 JSONL 全量重建 snapshot 更省网关 I/O。
+  - 相反，它通常会在保持带宽/I/O可控的同时，显著降低前端感知延迟，因为界面只重绘变化的区域。
   - 真正不建议的是把所有 raw facts 直接高频推给前端。
   - 更合理的目标是：高吞吐数据继续留在 Kafka/runtime files，前端只接收带时序元数据的阶段 delta。
 

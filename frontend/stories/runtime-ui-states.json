@@ -1,0 +1,218 @@
+{
+  "components": [
+    {
+      "componentId": "LifecyclePhaseStrip",
+      "intent": "Make phase motion honest by binding each band to a real semantic mode.",
+      "scenarios": [
+        {
+          "id": "phase-live-transition",
+          "label": "Live transition",
+          "state": "duration",
+          "why": "Use only when the backend exposes a measured transition from one stage to the next.",
+          "propsPreview": [
+            "phase=deterministic-alert",
+            "mode=duration",
+            "state=complete"
+          ]
+        },
+        {
+          "id": "phase-reserved-boundary",
+          "label": "Reserved boundary",
+          "state": "reserved",
+          "why": "Keep remediation visible without visually pretending that it is already wired.",
+          "propsPreview": [
+            "phase=remediation-boundary",
+            "mode=reserved",
+            "state=planned"
+          ]
+        }
+      ]
+    },
+    {
+      "componentId": "TransitionTimingChip",
+      "intent": "Present latency as a measured transition, not as generic progress.",
+      "scenarios": [
+        {
+          "id": "timing-real-duration",
+          "label": "Real duration",
+          "state": "duration",
+          "why": "Only measured transition timing should render as elapsed latency.",
+          "propsPreview": [
+            "label=elapsed",
+            "durationMs=594"
+          ]
+        },
+        {
+          "id": "timing-static-status",
+          "label": "Static status",
+          "state": "status",
+          "why": "Stable posture should render as a status chip, not a running meter.",
+          "propsPreview": [
+            "label=boundary",
+            "value=manual"
+          ]
+        }
+      ]
+    },
+    {
+      "componentId": "ClusterThresholdBar",
+      "intent": "Show threshold proximity without implying elapsed time.",
+      "scenarios": [
+        {
+          "id": "cluster-watch",
+          "label": "Near trigger",
+          "state": "gate",
+          "why": "The bar should answer how close the same-key path is to becoming cluster-legible.",
+          "propsPreview": [
+            "progress=2",
+            "target=3",
+            "windowSec=600"
+          ]
+        },
+        {
+          "id": "cluster-triggered",
+          "label": "Triggered",
+          "state": "gate",
+          "why": "Once the gate is crossed, wording must switch from proximity to reached-state.",
+          "propsPreview": [
+            "progress=3",
+            "target=3",
+            "windowSec=600"
+          ]
+        }
+      ]
+    },
+    {
+      "componentId": "CurrentSliceHeader",
+      "intent": "Make the active incident the first read on the page.",
+      "scenarios": [
+        {
+          "id": "slice-alert-focus",
+          "label": "Alert focus",
+          "state": "alert-active",
+          "why": "The header should answer what happened and why the operator is here before any overview grid.",
+          "propsPreview": [
+            "service=udp/10004",
+            "device=4c:7b:02:a2:c7:af",
+            "ruleId=deny_burst_v1"
+          ]
+        },
+        {
+          "id": "slice-compare-focus",
+          "label": "Compare focus",
+          "state": "compare-active",
+          "why": "Compare mode should keep the same current slice while the branches diverge underneath it.",
+          "propsPreview": [
+            "branch=rule-only vs agent-enhanced",
+            "window=2026-03-23 10:40-10:50 UTC"
+          ]
+        }
+      ]
+    },
+    {
+      "componentId": "EvidenceDrawer",
+      "intent": "Keep evidence tied to suggestion fields instead of freeform explanation text.",
+      "scenarios": [
+        {
+          "id": "evidence-full-bundle",
+          "label": "Full bundle",
+          "state": "suggestion-bound",
+          "why": "When a suggestion exists, context, topology, change, and historical evidence must all stay queryable.",
+          "propsPreview": [
+            "scope=alert",
+            "confidence=high",
+            "provider=template"
+          ]
+        },
+        {
+          "id": "evidence-alert-only",
+          "label": "Alert only",
+          "state": "fallback-alert",
+          "why": "When no suggestion exists, the UI should make the missing evidence bundle obvious rather than silently inventing one.",
+          "propsPreview": [
+            "scope=rule-only",
+            "bundle=absent"
+          ]
+        }
+      ]
+    },
+    {
+      "componentId": "ControlBoundaryCard",
+      "intent": "Represent control posture without blurring observe/explain/act/feed-back.",
+      "scenarios": [
+        {
+          "id": "boundary-manual",
+          "label": "Manual handoff",
+          "state": "reserved",
+          "why": "The operator should see that execution is available as a boundary, but not yet wired as an automatic stage.",
+          "propsPreview": [
+            "status=manual-handoff",
+            "exportReadiness=partial"
+          ]
+        },
+        {
+          "id": "boundary-guided",
+          "label": "Guided execution",
+          "state": "guided",
+          "why": "Agent-enhanced runs should still show operator ownership, but with a structured path into action and feedback.",
+          "propsPreview": [
+            "status=guided-execution",
+            "exportReadiness=ready"
+          ]
+        }
+      ]
+    },
+    {
+      "componentId": "CompareBranchPanel",
+      "intent": "Keep same-window branch deltas legible for review and conference prep.",
+      "scenarios": [
+        {
+          "id": "compare-rule-only",
+          "label": "Rule only branch",
+          "state": "baseline",
+          "why": "The baseline branch should be visually calm and explicit about what it does not provide.",
+          "propsPreview": [
+            "suggestionEmissionCount=0",
+            "remediationClosureCount=0"
+          ]
+        },
+        {
+          "id": "compare-agent-enhanced",
+          "label": "Agent enhanced branch",
+          "state": "augmented",
+          "why": "The enhanced branch should highlight added coverage and its extra runtime cost in the same frame.",
+          "propsPreview": [
+            "suggestionEmissionCount=11",
+            "tokenCost=18432"
+          ]
+        }
+      ]
+    },
+    {
+      "componentId": "ExportMetricsPanel",
+      "intent": "Make replay and export readiness first-class outputs.",
+      "scenarios": [
+        {
+          "id": "export-partial",
+          "label": "Partial export",
+          "state": "partial",
+          "why": "Baseline runs should show what can be exported without pretending replay is complete.",
+          "propsPreview": [
+            "status=partial",
+            "artifactCount=3"
+          ]
+        },
+        {
+          "id": "export-ready",
+          "label": "Replay ready",
+          "state": "ready",
+          "why": "Enhanced runs should surface that the branch can support replay, review, and figure generation.",
+          "propsPreview": [
+            "status=ready",
+            "artifactCount=5"
+          ]
+        }
+      ]
+    }
+  ]
+}

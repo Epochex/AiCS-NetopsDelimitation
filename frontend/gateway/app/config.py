@@ -38,7 +38,7 @@ class Settings:
       os.getenv('NETOPS_RUNTIME_ROOT', '/data/netops-runtime'),
     ).resolve()
     stream_interval_sec = float(
-      os.getenv('NETOPS_CONSOLE_STREAM_INTERVAL_SEC', '5'),
+      os.getenv('NETOPS_CONSOLE_STREAM_INTERVAL_SEC', '1'),
     )
     cors_origins = _split_csv(os.getenv('NETOPS_CONSOLE_CORS_ORIGINS', ''))
     branch_hint = os.getenv('NETOPS_CONSOLE_BRANCH')
@@ -51,4 +51,3 @@ class Settings:
       cors_origins=cors_origins,
       branch_hint=branch_hint,
     )
-
