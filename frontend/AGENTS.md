@@ -2,6 +2,33 @@
 
 When you edit anything under `frontend/`, optimize for runtime semantics first and visuals second.
 
+## Required Delivery Pipeline
+
+Every frontend task must follow this order:
+
+1. `state-first`
+   Update `frontend/stories/runtime-ui-states.json` and any relevant fixture or runtime contract before changing layout-heavy UI.
+2. `browser-required`
+   Every UI-affecting change must be checked in a real browser.
+   Prefer Playwright MCP first.
+   If Playwright MCP fails because of `root` / Chromium sandbox startup, use an explicit fallback browser run and record that fallback was used.
+3. `screenshot-required`
+   Every UI-affecting change must leave at least one screenshot artifact for review.
+4. `rubric-required`
+   Every frontend review must include a short critique that covers:
+   - result-first readability
+   - process traceability
+   - motion semantics
+   - evidence density
+   - operator usefulness
+5. `transport-aware`
+   Separate design defects from data defects and proxy/transport defects.
+   Never call a half-loaded `2088` page a design failure unless CSS/JS transport has been verified first.
+6. `golden-states`
+   Key runtime states should be preserved as state stories and screenshot references so future iterations do not regress silently.
+7. `mcp-as-judge`
+   MCP is not only for clicking buttons; use browser tooling for visual judgement, interaction replay, and render verification.
+
 ## Priority Order
 
 1. Lead with the current slice.
@@ -34,4 +61,8 @@ When you edit anything under `frontend/`, optimize for runtime semantics first a
 ## Review Loop
 
 - Validate with `npm run build` before closing the loop.
+- If the task changes layout, motion, language, or interaction hierarchy, update the relevant state stories first.
+- Run a real browser check before closing the loop.
+- Save at least one screenshot for review and mention whether it came from Playwright MCP or a fallback browser run.
+- Include a short UX critique, not only code or test output.
 - If browser review runs under `root` and Playwright MCP hits sandbox startup failure, use a direct Playwright fallback with `chromiumSandbox: false` and record that the fallback was used.

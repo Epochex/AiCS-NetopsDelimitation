@@ -1,11 +1,13 @@
 import ReactECharts from 'echarts-for-react'
 import type { EChartsOption } from 'echarts'
 import type { RuntimeSnapshot, StageTelemetry, SuggestionRecord } from '../types'
+import { pick, type UiLocale } from '../i18n'
 import { formatPreciseDurationMs } from '../utils/time'
 
 interface RuntimeVisualPanelsProps {
   snapshot: RuntimeSnapshot
   selectedSuggestion: SuggestionRecord
+  locale: UiLocale
 }
 
 interface LatencyRow {
@@ -58,23 +60,23 @@ function lineOption(snapshot: RuntimeSnapshot): EChartsOption {
       {
         name: 'alerts',
         type: 'line',
-        smooth: 0.3,
-        symbol: 'circle',
-        symbolSize: 7,
+        smooth: false,
+        symbol: 'diamond',
+        symbolSize: 8,
         data: snapshot.cadence.alerts,
-        lineStyle: { width: 2, color: '#ff8a45' },
-        itemStyle: { color: '#ff8a45' },
+        lineStyle: { width: 2.2, color: '#ff8a45' },
+        itemStyle: { color: '#ff8a45', borderColor: '#1b242c', borderWidth: 1 },
         areaStyle: { color: 'rgba(255, 138, 69, 0.12)' },
       },
       {
         name: 'suggestions',
         type: 'line',
-        smooth: 0.24,
-        symbol: 'circle',
-        symbolSize: 7,
+        smooth: false,
+        symbol: 'rect',
+        symbolSize: 8,
         data: snapshot.cadence.suggestions,
-        lineStyle: { width: 2, color: '#6fffa8' },
-        itemStyle: { color: '#6fffa8' },
+        lineStyle: { width: 2.2, color: '#6fffa8' },
+        itemStyle: { color: '#6fffa8', borderColor: '#1b242c', borderWidth: 1 },
         areaStyle: { color: 'rgba(111, 255, 168, 0.1)' },
       },
     ],
@@ -128,7 +130,7 @@ function evidenceOption(snapshot: RuntimeSnapshot): EChartsOption {
         },
         itemStyle: {
           color: '#69f9ff',
-          borderRadius: [0, 2, 2, 0],
+          borderRadius: 0,
         },
       },
     ],
@@ -219,14 +221,14 @@ function latencyOption(rows: LatencyRow[]): EChartsOption {
         },
         itemStyle: {
           color: '#6fffa8',
-          borderRadius: [0, 2, 2, 0],
+          borderRadius: 0,
         },
       },
     ],
   }
 }
 
-function summaryLine(telemetry: StageTelemetry[] | undefined) {
+function summaryLine(telemetry: StageTelemetry[] | undefined, locale: UiLocale) {
   const measured = (telemetry ?? []).filter(
     (item) =>
       item.mode === 'duration' &&
@@ -236,34 +238,55 @@ function summaryLine(telemetry: StageTelemetry[] | undefined) {
   const totalMs = measured.reduce((sum, item) => sum + (item.durationMs ?? 0), 0)
 
   return measured.length > 0
-    ? `Measured transition budget: ${formatPreciseDurationMs(totalMs)}`
-    : 'Measured transition budget appears when live stage telemetry is present.'
+    ? pick(
+        locale,
+        `Measured transition budget: ${formatPreciseDurationMs(totalMs)}`,
+        `已测得转场预算：${formatPreciseDurationMs(totalMs)}`,
+      )
+    : pick(
+        locale,
+        'Measured transition budget appears when live stage telemetry is present.',
+        '只有存在实时阶段遥测时，才会显示已测得的转场预算。',
+      )
 }
 
 export function RuntimeVisualPanels({
   snapshot,
   selectedSuggestion,
+  locale,
 }: RuntimeVisualPanelsProps) {
   const latency = latencyRows(selectedSuggestion)
+  const t = (en: string, zh: string) => pick(locale, en, zh)
 
   return (
     <section className="section visual-strip">
       <div className="section-header">
         <div>
-          <h2 className="section-title">Meaningful Runtime Visuals</h2>
+          <h2 className="section-title">
+            {t('Meaningful Runtime Visuals', '有意义的运行时可视化')}
+          </h2>
           <span className="section-subtitle">
-            Curves and bars are only kept when they answer throughput, evidence quality,
-            or transition cost for the active incident slice.
+            {t(
+              'Curves and bars are only kept when they answer throughput, evidence quality, or transition cost for the active incident slice.',
+              '只有当曲线和柱图能解释吞吐、证据质量或转场成本时，它们才会被保留下来。',
+            )}
           </span>
         </div>
-        <span className="section-kicker">signal density with purpose</span>
+        <span className="section-kicker">
+          {t('signal density with purpose', '有目的的信号密度')}
+        </span>
       </div>
 
       <div className="signal-visual-grid">
-        <article className="chart-card">
+        <article className="chart-card chart-card-cadence">
           <div className="chart-meta">
-            <strong>Cadence parity</strong>
-            <p>Whether suggestion emission stays close to alert arrival across the same window.</p>
+            <strong>{t('Cadence parity', '节奏对齐')}</strong>
+            <p>
+              {t(
+                'Whether suggestion emission stays close to alert arrival across the same window.',
+                '同一时间窗内，建议输出是否跟上告警到达的节奏。',
+              )}
+            </p>
           </div>
           <ReactECharts
             option={lineOption(snapshot)}
@@ -273,10 +296,15 @@ export function RuntimeVisualPanels({
           />
         </article>
 
-        <article className="chart-card">
+        <article className="chart-card chart-card-evidence">
           <div className="chart-meta">
-            <strong>Evidence attachment</strong>
-            <p>Topology, device, and change context rates on the current runtime path.</p>
+            <strong>{t('Evidence attachment', '证据附着率')}</strong>
+            <p>
+              {t(
+                'Topology, device, and change context rates on the current runtime path.',
+                '当前运行路径上，拓扑、设备与变更上下文的挂载率。',
+              )}
+            </p>
           </div>
           <ReactECharts
             option={evidenceOption(snapshot)}
@@ -286,10 +314,10 @@ export function RuntimeVisualPanels({
           />
         </article>
 
-        <article className="chart-card">
+        <article className="chart-card chart-card-latency">
           <div className="chart-meta">
-            <strong>Transition latency</strong>
-            <p>{summaryLine(selectedSuggestion.stageTelemetry)}</p>
+            <strong>{t('Transition latency', '转场时延')}</strong>
+            <p>{summaryLine(selectedSuggestion.stageTelemetry, locale)}</p>
           </div>
           {latency.length > 0 ? (
             <ReactECharts
@@ -300,10 +328,12 @@ export function RuntimeVisualPanels({
             />
           ) : (
             <div className="chart-empty">
-              <strong>Latency telemetry unavailable</strong>
+              <strong>{t('Latency telemetry unavailable', '时延遥测不可用')}</strong>
               <p>
-                This panel stays blank rather than inventing timings when the selected
-                suggestion does not carry measured stage telemetry.
+                {t(
+                  'This panel stays blank rather than inventing timings when the selected suggestion does not carry measured stage telemetry.',
+                  '如果当前建议没有携带测得的阶段遥测，这个面板会保持空白，而不是伪造计时。',
+                )}
               </p>
             </div>
           )}

@@ -6,6 +6,7 @@ import { LiveFlowConsole } from './components/LiveFlowConsole'
 import { PipelineTopologyView } from './components/PipelineTopologyView'
 import { runtimeSnapshot } from './data/runtimeModel'
 import { useRuntimeSnapshot } from './hooks/useRuntimeSnapshot'
+import { pick, type UiLocale } from './i18n'
 import { formatMaybeTimestamp, timestampTooltip } from './utils/time'
 
 type ViewMode = 'console' | 'topology' | 'compare'
@@ -30,6 +31,7 @@ function App() {
   const defaultSuggestionId =
     snapshot.defaultSuggestionId || suggestionPool[0]?.id || runtimeSnapshot.defaultSuggestionId
   const [view, setView] = useState<ViewMode>('console')
+  const [locale, setLocale] = useState<UiLocale>('en')
   const [preferredSuggestionId, setPreferredSuggestionId] =
     useState(defaultSuggestionId)
   const activeSuggestionId = suggestionPool.some(
@@ -49,37 +51,60 @@ function App() {
     () =>
       view === 'console'
         ? [
-            { label: 'active service', value: selectedSuggestion.context.service },
-            { label: 'active device', value: selectedSuggestion.context.srcDeviceKey },
             {
-              label: 'judgment',
+              label: pick(locale, 'active service', '当前服务'),
+              value: selectedSuggestion.context.service,
+            },
+            {
+              label: pick(locale, 'active device', '当前设备'),
+              value: selectedSuggestion.context.srcDeviceKey,
+            },
+            {
+              label: pick(locale, 'judgment', '系统判断'),
               value: `${selectedSuggestion.scope} · ${selectedSuggestion.confidenceLabel}`,
             },
-            { label: 'stream', value: connectionState, tone: connectionState },
-            { label: 'latest suggestion', value: snapshot.runtime.latestSuggestionTs },
             {
-              label: 'next action',
+              label: pick(locale, 'stream', '流状态'),
+              value: connectionState,
+              tone: connectionState,
+            },
+            {
+              label: pick(locale, 'latest suggestion', '最新建议'),
+              value: snapshot.runtime.latestSuggestionTs,
+            },
+            {
+              label: pick(locale, 'next action', '下一动作'),
               value:
                 selectedSuggestion.recommendedActions[0] ??
-                'inspect evidence bundle',
+                pick(locale, 'inspect evidence bundle', '检查证据包'),
             },
           ]
         : [
-            { label: 'branch', value: snapshot.repo.branch },
-            { label: 'validation', value: snapshot.repo.validation },
-            { label: 'stream', value: connectionState, tone: connectionState },
-            { label: 'latest alert', value: snapshot.runtime.latestAlertTs },
-            { label: 'latest suggestion', value: snapshot.runtime.latestSuggestionTs },
-            { label: 'closure', value: metricValue(snapshot, 'closure') },
+            { label: pick(locale, 'branch', '分支'), value: snapshot.repo.branch },
+            { label: pick(locale, 'validation', '校验'), value: snapshot.repo.validation },
+            {
+              label: pick(locale, 'stream', '流状态'),
+              value: connectionState,
+              tone: connectionState,
+            },
+            {
+              label: pick(locale, 'latest alert', '最新告警'),
+              value: snapshot.runtime.latestAlertTs,
+            },
+            {
+              label: pick(locale, 'latest suggestion', '最新建议'),
+              value: snapshot.runtime.latestSuggestionTs,
+            },
+            { label: pick(locale, 'closure', '闭环状态'), value: metricValue(snapshot, 'closure') },
           ],
-    [connectionState, selectedSuggestion, snapshot, view],
+    [connectionState, locale, selectedSuggestion, snapshot, view],
   )
   const primaryTitle =
     view === 'console'
-      ? 'Guided Runtime Overview'
+      ? pick(locale, 'Guided Runtime Overview', '运行总览')
       : view === 'topology'
-        ? 'Pipeline Topology'
-        : 'Compare Mode'
+        ? pick(locale, 'Pipeline Topology', '拓扑视图')
+        : pick(locale, 'Compare Mode', '对照模式')
 
   if (!selectedSuggestion) {
     return (
@@ -90,14 +115,25 @@ function App() {
               <div>
                 <h2 className="section-title">No Suggestion Available</h2>
                 <span className="section-subtitle">
-                  The frontend has no suggestion slice to bind the current
-                  runtime story to.
+                  {pick(
+                    locale,
+                    'The frontend has no suggestion slice to bind the current runtime story to.',
+                    '当前前端没有可绑定的 suggestion slice，所以无法建立运行时故事线。',
+                  )}
                 </span>
               </div>
-              <span className="section-kicker">empty runtime selection</span>
+              <span className="section-kicker">
+                {pick(locale, 'empty runtime selection', '运行时选择为空')}
+              </span>
             </div>
             <div className="error-panel-body">
-              <strong>Check `/api/runtime/snapshot` and the local fallback model.</strong>
+              <strong>
+                {pick(
+                  locale,
+                  'Check `/api/runtime/snapshot` and the local fallback model.',
+                  '检查 `/api/runtime/snapshot` 与本地 fallback model。',
+                )}
+              </strong>
             </div>
           </section>
         </section>
@@ -109,7 +145,13 @@ function App() {
     <div className="app-shell">
       <header className="utility-rail">
         <div className="rail-brand">
-          <p className="rail-kicker">Hybrid NetOps / Tactical Runtime Console</p>
+          <p className="rail-kicker">
+            {pick(
+              locale,
+              'Hybrid NetOps / Tactical Runtime Console',
+              '混合式 NetOps / 战术运行时控制台',
+            )}
+          </p>
           <div className="rail-title-row">
             <h1>{primaryTitle}</h1>
             <span
@@ -125,23 +167,40 @@ function App() {
             className={view === 'console' ? 'tab is-active' : 'tab'}
             onClick={() => setView('console')}
           >
-            Guided Overview
+            {pick(locale, 'Guided Overview', '首页总览')}
           </button>
           <button
             type="button"
             className={view === 'topology' ? 'tab is-active' : 'tab'}
             onClick={() => setView('topology')}
           >
-            Pipeline Topology
+            {pick(locale, 'Pipeline Topology', '管线拓扑')}
           </button>
           <button
             type="button"
             className={view === 'compare' ? 'tab is-active' : 'tab'}
             onClick={() => setView('compare')}
           >
-            Compare Mode
+            {pick(locale, 'Compare Mode', '对照模式')}
           </button>
         </nav>
+
+        <div className="locale-switch" aria-label="Language switch">
+          <button
+            type="button"
+            className={locale === 'en' ? 'tab is-active' : 'tab'}
+            onClick={() => setLocale('en')}
+          >
+            EN
+          </button>
+          <button
+            type="button"
+            className={locale === 'zh' ? 'tab is-active' : 'tab'}
+            onClick={() => setLocale('zh')}
+          >
+            中文
+          </button>
+        </div>
 
         <div className="utility-track">
           {utilityItems.map((item) => (
@@ -171,6 +230,7 @@ function App() {
               selectedSuggestion={selectedSuggestion}
               onSelectSuggestion={setPreferredSuggestionId}
               transportIssue={transportIssue}
+              locale={locale}
             />
           ) : view === 'topology' ? (
             <PipelineTopologyView
@@ -183,7 +243,7 @@ function App() {
               fallback={
                 <section className="page">
                   <section className="section chart-fallback">
-                    loading compare mode...
+                    {pick(locale, 'loading compare mode...', '正在加载对照模式...')}
                   </section>
                 </section>
               }
@@ -199,6 +259,7 @@ function App() {
               key={selectedSuggestion.id}
               suggestion={selectedSuggestion}
               controls={snapshot.strategyControls}
+              locale={locale}
             />
           </ErrorBoundary>
         ) : null}

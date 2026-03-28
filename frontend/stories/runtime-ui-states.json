@@ -110,6 +110,58 @@
       ]
     },
     {
+      "componentId": "LanguageToggle",
+      "intent": "Allow first-entry users to switch the console shell between English and Chinese without losing the active incident context.",
+      "scenarios": [
+        {
+          "id": "language-shell-english",
+          "label": "English shell",
+          "state": "en",
+          "why": "International review and conference narration should keep the current slice readable in English.",
+          "propsPreview": [
+            "locale=en",
+            "activeSlice=preserved"
+          ]
+        },
+        {
+          "id": "language-shell-chinese",
+          "label": "Chinese shell",
+          "state": "zh-CN",
+          "why": "Local operator review should be able to read the same incident story in Chinese without changing the underlying runtime selection.",
+          "propsPreview": [
+            "locale=zh-CN",
+            "activeSlice=preserved"
+          ]
+        }
+      ]
+    },
+    {
+      "componentId": "HeroScene",
+      "intent": "Turn the active incident into a tactical scene rather than a text block.",
+      "scenarios": [
+        {
+          "id": "hero-scene-suggestion-live",
+          "label": "Suggestion live scene",
+          "state": "suggestion-focus",
+          "why": "The first screen should visibly show that the system has already moved from signal to guidance.",
+          "propsPreview": [
+            "activeStage=suggestion",
+            "evidenceOrbits=topology,device,change"
+          ]
+        },
+        {
+          "id": "hero-scene-cluster-watch",
+          "label": "Cluster watch scene",
+          "state": "cluster-watch",
+          "why": "When the cluster gate is still forming, motion should emphasize threshold proximity instead of fake completion.",
+          "propsPreview": [
+            "activeStage=cluster",
+            "clusterProgress=2/3"
+          ]
+        }
+      ]
+    },
+    {
       "componentId": "EvidenceDrawer",
       "intent": "Keep evidence tied to suggestion fields instead of freeform explanation text.",
       "scenarios": [
@@ -132,6 +184,33 @@
           "propsPreview": [
             "scope=rule-only",
             "bundle=absent"
+          ]
+        }
+      ]
+    },
+    {
+      "componentId": "IncidentStoryTheater",
+      "intent": "Promote the story-and-visuals area into a primary stage for data and interaction structure.",
+      "scenarios": [
+        {
+          "id": "theater-expanded",
+          "label": "Expanded theater",
+          "state": "global-stage",
+          "why": "The story section should feel like a main operational canvas, not a small secondary panel hidden behind a timid disclosure.",
+          "propsPreview": [
+            "charts=full-width",
+            "timeline=interactive",
+            "queue=linked"
+          ]
+        },
+        {
+          "id": "theater-degraded-transport",
+          "label": "Transport degraded",
+          "state": "degraded",
+          "why": "When CSS, SSE, or large assets are only partially available, the theater must degrade into a readable but still structured shell.",
+          "propsPreview": [
+            "criticalCss=present",
+            "liveStream=stalled"
           ]
         }
       ]

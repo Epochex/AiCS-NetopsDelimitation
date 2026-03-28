@@ -22,8 +22,10 @@ This skill keeps frontend work anchored to runtime behavior instead of vibe-only
 3. For compare-mode work, load `frontend/fixtures/compare/*.json`.
 4. For state-boundary work, load `frontend/stories/runtime-ui-states.json`.
 5. For semantic mapping questions, read `references/runtime-ui-map.md`.
-6. Implement the smallest useful UI change that keeps runtime semantics honest.
-7. Validate with `npm run build`, then do a browser check if the change affects layout or motion.
+6. Read `frontend/documentation/FRONTEND_REVIEW_WORKFLOW.md` before layout-heavy work.
+7. Implement the smallest useful UI change that keeps runtime semantics honest.
+8. Validate with `npm run build`, then do a browser check if the change affects layout or motion.
+9. Leave at least one screenshot artifact and a short review note for every UI-affecting change.
 
 ## Non-Negotiables
 

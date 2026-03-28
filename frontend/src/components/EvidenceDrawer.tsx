@@ -1,4 +1,5 @@
 import type { StrategyControl, SuggestionRecord } from '../types'
+import { pick, type UiLocale } from '../i18n'
 import {
   formatEvidenceValue,
   formatMaybeTimestamp,
@@ -8,6 +9,7 @@ import {
 interface EvidenceDrawerProps {
   suggestion: SuggestionRecord
   controls: StrategyControl[]
+  locale: UiLocale
 }
 
 function firstPresentValue(
@@ -38,9 +40,13 @@ function attachedEvidenceKinds(suggestion: SuggestionRecord) {
   )
 }
 
-function whyItMatters(suggestion: SuggestionRecord) {
+function whyItMatters(suggestion: SuggestionRecord, locale: UiLocale) {
   const attached = attachedEvidenceKinds(suggestion).join(' + ')
   const recentSimilar = suggestion.context.recentSimilar1h
+
+  if (locale === 'zh') {
+    return `${suggestion.context.srcDeviceKey} 上的 ${suggestion.context.service} 当前被视为 ${suggestion.scope}-scope 事件切片，并已附带 ${attached} 上下文${recentSimilar > 0 ? `，最近 1 小时内还有 ${recentSimilar} 条相似告警` : ''}。`
+  }
 
   return `${suggestion.context.service} on ${suggestion.context.srcDeviceKey} is currently being treated as a ${suggestion.scope}-scope slice with ${attached} context attached${recentSimilar > 0 ? ` and ${recentSimilar} similar alert(s) in the last hour` : ''}.`
 }
@@ -48,17 +54,30 @@ function whyItMatters(suggestion: SuggestionRecord) {
 export function EvidenceDrawer({
   suggestion,
   controls,
+  locale,
 }: EvidenceDrawerProps) {
   return (
     <aside className="drawer">
       <div className="drawer-scroll">
         <div className="drawer-header">
-          <div className="section-kicker">Selected suggestion / evidence trace</div>
+          <div className="section-kicker">
+            {pick(locale, 'Selected suggestion / evidence trace', '当前建议 / 证据轨迹')}
+          </div>
           <h2>{suggestion.summary}</h2>
           <p className="drawer-copy">
-            Read service and src device from <strong>context</strong> or{' '}
-            <strong>evidence_bundle.topology</strong>, not from a top-level
-            suggestion field.
+            {pick(
+              locale,
+              'Read service and src device from ',
+              'service 与 src device 请优先从 ',
+            )}
+            <strong>context</strong>
+            {pick(locale, ' or ', ' 或 ')}
+            <strong>evidence_bundle.topology</strong>
+            {pick(
+              locale,
+              ', not from a top-level suggestion field.',
+              ' 读取，而不是依赖 suggestion 顶层字段。',
+            )}
           </p>
           <div className="drawer-badges">
             <span className="badge">{suggestion.scope}-scope</span>
@@ -70,12 +89,12 @@ export function EvidenceDrawer({
 
         <div className="drawer-summary-grid">
           <section className="drawer-card drawer-priority-card">
-            <h3>Why this matters</h3>
-            <p className="drawer-copy">{whyItMatters(suggestion)}</p>
+            <h3>{pick(locale, 'Why this matters', '为什么值得关注')}</h3>
+            <p className="drawer-copy">{whyItMatters(suggestion, locale)}</p>
           </section>
 
           <section className="drawer-card drawer-priority-card">
-            <h3>Recommended action</h3>
+            <h3>{pick(locale, 'Recommended action', '推荐动作')}</h3>
             <ul className="prose-list">
               {suggestion.recommendedActions.slice(0, 3).map((item) => (
                 <li key={item}>{item}</li>
@@ -84,7 +103,7 @@ export function EvidenceDrawer({
           </section>
 
           <section className="drawer-card drawer-priority-card">
-            <h3>Attached evidence</h3>
+            <h3>{pick(locale, 'Attached evidence', '附带证据')}</h3>
             <ul className="evidence-list">
               <li>
                 <span>service</span>
@@ -134,9 +153,11 @@ export function EvidenceDrawer({
         </div>
 
         <details className="drawer-disclosure">
-          <summary>Open runtime context and raw fields</summary>
+          <summary>
+            {pick(locale, 'Open runtime context and raw fields', '展开运行时上下文与原始字段')}
+          </summary>
           <section className="drawer-card">
-            <h3>Runtime Context</h3>
+            <h3>{pick(locale, 'Runtime Context', '运行时上下文')}</h3>
             <ul className="evidence-list">
               <li>
                 <span>suggestion_ts</span>
@@ -172,9 +193,15 @@ export function EvidenceDrawer({
         </details>
 
         <details className="drawer-disclosure">
-          <summary>Open topology, device, and change evidence</summary>
+          <summary>
+            {pick(
+              locale,
+              'Open topology, device, and change evidence',
+              '展开拓扑、设备与变更证据',
+            )}
+          </summary>
           <section className="drawer-card">
-            <h3>Topology Evidence</h3>
+            <h3>{pick(locale, 'Topology Evidence', '拓扑证据')}</h3>
             <ul className="evidence-list">
               {Object.entries(suggestion.evidenceBundle.topology).map(([key, value]) => (
                 <li key={key}>
@@ -190,7 +217,7 @@ export function EvidenceDrawer({
           </section>
 
           <section className="drawer-card">
-            <h3>Device Evidence</h3>
+            <h3>{pick(locale, 'Device Evidence', '设备证据')}</h3>
             <ul className="evidence-list">
               {Object.entries(suggestion.evidenceBundle.device).map(([key, value]) => (
                 <li key={key}>
@@ -206,7 +233,7 @@ export function EvidenceDrawer({
           </section>
 
           <section className="drawer-card">
-            <h3>Change / Historical Evidence</h3>
+            <h3>{pick(locale, 'Change / Historical Evidence', '变更 / 历史证据')}</h3>
             <ul className="evidence-list">
               {Object.entries(suggestion.evidenceBundle.change).map(([key, value]) => (
                 <li key={`change-${key}`}>
@@ -235,9 +262,15 @@ export function EvidenceDrawer({
         </details>
 
         <details className="drawer-disclosure">
-          <summary>Open hypotheses, confidence, and control points</summary>
+          <summary>
+            {pick(
+              locale,
+              'Open hypotheses, confidence, and control points',
+              '展开假设、置信度与控制点',
+            )}
+          </summary>
           <section className="drawer-card">
-            <h3>Hypotheses</h3>
+            <h3>{pick(locale, 'Hypotheses', '假设')}</h3>
             <ul className="prose-list">
               {suggestion.hypotheses.map((item) => (
                 <li key={item}>{item}</li>
@@ -246,7 +279,7 @@ export function EvidenceDrawer({
           </section>
 
           <section className="drawer-card">
-            <h3>All Recommended Actions</h3>
+            <h3>{pick(locale, 'All Recommended Actions', '全部推荐动作')}</h3>
             <ul className="prose-list">
               {suggestion.recommendedActions.map((item) => (
                 <li key={item}>{item}</li>
@@ -255,7 +288,7 @@ export function EvidenceDrawer({
           </section>
 
           <section className="drawer-card">
-            <h3>Confidence</h3>
+            <h3>{pick(locale, 'Confidence', '置信度')}</h3>
             <p className="drawer-copy">
               <strong>{suggestion.confidenceLabel}</strong> · {suggestion.confidence}
             </p>
@@ -263,7 +296,7 @@ export function EvidenceDrawer({
           </section>
 
           <section className="drawer-card">
-            <h3>Control Points</h3>
+            <h3>{pick(locale, 'Control Points', '控制点')}</h3>
             <div className="control-list">
               {controls.map((control) => (
                 <article key={control.id} className="control-item">
