@@ -3048,12 +3048,7 @@
   position: relative;
   padding: 1.1rem 1.25rem 1.2rem;
   display: grid;
-  grid-template-columns: minmax(320px, 0.92fr) minmax(0, 1.46fr);
-  grid-template-areas:
-    'rail hero'
-    'rail trajectory'
-    'guide guide'
-    'axis axis';
+  grid-template-columns: minmax(320px, 0.94fr) minmax(180px, 0.56fr) minmax(420px, 1.08fr);
   gap: 1rem;
   min-height: calc(100vh - 8.2rem);
   background:
@@ -3100,7 +3095,6 @@
 }
 
 .story-stage-darkside {
-  grid-area: rail;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
@@ -3239,7 +3233,7 @@
 }
 
 .story-axis-guide {
-  grid-area: guide;
+  grid-column: 1 / -1;
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -3284,11 +3278,10 @@
 }
 
 .story-stage-center {
-  grid-area: trajectory;
-  min-height: clamp(420px, 46vh, 640px);
+  min-height: 100%;
   display: flex;
-  align-items: stretch;
-  justify-content: stretch;
+  align-items: center;
+  justify-content: center;
 }
 
 .story-focus-core {
@@ -3381,10 +3374,9 @@
 }
 
 .story-stage-brightside {
-  grid-area: hero;
   display: flex;
   flex-direction: column;
-  justify-content: flex-start;
+  justify-content: space-between;
   gap: 1rem;
   padding: 0.45rem 0.2rem 0.1rem 0;
   color: #0c1117;
@@ -3418,238 +3410,6 @@
   background: rgba(105, 249, 255, 0.14);
   border-color: rgba(105, 249, 255, 0.36);
   color: var(--signal-cyan);
-}
-
-.story-trajectory-board {
-  position: relative;
-  width: 100%;
-  min-height: 100%;
-  padding: 1rem 1rem 1.05rem;
-  border: 1px solid rgba(12, 17, 23, 0.12);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.62), rgba(255, 255, 255, 0.34)),
-    rgba(255, 255, 255, 0.48);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.28);
-  overflow: hidden;
-}
-
-.story-trajectory-board::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background:
-    radial-gradient(circle at 18% 38%, rgba(105, 249, 255, 0.12), transparent 28%),
-    radial-gradient(circle at 82% 68%, rgba(255, 137, 61, 0.12), transparent 30%);
-  pointer-events: none;
-}
-
-.story-trajectory-head,
-.story-trajectory-lane,
-.story-trajectory-summary {
-  position: relative;
-  z-index: 1;
-}
-
-.story-trajectory-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 1rem;
-  margin-bottom: 0.95rem;
-}
-
-.story-trajectory-head h3 {
-  margin: 0.18rem 0 0;
-  max-width: 48rem;
-  color: #080b0f;
-  font: 600 clamp(1rem, 1vw + 0.82rem, 1.28rem) / 1.3 var(--font-sans);
-  letter-spacing: 0.02em;
-}
-
-.story-trajectory-badges {
-  justify-content: flex-end;
-}
-
-.story-trajectory-badges .signal-chip {
-  border-color: rgba(8, 11, 15, 0.12);
-  background: rgba(255, 255, 255, 0.5);
-}
-
-.story-trajectory-lane {
-  position: relative;
-  display: flex;
-  align-items: stretch;
-  gap: 0.55rem;
-  min-height: 320px;
-  padding: 1.35rem 0 1rem;
-  overflow-x: auto;
-}
-
-.story-trajectory-line {
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: calc(50% - 1px);
-  height: 2px;
-  background: linear-gradient(
-    90deg,
-    rgba(12, 17, 23, 0.1),
-    rgba(105, 249, 255, 0.28),
-    rgba(255, 137, 61, 0.22),
-    rgba(12, 17, 23, 0.1)
-  );
-}
-
-.story-trajectory-runner {
-  position: absolute;
-  top: calc(50% - 6px);
-  left: 0;
-  width: 16px;
-  height: 12px;
-  border-radius: 999px;
-  background: rgba(105, 249, 255, 0.86);
-  box-shadow: 0 0 18px rgba(105, 249, 255, 0.44);
-}
-
-.story-trajectory-runner-a {
-  animation: flowRunnerA 5.8s linear infinite;
-}
-
-.story-trajectory-runner-b {
-  animation: flowRunnerB 7.1s linear infinite;
-  animation-delay: 1.15s;
-  background: rgba(255, 137, 61, 0.78);
-  box-shadow: 0 0 16px rgba(255, 137, 61, 0.38);
-}
-
-.story-trajectory-segment {
-  position: relative;
-  z-index: 1;
-  display: flex;
-  align-items: center;
-  flex: 0 0 auto;
-}
-
-.story-trajectory-node {
-  width: min(240px, 21vw);
-  min-width: 216px;
-  min-height: 236px;
-  padding: 0.95rem 0.95rem 1rem;
-  border: 1px solid rgba(12, 17, 23, 0.12);
-  background:
-    linear-gradient(180deg, rgba(248, 250, 252, 0.96), rgba(236, 240, 244, 0.88)),
-    rgba(255, 255, 255, 0.88);
-  color: #080b0f;
-  box-shadow: 0 16px 36px rgba(9, 12, 16, 0.08);
-}
-
-.story-trajectory-node span {
-  display: block;
-  margin-bottom: 0.42rem;
-  color: rgba(12, 17, 23, 0.46);
-  font: 500 0.6rem/1 var(--font-mono);
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-}
-
-.story-trajectory-node strong {
-  display: block;
-  color: #080b0f;
-  font: 600 0.96rem/1.35 var(--font-sans);
-  letter-spacing: 0.02em;
-}
-
-.story-trajectory-node p {
-  margin: 0.65rem 0 0;
-  color: rgba(12, 17, 23, 0.74);
-  font: 400 0.78rem/1.6 var(--font-body);
-}
-
-.story-trajectory-node.tone-raw {
-  border-color: rgba(105, 249, 255, 0.26);
-}
-
-.story-trajectory-node.tone-alert {
-  border-color: rgba(255, 137, 61, 0.3);
-}
-
-.story-trajectory-node.tone-suggestion {
-  border-color: rgba(111, 255, 173, 0.28);
-}
-
-.story-trajectory-node.tone-neutral {
-  border-style: dashed;
-}
-
-.story-trajectory-meta {
-  display: flex;
-  flex-direction: column;
-  gap: 0.38rem;
-  margin-top: 0.85rem;
-  padding-top: 0.7rem;
-  border-top: 1px solid rgba(12, 17, 23, 0.08);
-}
-
-.story-trajectory-meta span {
-  margin: 0;
-  color: rgba(12, 17, 23, 0.66);
-  font: 500 0.64rem/1.35 var(--font-mono);
-  letter-spacing: 0.04em;
-  text-transform: none;
-}
-
-.story-trajectory-connector {
-  flex: 0 0 34px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.story-trajectory-connector i {
-  display: block;
-  width: 100%;
-  height: 2px;
-  background: linear-gradient(90deg, rgba(12, 17, 23, 0.08), rgba(105, 249, 255, 0.42));
-}
-
-.story-trajectory-summary {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.72rem;
-}
-
-.story-trajectory-summary-card {
-  min-width: 0;
-  padding: 0.88rem 0.92rem 0.94rem;
-  border: 1px solid rgba(12, 17, 23, 0.1);
-  background: rgba(255, 255, 255, 0.42);
-  backdrop-filter: blur(6px);
-}
-
-.story-trajectory-summary-card span {
-  display: block;
-  margin-bottom: 0.4rem;
-  color: rgba(12, 17, 23, 0.42);
-  font: 500 0.6rem/1 var(--font-mono);
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-}
-
-.story-trajectory-summary-card strong {
-  display: block;
-  color: #080b0f;
-  font: 600 0.94rem/1.38 var(--font-sans);
-}
-
-.story-trajectory-summary-card p,
-.story-trajectory-summary-card ul {
-  margin: 0.58rem 0 0;
-  color: rgba(12, 17, 23, 0.7);
-  font: 400 0.76rem/1.58 var(--font-body);
-}
-
-.story-trajectory-summary-card ul {
-  padding-left: 1rem;
 }
 
 .story-hero-kicker {
@@ -3717,7 +3477,7 @@
 }
 
 .story-axis {
-  grid-area: axis;
+  grid-column: 1 / -1;
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 0.65rem;
@@ -4487,7 +4247,7 @@
   }
 
   .story-stage-canvas {
-    grid-template-columns: minmax(280px, 0.82fr) minmax(0, 1.3fr);
+    grid-template-columns: minmax(280px, 0.86fr) minmax(180px, 0.5fr) minmax(320px, 1fr);
   }
 }
 
@@ -4528,15 +4288,6 @@
     grid-template-columns: 1fr;
   }
 
-  .story-stage-canvas {
-    grid-template-areas:
-      'rail'
-      'hero'
-      'trajectory'
-      'guide'
-      'axis';
-  }
-
   .story-axis-guide {
     flex-direction: column;
   }
@@ -4555,7 +4306,7 @@
   }
 
   .story-stage-center {
-    min-height: 360px;
+    min-height: 280px;
   }
 
   .story-axis {
@@ -4657,8 +4408,7 @@
   }
 
   .story-axis,
-  .story-stage-mini-metrics,
-  .story-trajectory-summary {
+  .story-stage-mini-metrics {
     grid-template-columns: 1fr;
   }
 
@@ -4694,23 +4444,6 @@
   .story-stage-canvas {
     min-height: auto;
     padding: 0.8rem 1rem 1rem;
-  }
-
-  .story-trajectory-lane {
-    min-height: auto;
-    flex-direction: column;
-  }
-
-  .story-trajectory-line,
-  .story-trajectory-runner,
-  .story-trajectory-connector {
-    display: none;
-  }
-
-  .story-trajectory-node {
-    width: 100%;
-    min-width: 0;
-    min-height: 0;
   }
 
   .story-hero-headline {
@@ -4832,6 +4565,11 @@
 
   .story-axis {
     grid-template-columns: 1fr;
+  }
+
+  .story-focus-rings {
+    width: 300px;
+    height: 300px;
   }
 
   .drawer-shell {

@@ -11,7 +11,6 @@ import type {
   SuggestionRecord,
 } from '../types'
 import {
-  formatEvidenceValue,
   formatDurationMs,
   formatMaybeTimestamp,
   parseTimestamp,
@@ -101,15 +100,6 @@ interface StoryCopy {
   why: string
   nextLabel: string
   next: string
-}
-
-interface EvidenceTrailNode {
-  id: string
-  kicker: string
-  title: string
-  detail: string
-  meta: string[]
-  tone: 'raw' | 'alert' | 'suggestion' | 'neutral'
 }
 
 function controlValue(controls: StrategyControl[], label: string) {
@@ -885,243 +875,6 @@ function whyThisMatters(suggestion: SuggestionRecord) {
   return `${suggestion.context.service} on ${suggestion.context.srcDeviceKey} reached ${suggestion.scope}-scope review with ${evidenceSummary} attached${recentSimilar > 0 ? ` and ${recentSimilar} similar alert(s) in the last hour` : ''}.`
 }
 
-function firstPresentEvidenceValue(
-  mapping: Record<string, unknown>,
-  keys: string[],
-) {
-  for (const key of keys) {
-    const value = mapping[key]
-    if (Array.isArray(value) && value.length > 0) {
-      return value
-        .map((entry) => formatEvidenceValue(entry as string | number | boolean | null | undefined))
-        .join(', ')
-    }
-    if (value !== null && value !== undefined && value !== '') {
-      return formatEvidenceValue(
-        value as string | number | boolean | null | undefined,
-      )
-    }
-  }
-
-  return '-'
-}
-
-function evidenceKindLabel(kind: string, locale: 'en' | 'zh') {
-  if (locale === 'zh') {
-    switch (kind) {
-      case 'topology':
-        return '拓扑'
-      case 'device':
-        return '设备'
-      case 'change':
-        return '变更'
-      case 'historical':
-        return '历史'
-      default:
-        return kind
-    }
-  }
-
-  switch (kind) {
-    case 'topology':
-      return 'topology'
-    case 'device':
-      return 'device'
-    case 'change':
-      return 'change'
-    case 'historical':
-      return 'historical'
-    default:
-      return kind
-  }
-}
-
-function primaryHypothesis(
-  suggestion: SuggestionRecord,
-  locale: 'en' | 'zh',
-) {
-  return (
-    suggestion.hypotheses[0] ??
-    (locale === 'zh'
-      ? '当前没有独立假设文本，请沿证据轨迹继续判断。'
-      : 'No standalone hypothesis is attached yet, so continue along the evidence trail.')
-  )
-}
-
-function buildEvidenceTrail(
-  suggestion: SuggestionRecord,
-  locale: 'en' | 'zh',
-): EvidenceTrailNode[] {
-  const topology = suggestion.evidenceBundle.topology
-  const device = suggestion.evidenceBundle.device
-  const change = suggestion.evidenceBundle.change
-  const historical = suggestion.evidenceBundle.historical
-  const deviceLabel = friendlyDeviceName(suggestion)
-  const serviceLabel =
-    firstPresentEvidenceValue(topology, ['service']) !== '-'
-      ? firstPresentEvidenceValue(topology, ['service'])
-      : suggestion.context.service
-  const srcIp = firstPresentEvidenceValue(topology, ['srcip'])
-  const dstIp = firstPresentEvidenceValue(topology, ['dstip'])
-  const zone = firstPresentEvidenceValue(topology, ['zone', 'src_zone'])
-  const site = firstPresentEvidenceValue(topology, ['site'])
-  const vendor = firstPresentEvidenceValue(device, ['vendor', 'srchwvendor'])
-  const role = firstPresentEvidenceValue(device, ['device_role', 'devtype'])
-  const model = firstPresentEvidenceValue(device, ['model', 'srchwmodel', 'version', 'srchwversion'])
-  const srcmac = firstPresentEvidenceValue(device, ['srcmac', 'mastersrcmac'])
-  const changeScore = firstPresentEvidenceValue(change, ['score'])
-  const changeLevel = firstPresentEvidenceValue(change, ['level'])
-  const suspectedChange = firstPresentEvidenceValue(change, ['suspected_change'])
-  const recentSimilar = firstPresentEvidenceValue(historical, ['recent_similar_1h'])
-  const clusterSize = firstPresentEvidenceValue(historical, ['cluster_size'])
-  const clusterWindow = firstPresentEvidenceValue(historical, ['cluster_window_sec'])
-  const clusterLast = firstPresentEvidenceValue(historical, ['cluster_last_alert_ts'])
-  const hypothesis = primaryHypothesis(suggestion, locale)
-  const leadAction = primaryRecommendation(suggestion)
-
-  return locale === 'zh'
-    ? [
-        {
-          id: 'slice',
-          kicker: '当前建议',
-          title: `${suggestion.scope}-scope / ${suggestion.priority}`,
-          detail: `${serviceLabel} 在 ${deviceLabel} 上被拉成当前事件切片，当前关注的是这条问题路径而不是整页散点。`,
-          meta: [
-            `service ${serviceLabel}`,
-            `device ${deviceLabel}`,
-            `suggestion ${formatMaybeTimestamp(suggestion.suggestionTs, 'time')}`,
-          ],
-          tone: 'alert',
-        },
-        {
-          id: 'topology',
-          kicker: '拓扑路径',
-          title: srcIp !== '-' || dstIp !== '-' ? `${srcIp} -> ${dstIp}` : '路径待补充',
-          detail: `当前证据先把通信路径和落点锁定，再决定是否继续扩大排查范围。`,
-          meta: [
-            `zone ${zone}`,
-            `site ${site}`,
-            `service ${serviceLabel}`,
-          ],
-          tone: 'raw',
-        },
-        {
-          id: 'device',
-          kicker: '设备画像',
-          title: `${vendor !== '-' ? vendor : 'unknown vendor'} / ${role !== '-' ? role : 'unknown role'}`,
-          detail: `${deviceLabel} 的设备身份、角色与模型信息会直接影响这条建议是否需要人工升级。`,
-          meta: [
-            `device ${deviceLabel}`,
-            `model ${model}`,
-            `srcmac ${srcmac}`,
-          ],
-          tone: 'neutral',
-        },
-        {
-          id: 'change',
-          kicker: '变更脉冲',
-          title: suspectedChange === '-' ? '变更线索有限' : `suspected_change=${suspectedChange}`,
-          detail: `系统会把 change 与 historical 信号叠在一起，判断这是不是一次刚刚出现的行为漂移。`,
-          meta: [
-            `score ${changeScore}`,
-            `level ${changeLevel}`,
-            `recent similar ${recentSimilar}`,
-          ],
-          tone: 'suggestion',
-        },
-        {
-          id: 'inference',
-          kicker: '系统推断',
-          title: suggestion.confidenceReason,
-          detail: hypothesis,
-          meta: [
-            `confidence ${suggestion.confidenceLabel} · ${suggestion.confidence.toFixed(2)}`,
-            `cluster ${clusterSize} / ${clusterWindow}s`,
-            `last ${clusterLast}`,
-          ],
-          tone: 'alert',
-        },
-        {
-          id: 'action',
-          kicker: '动作交接',
-          title: leadAction,
-          detail: `当前建议不是终点，而是把证据交给操作员进入会话追踪、历史比对和阈值判断。`,
-          meta: suggestion.recommendedActions.slice(1, 3),
-          tone: 'suggestion',
-        },
-      ]
-    : [
-        {
-          id: 'slice',
-          kicker: 'current slice',
-          title: `${suggestion.scope}-scope / ${suggestion.priority}`,
-          detail: `${serviceLabel} on ${deviceLabel} has been pulled into the current incident slice, so the page stays anchored to one actionable path instead of a generic overview.`,
-          meta: [
-            `service ${serviceLabel}`,
-            `device ${deviceLabel}`,
-            `suggestion ${formatMaybeTimestamp(suggestion.suggestionTs, 'time')}`,
-          ],
-          tone: 'alert',
-        },
-        {
-          id: 'topology',
-          kicker: 'topology path',
-          title: srcIp !== '-' || dstIp !== '-' ? `${srcIp} -> ${dstIp}` : 'path not attached yet',
-          detail: `The system first locks the communication path and landing zone before deciding whether this incident should widen into a bigger search space.`,
-          meta: [
-            `zone ${zone}`,
-            `site ${site}`,
-            `service ${serviceLabel}`,
-          ],
-          tone: 'raw',
-        },
-        {
-          id: 'device',
-          kicker: 'device fingerprint',
-          title: `${vendor !== '-' ? vendor : 'unknown vendor'} / ${role !== '-' ? role : 'unknown role'}`,
-          detail: `${deviceLabel} carries the device identity, role, and model hints that determine whether the alert should escalate or stay local.`,
-          meta: [
-            `device ${deviceLabel}`,
-            `model ${model}`,
-            `srcmac ${srcmac}`,
-          ],
-          tone: 'neutral',
-        },
-        {
-          id: 'change',
-          kicker: 'change pulse',
-          title: suspectedChange === '-' ? 'change markers are limited' : `suspected_change=${suspectedChange}`,
-          detail: `Change and historical signals are stacked together here to decide whether the current anomaly looks like fresh drift or recurring posture.`,
-          meta: [
-            `score ${changeScore}`,
-            `level ${changeLevel}`,
-            `recent similar ${recentSimilar}`,
-          ],
-          tone: 'suggestion',
-        },
-        {
-          id: 'inference',
-          kicker: 'system inference',
-          title: suggestion.confidenceReason,
-          detail: hypothesis,
-          meta: [
-            `confidence ${suggestion.confidenceLabel} · ${suggestion.confidence.toFixed(2)}`,
-            `cluster ${clusterSize} / ${clusterWindow}s`,
-            `last ${clusterLast}`,
-          ],
-          tone: 'alert',
-        },
-        {
-          id: 'action',
-          kicker: 'action handoff',
-          title: leadAction,
-          detail: `The current suggestion is a handoff point: evidence is already attached, and the operator can move straight into trace review, history comparison, and threshold judgment.`,
-          meta: suggestion.recommendedActions.slice(1, 3),
-          tone: 'suggestion',
-        },
-      ]
-}
-
 function judgmentSummary(suggestion: SuggestionRecord) {
   return `${suggestion.priority} / ${suggestion.scope}-scope / ${suggestion.confidenceLabel}`
 }
@@ -1342,21 +1095,6 @@ export function LiveFlowConsole({
   const selectedWindowSummary = activeEvent
     ? `${formatMaybeTimestamp(activeEvent.firstSeenTs, 'time')} - ${formatMaybeTimestamp(activeEvent.lastSeenTs, 'time')}`
     : `${formatMaybeTimestamp(linkedSuggestion.context.clusterFirstAlertTs, 'time')} - ${formatMaybeTimestamp(linkedSuggestion.context.clusterLastAlertTs, 'time')}`
-  const evidenceTrail = buildEvidenceTrail(linkedSuggestion, locale)
-  const evidenceTrailKinds = evidenceKinds(linkedSuggestion).map((kind) =>
-    evidenceKindLabel(kind, locale),
-  )
-  const trailHighlights = [
-    locale === 'zh'
-      ? `cluster gate ${clusterGateValue}`
-      : `cluster gate ${clusterGateValue}`,
-    locale === 'zh'
-      ? `confidence ${linkedSuggestion.confidenceLabel} · ${linkedSuggestion.confidence.toFixed(2)}`
-      : `confidence ${linkedSuggestion.confidenceLabel} · ${linkedSuggestion.confidence.toFixed(2)}`,
-    locale === 'zh'
-      ? `window ${selectedWindowSummary}`
-      : `window ${selectedWindowSummary}`,
-  ]
 
   useEffect(() => {
     if (!pendingStageRevealRef.current) {
@@ -1571,82 +1309,23 @@ export function LiveFlowConsole({
           </aside>
 
           <div className="story-stage-center">
-            <section className="story-trajectory-board">
-              <div className="story-trajectory-head">
-                <div>
-                  <span className="section-kicker">
-                    {locale === 'zh' ? '当前建议 / 证据轨迹' : 'current brief / evidence trail'}
-                  </span>
-                  <h3>
-                    {locale === 'zh'
-                      ? '把当前建议、证据、推断和推荐动作收成一条可阅读的轨迹板。'
-                      : 'Turn the current suggestion, evidence, inference, and operator handoff into one readable trajectory board.'}
-                  </h3>
-                </div>
-                <div className="story-badges story-trajectory-badges">
-                  {evidenceTrailKinds.map((kind) => (
-                    <span key={kind} className="signal-chip tone-live">
-                      {kind}
-                    </span>
-                  ))}
-                  <span className={`signal-chip tone-${selectedGuidedStage.tone}`}>
-                    {localizedStageTitle(selectedGuidedStage.id, locale)}
-                  </span>
-                </div>
-              </div>
+            <div className={`story-focus-core tone-${selectedGuidedStage.tone}`}>
+              <span className="story-focus-kicker">
+                {locale === 'zh' ? '当前阶段' : 'current stage'}
+              </span>
+              <strong>{localizedStageTitle(selectedGuidedStage.id, locale)}</strong>
+              <p>{selectedGuidedStage.detail}</p>
+            </div>
 
-              <div className="story-trajectory-lane">
-                <div className="story-trajectory-line" aria-hidden="true" />
-                <div className="story-trajectory-runner story-trajectory-runner-a" aria-hidden="true" />
-                <div className="story-trajectory-runner story-trajectory-runner-b" aria-hidden="true" />
+            <div className="story-focus-rings" aria-hidden="true">
+              <span />
+              <span />
+              <span />
+            </div>
 
-                {evidenceTrail.map((node, index) => (
-                  <div key={node.id} className="story-trajectory-segment">
-                    <article className={`story-trajectory-node tone-${node.tone}`}>
-                      <span>{node.kicker}</span>
-                      <strong>{node.title}</strong>
-                      <p>{node.detail}</p>
-                      <div className="story-trajectory-meta">
-                        {node.meta.map((item, metaIndex) => (
-                          <span key={`${node.id}-${metaIndex}-${item}`}>{item}</span>
-                        ))}
-                      </div>
-                    </article>
-                    {index < evidenceTrail.length - 1 ? (
-                      <div className="story-trajectory-connector" aria-hidden="true">
-                        <i />
-                      </div>
-                    ) : null}
-                  </div>
-                ))}
-              </div>
-
-              <div className="story-trajectory-summary">
-                <article className="story-trajectory-summary-card">
-                  <span>{locale === 'zh' ? '为什么这块现在重要' : 'why this area matters now'}</span>
-                  <strong>{selectedInference}</strong>
-                  <p>{whyThisMatters(linkedSuggestion)}</p>
-                </article>
-                <article className="story-trajectory-summary-card">
-                  <span>{locale === 'zh' ? '当前边界' : 'current boundary'}</span>
-                  <strong>{selectedScopeMeaning}</strong>
-                  <ul>
-                    {trailHighlights.map((item) => (
-                      <li key={item}>{item}</li>
-                    ))}
-                  </ul>
-                </article>
-                <article className="story-trajectory-summary-card">
-                  <span>{locale === 'zh' ? '下一步动作' : 'next operator move'}</span>
-                  <strong>{selectedRecommendation}</strong>
-                  <p>
-                    {locale === 'zh'
-                      ? '这块现在不再只是文字摘要，而是把路径、画像、变更、推断和动作交接压进同一张板里。'
-                      : 'This board now compresses path, device fingerprint, change markers, inference, and handoff into one spatial view instead of one long text stack.'}
-                  </p>
-                </article>
-              </div>
-            </section>
+            <div className="story-center-line story-center-line-a" aria-hidden="true" />
+            <div className="story-center-line story-center-line-b" aria-hidden="true" />
+            <div className="story-center-line story-center-line-c" aria-hidden="true" />
           </div>
 
           <article className="story-stage-brightside">
