@@ -1,6 +1,6 @@
 import { lazy, Suspense } from 'react'
 import { ErrorBoundary } from './ErrorBoundary'
-import type { RuntimeSnapshot } from '../types'
+import type { RuntimeSnapshot, SuggestionRecord } from '../types'
 
 const TopologyCanvas = lazy(() =>
   import('./TopologyCanvas').then((module) => ({
@@ -10,163 +10,220 @@ const TopologyCanvas = lazy(() =>
 
 interface PipelineTopologyViewProps {
   snapshot: RuntimeSnapshot
-  selectedSuggestionId: string
-  onSelectSuggestion: (suggestionId: string) => void
 }
 
-export function PipelineTopologyView({
-  snapshot,
-  selectedSuggestionId,
-  onSelectSuggestion,
-}: PipelineTopologyViewProps) {
+function byLatestSuggestion(a: SuggestionRecord, b: SuggestionRecord) {
   return (
-    <section className="page">
-      <div className="topology-layout">
-        <section className="section">
-          <div className="section-header">
-            <div>
-              <h2 className="section-title">Pipeline Topology</h2>
+    new Date(b.suggestionTs).getTime() - new Date(a.suggestionTs).getTime()
+  )
+}
+
+function mostFrequent(items: string[]) {
+  const counts = new Map<string, number>()
+
+  items
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .forEach((item) => {
+      counts.set(item, (counts.get(item) ?? 0) + 1)
+    })
+
+  return [...counts.entries()].sort((left, right) => right[1] - left[1])[0]?.[0]
+}
+
+function formatStageState(status: RuntimeSnapshot['stageNodes'][number]['status']) {
+  switch (status) {
+    case 'flowing':
+      return 'live path'
+    case 'watch':
+      return 'watch gate'
+    case 'planned':
+      return 'reserved boundary'
+    default:
+      return 'steady lane'
+  }
+}
+
+export function PipelineTopologyView({ snapshot }: PipelineTopologyViewProps) {
+  const suggestions = [...snapshot.suggestions].sort(byLatestSuggestion)
+  const latestSuggestion = suggestions[0]
+
+  const serviceCount = new Set(
+    suggestions.map((suggestion) => suggestion.context.service).filter(Boolean),
+  ).size
+  const deviceCount = new Set(
+    suggestions
+      .map((suggestion) => suggestion.context.srcDeviceKey)
+      .filter(Boolean),
+  ).size
+  const clusterIncidentCount = suggestions.filter(
+    (suggestion) => suggestion.scope === 'cluster',
+  ).length
+  const singlePathCount = suggestions.length - clusterIncidentCount
+  const readyClusterCount = snapshot.clusterWatch.filter(
+    (item) => item.progress >= item.target,
+  ).length
+  const warmingClusterCount = snapshot.clusterWatch.filter(
+    (item) => item.progress < item.target,
+  ).length
+  const dominantAction =
+    mostFrequent(
+      suggestions.flatMap((suggestion) => suggestion.recommendedActions),
+    ) ?? 'No remediation action has been emitted yet.'
+  const dominantRule =
+    mostFrequent(suggestions.map((suggestion) => suggestion.ruleId)) ??
+    'No dominant rule in the current slice'
+  const highlightedStages = snapshot.stageNodes.filter(
+    (node) => node.status === 'flowing' || node.status === 'watch',
+  )
+  const stageFocus =
+    highlightedStages.length > 0 ? highlightedStages : snapshot.stageNodes
+  const activeStageSummary =
+    stageFocus.length > 0
+      ? stageFocus
+          .slice(0, 3)
+          .map((node) => node.title)
+          .join(' -> ')
+      : 'No active runtime path is available in the current snapshot.'
+  const systemVerdict = latestSuggestion
+    ? clusterIncidentCount > 0
+      ? `${clusterIncidentCount} repeated-pattern incident(s) already crossed the cluster gate, so this map is currently showing a system-level pattern instead of a single noisy port.`
+      : `${singlePathCount} single-path incident(s) are still below cluster gate, so the system is tracking isolated pressure before it becomes a repeated pattern.`
+    : 'No live suggestion is currently active, so the map is acting as a structural reference view.'
+  const focusExplanation = latestSuggestion
+    ? `${latestSuggestion.summary} Dominant rule: ${dominantRule}. Latest scope: ${latestSuggestion.scope === 'cluster' ? 'repeated-pattern incident' : 'single-path incident'}.`
+    : 'Suggestions have not populated yet, so use this view as the end-to-end system map only.'
+
+  return (
+    <section className="page system-flow-page">
+      <section className="section system-flow-stage">
+        <div className="system-flow-map-shell">
+          <div className="system-flow-topband">
+            <div className="system-flow-heading">
+              <span className="section-kicker">integrated runtime map</span>
+              <h2 className="section-title">System Flow Map</h2>
               <span className="section-subtitle">
-                Shows which real module, topic, or control boundary each event
-                passes through after it enters the platform.
+                This page now stays system-wide. It explains the whole incident
+                posture first and leaves per-incident evidence to the Current
+                Brief on the console page instead of making you pick one
+                suggestion at a time.
               </span>
             </div>
-            <span className="section-kicker">module / topic / control graph</span>
+
+            <div className="system-flow-stat-strip">
+              <article className="system-flow-stat-card">
+                <span>Active incidents</span>
+                <strong>{suggestions.length}</strong>
+                <p>
+                  {clusterIncidentCount} repeated-pattern / {singlePathCount}{' '}
+                  single-path
+                </p>
+              </article>
+              <article className="system-flow-stat-card">
+                <span>Affected footprint</span>
+                <strong>
+                  {serviceCount} service{serviceCount === 1 ? '' : 's'}
+                </strong>
+                <p>
+                  {deviceCount} device{deviceCount === 1 ? '' : 's'} in the
+                  current slice
+                </p>
+              </article>
+              <article className="system-flow-stat-card">
+                <span>Cluster posture</span>
+                <strong>{readyClusterCount}</strong>
+                <p>
+                  {warmingClusterCount} watch slot
+                  {warmingClusterCount === 1 ? '' : 's'} still warming
+                </p>
+              </article>
+              <article className="system-flow-stat-card">
+                <span>Dominant next action</span>
+                <strong>{dominantRule}</strong>
+                <p>{dominantAction}</p>
+              </article>
+            </div>
           </div>
-          <ErrorBoundary title="Topology Graph">
-            <Suspense fallback={<div className="flow-frame chart-fallback">loading topology...</div>}>
-              <TopologyCanvas
-                nodes={snapshot.stageNodes}
-                links={snapshot.stageLinks}
-              />
+
+          <div className="system-flow-overlay system-flow-overlay-start">
+            <article className="system-flow-callout">
+              <span className="section-kicker">system interpretation</span>
+              <h3>
+                {latestSuggestion?.summary ??
+                  'No live suggestion is available right now.'}
+              </h3>
+              <p>{systemVerdict}</p>
+            </article>
+
+            <article className="system-flow-callout">
+              <span className="section-kicker">how to read this map</span>
+              <dl className="system-flow-definition-list">
+                <div>
+                  <dt>Problem focus</dt>
+                  <dd>{focusExplanation}</dd>
+                </div>
+                <div>
+                  <dt>Current stage focus</dt>
+                  <dd>{activeStageSummary}</dd>
+                </div>
+                <div>
+                  <dt>Recommended action</dt>
+                  <dd>{dominantAction}</dd>
+                </div>
+                <div>
+                  <dt>Single-path means</dt>
+                  <dd>
+                    The evidence is still concentrated on one service-device
+                    path and has not crossed the repetition threshold that would
+                    turn it into a grouped historical event.
+                  </dd>
+                </div>
+              </dl>
+            </article>
+          </div>
+
+          <div className="system-flow-overlay system-flow-overlay-end">
+            <article className="system-flow-callout">
+              <span className="section-kicker">live stage registry</span>
+              <div className="system-flow-stage-list">
+                {snapshot.stageNodes.map((node) => (
+                  <div key={node.id} className="system-flow-stage-item">
+                    <strong>{node.title}</strong>
+                    <span>{formatStageState(node.status)}</span>
+                    <p>{node.subtitle}</p>
+                  </div>
+                ))}
+              </div>
+            </article>
+          </div>
+
+          <ErrorBoundary title="System Flow Map">
+            <Suspense
+              fallback={
+                <div className="flow-frame system-flow-frame chart-fallback">
+                  loading system flow map...
+                </div>
+              }
+            >
+              <div className="system-flow-canvas-layer">
+                <TopologyCanvas
+                  nodes={snapshot.stageNodes}
+                  links={snapshot.stageLinks}
+                />
+              </div>
             </Suspense>
           </ErrorBoundary>
-        </section>
 
-        <section className="section">
-          <div className="section-header">
-            <div>
-              <h2 className="section-title">Registry</h2>
-              <span className="section-subtitle">
-                The graph on the left is the visual map; this list is the exact
-                repository/runtime mapping behind each visible block.
-              </span>
-            </div>
-            <span className="section-kicker">semantic map</span>
-          </div>
-          <ul className="registry-list">
-            {snapshot.stageNodes.map((node) => (
-              <li key={node.id} className="registry-item">
-                <h3>{node.title}</h3>
-                <p>{node.subtitle}</p>
-              </li>
+          <div className="system-flow-bottom-rail">
+            {snapshot.topologyNotes.slice(0, 4).map((note) => (
+              <article key={note.title} className="system-flow-note-pill">
+                <strong>{note.title}</strong>
+                <p>{note.detail}</p>
+              </article>
             ))}
-          </ul>
-        </section>
-      </div>
-
-      <div className="page-grid">
-        <div className="stack">
-          <section className="section">
-            <div className="section-header">
-              <div>
-                <h2 className="section-title">Topology Reading Notes</h2>
-                <span className="section-subtitle">
-                  This view is designed to help backend strategy tuning, not only
-                  runtime monitoring.
-                </span>
-              </div>
-              <span className="section-kicker">why this shape</span>
-            </div>
-            <div className="hint-grid">
-              {snapshot.topologyNotes.map((note) => (
-                <article key={note.title} className="hint-card">
-                  <strong>{note.title}</strong>
-                  <p>{note.detail}</p>
-                </article>
-              ))}
-            </div>
-          </section>
-
-          <section className="section">
-            <div className="section-header">
-              <div>
-                <h2 className="section-title">Suggestion Selector</h2>
-                <span className="section-subtitle">
-                  Keep topology and evidence coupled by selecting a live suggestion
-                  slice.
-                </span>
-              </div>
-              <span className="section-kicker">
-                active selection: {selectedSuggestionId}
-              </span>
-            </div>
-            <ul className="summary-list" style={{ padding: '0 1rem 1rem' }}>
-              {snapshot.suggestions.map((suggestion) => (
-                <li key={suggestion.id}>
-                  <button
-                    type="button"
-                    className={
-                      selectedSuggestionId === suggestion.id
-                        ? 'tab is-active'
-                        : 'tab'
-                    }
-                    onClick={() => onSelectSuggestion(suggestion.id)}
-                  >
-                    {suggestion.context.service}
-                  </button>
-                  <strong>{suggestion.context.srcDeviceKey}</strong>
-                </li>
-              ))}
-            </ul>
-          </section>
+          </div>
         </div>
-
-        <div className="stack">
-          <section className="section">
-            <div className="section-header">
-              <div>
-                <h2 className="section-title">Control Boundary</h2>
-                <span className="section-subtitle">
-                  The topology page keeps remediation visible as a future boundary,
-                  so tuning and closure do not blur together.
-                </span>
-              </div>
-              <span className="section-kicker">operator feedback path</span>
-            </div>
-            <div className="hint-grid">
-              <article className="hint-card">
-                <strong>Observe</strong>
-                <p>
-                  Real-time cadence, lag posture, and current-day evidence quality
-                  stay on the console page.
-                </p>
-              </article>
-              <article className="hint-card">
-                <strong>Explain</strong>
-                <p>
-                  Selected suggestion detail stays in the evidence drawer with
-                  hypotheses and actions.
-                </p>
-              </article>
-              <article className="hint-card">
-                <strong>Act</strong>
-                <p>
-                  Strategy controls are visible, but execution stays explicit as a
-                  not-yet-wired control surface.
-                </p>
-              </article>
-              <article className="hint-card">
-                <strong>Feed Back</strong>
-                <p>
-                  This makes the frontend useful for adjusting thresholds and
-                  cluster semantics later, rather than only observing them.
-                </p>
-              </article>
-            </div>
-          </section>
-        </div>
-      </div>
+      </section>
     </section>
   )
 }

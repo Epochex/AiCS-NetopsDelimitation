@@ -16,9 +16,10 @@ export function AnimatedDurationCounter({
   degradedReason,
 }: AnimatedDurationCounterProps) {
   const frameRef = useRef<number | null>(null)
-  const [displayMs, setDisplayMs] = useState(() =>
-    durationMs && durationMs > 0 ? 0 : durationMs ?? 0,
-  )
+  const [display, setDisplay] = useState(() => ({
+    animationKey,
+    valueMs: durationMs && durationMs > 0 ? 0 : durationMs ?? 0,
+  }))
 
   useEffect(() => {
     if (frameRef.current !== null) {
@@ -26,29 +27,26 @@ export function AnimatedDurationCounter({
       frameRef.current = null
     }
 
-    if (mode === 'reserved') {
-      setDisplayMs(0)
-      return
-    }
-
-    if (mode === 'timestamp' || mode === 'status') {
-      setDisplayMs(0)
-      return
-    }
-
-    if (durationMs === null || durationMs === undefined) {
-      setDisplayMs(0)
+    if (
+      mode === 'reserved' ||
+      mode === 'timestamp' ||
+      mode === 'status' ||
+      durationMs === null ||
+      durationMs === undefined
+    ) {
       return
     }
 
     const safeDuration = Math.max(durationMs, 0)
     const animationWindow = Math.min(1800, Math.max(420, safeDuration * 1.6))
     const startedAt = performance.now()
-    setDisplayMs(0)
 
     const tick = (now: number) => {
       const progress = Math.min(1, (now - startedAt) / animationWindow)
-      setDisplayMs(safeDuration * progress)
+      setDisplay({
+        animationKey,
+        valueMs: safeDuration * progress,
+      })
       if (progress < 1) {
         frameRef.current = window.requestAnimationFrame(tick)
       }
@@ -63,6 +61,8 @@ export function AnimatedDurationCounter({
       }
     }
   }, [animationKey, durationMs, mode])
+
+  const displayMs = display.animationKey === animationKey ? display.valueMs : 0
 
   if (mode === 'reserved') {
     return (

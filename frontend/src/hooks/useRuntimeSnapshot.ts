@@ -14,7 +14,7 @@ export type RuntimeConnectionState =
 
 const SNAPSHOT_ENDPOINT = '/api/runtime/snapshot'
 const STREAM_ENDPOINT = '/api/runtime/stream'
-const SNAPSHOT_TIMEOUT_MS = 8_000
+const SNAPSHOT_TIMEOUT_MS = 25_000
 const STREAM_HANDSHAKE_TIMEOUT_MS = 8_000
 
 function activeSuggestion(snapshot: RuntimeSnapshot) {

@@ -106,6 +106,17 @@
             "branch=rule-only vs agent-enhanced",
             "window=2026-03-23 10:40-10:50 UTC"
           ]
+        },
+        {
+          "id": "slice-collapsed-surface",
+          "label": "Collapsed surface",
+          "state": "docked",
+          "why": "The first-entry page can keep global runtime controls available without spending a full top band on always-open metadata.",
+          "propsPreview": [
+            "mode=floating-dock",
+            "summary=service + device + judgment",
+            "details=click-to-expand"
+          ]
         }
       ]
     },
@@ -132,6 +143,51 @@
           "propsPreview": [
             "scope=rule-only",
             "bundle=absent"
+          ]
+        },
+        {
+          "id": "evidence-docked-overlay",
+          "label": "Docked overlay",
+          "state": "overlay",
+          "why": "On the first-entry page, the evidence surface should stay available but hidden behind an explicit expand action so the main stage keeps the screen.",
+          "propsPreview": [
+            "mode=overlay-drawer",
+            "default=closed",
+            "openAction=current-suggestion"
+          ]
+        }
+      ]
+    },
+    {
+      "componentId": "HistoricalIncidentQueue",
+      "intent": "Treat each trigger cluster or suggestion as a replayable incident instead of mixing raw feed items into the main queue.",
+      "scenarios": [
+        {
+          "id": "incident-queue-replayable",
+          "label": "Replayable incidents",
+          "state": "history-driven",
+          "why": "The queue should list historical problem incidents in reverse time order, and selecting one should pivot the whole page around that incident.",
+          "propsPreview": [
+            "source=suggestions[]",
+            "selection=incident-driven",
+            "scope=alert-or-cluster"
+          ]
+        }
+      ]
+    },
+    {
+      "componentId": "StageProcessView",
+      "intent": "Expand each top-level stage into a visible process chain with systems, facts, and reconstructed timeline support.",
+      "scenarios": [
+        {
+          "id": "stage-process-reconstructed",
+          "label": "Reconstructed action chain",
+          "state": "stage-expanded",
+          "why": "When a user clicks a stage, the UI should show the phase sequence, stage nodes, key facts, and related timeline points instead of only a short summary.",
+          "propsPreview": [
+            "selectedStage=cluster-gate",
+            "layout=horizontal-process-chain",
+            "timeline=fallback-to-lifecycle"
           ]
         }
       ]

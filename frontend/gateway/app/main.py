@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from pathlib import Path
+from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -12,6 +14,10 @@ from .config import Settings
 from .runtime_reader import build_runtime_stream_delta, load_runtime_snapshot
 
 settings = Settings.from_env()
+SNAPSHOT_CACHE_TTL_SEC = max(2.0, settings.stream_interval_sec * 2.5)
+_snapshot_cache_lock = asyncio.Lock()
+_snapshot_cache_payload: dict[str, Any] | None = None
+_snapshot_cache_loaded_at = 0.0
 
 app = FastAPI(
   title='Hybrid NetOps Console Gateway',
@@ -36,9 +42,40 @@ def healthz() -> dict[str, str]:
   return {'status': 'ok'}
 
 
+async def get_runtime_snapshot(force_refresh: bool = False) -> dict[str, Any]:
+  global _snapshot_cache_loaded_at, _snapshot_cache_payload
+
+  now = time.monotonic()
+  if (
+    not force_refresh
+    and _snapshot_cache_payload is not None
+    and now - _snapshot_cache_loaded_at <= SNAPSHOT_CACHE_TTL_SEC
+  ):
+    return _snapshot_cache_payload
+
+  async with _snapshot_cache_lock:
+    now = time.monotonic()
+    if (
+      not force_refresh
+      and _snapshot_cache_payload is not None
+      and now - _snapshot_cache_loaded_at <= SNAPSHOT_CACHE_TTL_SEC
+    ):
+      return _snapshot_cache_payload
+
+    payload = await asyncio.to_thread(load_runtime_snapshot, settings)
+    _snapshot_cache_payload = payload
+    _snapshot_cache_loaded_at = time.monotonic()
+    return payload
+
+
+@app.on_event('startup')
+async def warm_runtime_snapshot_cache():
+  await get_runtime_snapshot(force_refresh=True)
+
+
 @app.get('/api/runtime/snapshot')
-def runtime_snapshot():
-  return load_runtime_snapshot(settings)
+async def runtime_snapshot():
+  return await get_runtime_snapshot()
 
 
 @app.get('/api/runtime/stream')
@@ -47,11 +84,18 @@ async def runtime_stream(request: Request):
     previous_payload: dict[str, object] | None = None
     idle_cycles = 0
 
+    # Emit an immediate heartbeat so browser clients clear their handshake guard
+    # even if the first live snapshot takes longer than expected to assemble.
+    yield (
+      'retry: 2000\n'
+      f"event: heartbeat\ndata: {json.dumps({'type': 'heartbeat', 'emittedAt': 'connecting'}, ensure_ascii=False)}\n\n"
+    )
+
     while True:
       if await request.is_disconnected():
         break
 
-      payload = load_runtime_snapshot(settings)
+      payload = await get_runtime_snapshot()
       if previous_payload is None:
         envelope = {
           'type': 'snapshot',
@@ -67,7 +111,11 @@ async def runtime_stream(request: Request):
         await asyncio.sleep(settings.stream_interval_sec)
         continue
 
-      delta = build_runtime_stream_delta(previous_payload, payload)
+      delta = await asyncio.to_thread(
+        build_runtime_stream_delta,
+        previous_payload,
+        payload,
+      )
       if delta:
         envelope = {
           'type': 'delta',

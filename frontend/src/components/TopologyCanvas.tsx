@@ -2,11 +2,15 @@ import { useMemo } from 'react'
 import type { CSSProperties } from 'react'
 import {
   Background,
+  BackgroundVariant,
   BaseEdge,
+  Controls,
   EdgeLabelRenderer,
+  Handle,
   MarkerType,
   MiniMap,
   Panel,
+  Position,
   ReactFlow,
   type Edge as FlowEdge,
   type EdgeProps,
@@ -26,6 +30,11 @@ interface TopologyCanvasProps {
 function OperationalNode({ data }: NodeProps<OpsNode>) {
   return (
     <div className={`ops-node state-${data.status}`}>
+      <Handle
+        type="target"
+        position={Position.Left}
+        style={{ opacity: 0, width: 8, height: 8, pointerEvents: 'none' }}
+      />
       <div className="ops-node-header">
         <strong>{data.title}</strong>
         <span>{data.subtitle}</span>
@@ -38,6 +47,11 @@ function OperationalNode({ data }: NodeProps<OpsNode>) {
           </li>
         ))}
       </ul>
+      <Handle
+        type="source"
+        position={Position.Right}
+        style={{ opacity: 0, width: 8, height: 8, pointerEvents: 'none' }}
+      />
     </div>
   )
 }
@@ -166,26 +180,36 @@ export function TopologyCanvas({
           zoomOnDoubleClick={false}
           panOnDrag
         >
-          <Background color="rgba(152, 181, 211, 0.08)" gap={20} size={1} />
-          <MiniMap
-            pannable={false}
-            zoomable={false}
-            position="bottom-left"
-            style={{
-              backgroundColor: 'rgba(7,11,16,0.9)',
-              border: '1px solid rgba(152,181,211,0.14)',
-            }}
-            nodeColor={(node) =>
-              (node.data as NodeData | undefined)?.status === 'flowing'
-                ? '#69f9ff'
-                : (node.data as NodeData | undefined)?.status === 'planned'
-                  ? '#738699'
-                  : '#ff7a20'
-            }
+          <Background
+            color="rgba(152, 181, 211, 0.12)"
+            gap={28}
+            size={1.6}
+            variant={BackgroundVariant.Lines}
           />
-          <Panel position="top-right" className="flow-legend">
-            active / steady / planned
-          </Panel>
+          {!compact ? (
+            <>
+              <MiniMap
+                pannable={false}
+                zoomable={false}
+                position="bottom-left"
+                style={{
+                  backgroundColor: 'rgba(7,11,16,0.9)',
+                  border: '1px solid rgba(152,181,211,0.14)',
+                }}
+                nodeColor={(node) =>
+                  (node.data as NodeData | undefined)?.status === 'flowing'
+                    ? '#69f9ff'
+                    : (node.data as NodeData | undefined)?.status === 'planned'
+                      ? '#738699'
+                      : '#ff7a20'
+                }
+              />
+              <Panel position="top-right" className="flow-legend">
+                active / steady / planned
+              </Panel>
+              <Controls position="bottom-right" showInteractive={false} />
+            </>
+          ) : null}
         </ReactFlow>
       </div>
     </div>
