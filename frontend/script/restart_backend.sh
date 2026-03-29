@@ -14,6 +14,8 @@ BACKEND_CMD=(
 )
 LOG_PATH="${BACKEND_LOG_PATH:-/tmp/netops-ops-console-backend.log}"
 PID_PATH="${BACKEND_PID_PATH:-/tmp/netops-ops-console-backend.pid}"
+HEALTH_URL="http://${BACKEND_HOST}:${BACKEND_PORT}/api/healthz"
+SNAPSHOT_URL="http://${BACKEND_HOST}:${BACKEND_PORT}/api/runtime/snapshot"
 
 run_cmd() {
   if [[ "${EUID}" -ne 0 ]] && command -v sudo >/dev/null 2>&1; then
@@ -40,6 +42,8 @@ stop_manual_backend() {
   fi
 
   pkill -f "${ROOT_DIR}/.venv/bin/uvicorn .*gateway.app.main:app.*--port ${BACKEND_PORT}" >/dev/null 2>&1 || true
+  pkill -f "uvicorn .*gateway.app.main:app.*--port ${BACKEND_PORT}" >/dev/null 2>&1 || true
+  pkill -f "gateway.app.main:app" >/dev/null 2>&1 || true
 }
 
 start_manual_backend() {
@@ -54,9 +58,35 @@ start_manual_backend() {
     echo $! >"${PID_PATH}"
   )
   sleep 2
-  curl -fsS "http://${BACKEND_HOST}:${BACKEND_PORT}/api/healthz" >/dev/null
+  curl -fsS "${HEALTH_URL}" >/dev/null
   echo "[info] manual backend pid: $(cat "${PID_PATH}")"
   echo "[info] backend log: ${LOG_PATH}"
+}
+
+verify_runtime_snapshot() {
+  SNAPSHOT_URL="${SNAPSHOT_URL}" python3 - <<'PY'
+import json
+import os
+import sys
+import urllib.request
+
+url = os.environ['SNAPSHOT_URL']
+with urllib.request.urlopen(url, timeout=5) as response:
+  payload = json.load(response)
+
+suggestions = payload.get('suggestions') or []
+if not suggestions:
+  print('[warn] runtime snapshot returned no suggestions; skipping telemetry validation')
+  sys.exit(0)
+
+first = suggestions[0]
+timeline = len(first.get('timeline') or [])
+telemetry = len(first.get('stageTelemetry') or [])
+print(f'[info] runtime snapshot validation: timeline={timeline} stageTelemetry={telemetry}')
+if timeline == 0 or telemetry == 0:
+  print('[error] live runtime snapshot is still missing timeline/stageTelemetry; backend likely did not reload the new gateway code')
+  sys.exit(1)
+PY
 }
 
 echo "[info] restarting backend service: ${SERVICE_NAME}"
@@ -71,3 +101,5 @@ else
   stop_manual_backend
   start_manual_backend
 fi
+
+verify_runtime_snapshot

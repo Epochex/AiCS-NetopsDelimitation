@@ -1,10 +1,11 @@
 import type { RuntimeSnapshot, StageTelemetry, SuggestionRecord } from '../types'
-import { formatMaybeTimestamp, formatPreciseDurationMs } from '../utils/time'
+import { pick, type UiLocale } from '../i18n'
+import { formatPreciseDurationMs } from '../utils/time'
 
 interface RuntimeVisualPanelsProps {
   snapshot: RuntimeSnapshot
   selectedSuggestion: SuggestionRecord
-  locale: 'en' | 'zh'
+  locale: UiLocale
 }
 
 interface LatencyRow {
@@ -143,27 +144,31 @@ function incidentEnvelopeRows(
       label: locale === 'zh' ? '首个告警' : 'first alert',
       value: formatMaybeTimestamp(selectedSuggestion.context.clusterFirstAlertTs) || '-',
     },
-    {
-      label: locale === 'zh' ? '最后告警' : 'last alert',
-      value: formatMaybeTimestamp(selectedSuggestion.context.clusterLastAlertTs) || '-',
-    },
-    {
-      label: locale === 'zh' ? '样本告警' : 'sample alerts',
-      value: sampleIds || selectedSuggestion.alertId,
-    },
-    {
-      label: locale === 'zh' ? '动作数' : 'actions',
-      value: String(selectedSuggestion.recommendedActions.length),
-    },
-    {
-      label: locale === 'zh' ? '假设数' : 'hypotheses',
-      value: String(selectedSuggestion.hypotheses.length),
-    },
-    {
-      label: locale === 'zh' ? '推理提供方' : 'provider',
-      value: selectedSuggestion.context.provider,
-    },
-  ]
+    series: [
+      {
+        name: 'alerts',
+        type: 'line',
+        smooth: false,
+        symbol: 'diamond',
+        symbolSize: 8,
+        data: snapshot.cadence.alerts,
+        lineStyle: { width: 2.2, color: '#ff8a45' },
+        itemStyle: { color: '#ff8a45', borderColor: '#1b242c', borderWidth: 1 },
+        areaStyle: { color: 'rgba(255, 138, 69, 0.12)' },
+      },
+      {
+        name: 'suggestions',
+        type: 'line',
+        smooth: false,
+        symbol: 'rect',
+        symbolSize: 8,
+        data: snapshot.cadence.suggestions,
+        lineStyle: { width: 2.2, color: '#6fffa8' },
+        itemStyle: { color: '#6fffa8', borderColor: '#1b242c', borderWidth: 1 },
+        areaStyle: { color: 'rgba(111, 255, 168, 0.1)' },
+      },
+    ],
+  }
 }
 
 function processTraceSegments(
@@ -208,69 +213,25 @@ function processTraceSegments(
       tone: 'alert',
       fallbackValue: locale === 'zh' ? '规则判定' : 'rule decision',
     },
-    {
-      id: 'alerts-topic',
-      enTitle: 'Alert emitted',
-      zhTitle: '告警发出',
-      tone: 'alert',
-      fallbackValue: locale === 'zh' ? '告警总线' : 'alert bus',
-    },
-    {
-      id: 'cluster-window',
-      enTitle: 'Cluster gate',
-      zhTitle: '聚合门槛',
-      tone: 'alert',
-      fallbackValue: locale === 'zh' ? '门槛观测' : 'gate watch',
-    },
-    {
-      id: 'aiops-agent',
-      enTitle: 'AIOps inference',
-      zhTitle: 'AIOps 推理',
-      tone: 'suggestion',
-      fallbackValue: locale === 'zh' ? '生成建议' : 'suggestion build',
-    },
-    {
-      id: 'suggestions-topic',
-      enTitle: 'Suggestion emitted',
-      zhTitle: '建议发出',
-      tone: 'suggestion',
-      fallbackValue: locale === 'zh' ? '建议输出' : 'suggestion output',
-    },
-    {
-      id: 'remediation',
-      enTitle: 'Operator boundary',
-      zhTitle: '人工边界',
-      tone: 'neutral',
-      fallbackValue: locale === 'zh' ? '人工处理' : 'manual boundary',
-    },
-  ]
-
-  return orderedStages
-    .map((stage) => {
-      const telemetry = stageLookup.get(stage.id)
-      if (!telemetry && stage.id !== 'remediation') {
-        return null
-      }
-
-      const value =
-        telemetry?.mode === 'duration'
-          ? formatPreciseDurationMs(telemetry.durationMs)
-          : telemetry?.value ||
-            formatMaybeTimestamp(telemetry?.endedAt ?? telemetry?.startedAt, 'time') ||
-            stage.fallbackValue
-
-      return {
-        id: stage.id,
-        title: locale === 'zh' ? stage.zhTitle : stage.enTitle,
-        detail:
-          telemetry?.label ??
-          (locale === 'zh' ? '运行阶段' : 'runtime stage'),
-        value,
-        tone: stage.tone,
-        state: telemetry?.state ?? (stage.id === 'remediation' ? 'planned' : 'steady'),
-      }
-    })
-    .filter((item): item is ProcessTraceSegment => item !== null)
+    series: [
+      {
+        type: 'bar',
+        data: snapshot.evidenceCoverage.values,
+        barWidth: 12,
+        label: {
+          show: true,
+          position: 'right',
+          color: '#d7e4ef',
+          formatter: '{c}%',
+          fontSize: 10,
+        },
+        itemStyle: {
+          color: '#69f9ff',
+          borderRadius: 0,
+        },
+      },
+    ],
+  }
 }
 
 function clusterWatchRows(
@@ -329,7 +290,65 @@ function latencyRows(selectedSuggestion: SuggestionRecord, locale: 'en' | 'zh'):
     .filter((item): item is LatencyRow => item !== null)
 }
 
-function summaryLine(telemetry: StageTelemetry[] | undefined, locale: 'en' | 'zh') {
+function latencyOption(rows: LatencyRow[]): EChartsOption {
+  return {
+    animationDuration: 700,
+    grid: {
+      top: 12,
+      right: 18,
+      bottom: 18,
+      left: 92,
+      containLabel: true,
+    },
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: { type: 'shadow' },
+      backgroundColor: 'rgba(6, 10, 14, 0.96)',
+      borderColor: 'rgba(105, 249, 255, 0.24)',
+      textStyle: { color: '#d7e4ef' },
+      formatter: (params: unknown) => {
+        const [first] = params as Array<{ value: number; name: string }>
+        return `${first.name}: ${formatPreciseDurationMs(first.value)}`
+      },
+    },
+    xAxis: {
+      type: 'value',
+      axisLabel: {
+        color: '#91a5b7',
+        fontSize: 10,
+        formatter: (value: number) => `${(value / 1000).toFixed(3)}s`,
+      },
+      splitLine: { lineStyle: { color: 'rgba(157, 176, 196, 0.08)' } },
+    },
+    yAxis: {
+      type: 'category',
+      data: rows.map((row) => row.label),
+      axisLabel: { color: '#91a5b7', fontSize: 10 },
+      axisLine: { lineStyle: { color: 'rgba(157, 176, 196, 0.18)' } },
+    },
+    series: [
+      {
+        type: 'bar',
+        data: rows.map((row) => row.durationMs),
+        barWidth: 12,
+        label: {
+          show: true,
+          position: 'right',
+          color: '#d7e4ef',
+          formatter: (params: { value?: unknown }) =>
+            formatPreciseDurationMs(numericFromValue(params.value)),
+          fontSize: 10,
+        },
+        itemStyle: {
+          color: '#6fffa8',
+          borderRadius: 0,
+        },
+      },
+    ],
+  }
+}
+
+function summaryLine(telemetry: StageTelemetry[] | undefined, locale: UiLocale) {
   const measured = (telemetry ?? []).filter(
     (item) =>
       item.mode === 'duration' &&
@@ -338,15 +357,17 @@ function summaryLine(telemetry: StageTelemetry[] | undefined, locale: 'en' | 'zh
   )
   const totalMs = measured.reduce((sum, item) => sum + (item.durationMs ?? 0), 0)
 
-  if (measured.length > 0) {
-    return locale === 'zh'
-      ? `当前可测阶段累计耗时 ${formatPreciseDurationMs(totalMs)}`
-      : `Measured transition budget: ${formatPreciseDurationMs(totalMs)}`
-  }
-
-  return locale === 'zh'
-    ? '只有带真实阶段遥测的建议，才会在这里显示耗时。'
-    : 'Measured transition budget appears only when the selected suggestion carries real stage telemetry.'
+  return measured.length > 0
+    ? pick(
+        locale,
+        `Measured transition budget: ${formatPreciseDurationMs(totalMs)}`,
+        `已测得转场预算：${formatPreciseDurationMs(totalMs)}`,
+      )
+    : pick(
+        locale,
+        'Measured transition budget appears when live stage telemetry is present.',
+        '只有存在实时阶段遥测时，才会显示已测得的转场预算。',
+      )
 }
 
 export function RuntimeVisualPanels({
@@ -354,54 +375,37 @@ export function RuntimeVisualPanels({
   selectedSuggestion,
   locale,
 }: RuntimeVisualPanelsProps) {
-  const deviceLabel =
-    printableValue(selectedSuggestion.evidenceBundle.device.device_name) ||
-    selectedSuggestion.context.srcDeviceKey
-  const latency = latencyRows(selectedSuggestion, locale)
-  const processTrace = processTraceSegments(selectedSuggestion, locale)
-  const evidenceCoverage = evidenceCoverageRows(selectedSuggestion, locale)
-  const incidentEnvelope = incidentEnvelopeRows(selectedSuggestion, locale)
-  const clusterRows = clusterWatchRows(snapshot, selectedSuggestion)
-  const latencyMax = Math.max(...latency.map((row) => row.durationMs), 1)
-  const hasCadence =
-    snapshot.cadence.labels.length > 0 &&
-    (snapshot.cadence.alerts.length > 0 || snapshot.cadence.suggestions.length > 0)
-  const hasEvidenceCoverage = evidenceCoverage.length > 0
-  const hasClusterWatch = clusterRows.length > 0
-  const cadenceMax = Math.max(
-    ...snapshot.cadence.alerts,
-    ...snapshot.cadence.suggestions,
-    1,
-  )
-  const alertPolyline = buildPolyline(snapshot.cadence.alerts, 560, 220)
-  const suggestionPolyline = buildPolyline(snapshot.cadence.suggestions, 560, 220)
+  const latency = latencyRows(selectedSuggestion)
+  const t = (en: string, zh: string) => pick(locale, en, zh)
 
   return (
     <section className="section visual-strip visual-strip-expanded">
       <div className="section-header">
         <div>
           <h2 className="section-title">
-            {locale === 'zh' ? '支撑可视化' : 'Supporting Visuals'}
+            {t('Meaningful Runtime Visuals', '有意义的运行时可视化')}
           </h2>
           <span className="section-subtitle">
-            {locale === 'zh'
-              ? '这块不再依赖外部图表懒加载。节奏、证据、阶段成本和重复路径都会直接稳定显示。'
-              : 'This field no longer depends on lazy chart chunks. Cadence, evidence, stage cost, and repeated paths render directly.'}
+            {t(
+              'Curves and bars are only kept when they answer throughput, evidence quality, or transition cost for the active incident slice.',
+              '只有当曲线和柱图能解释吞吐、证据质量或转场成本时，它们才会被保留下来。',
+            )}
           </span>
         </div>
         <span className="section-kicker">
-          {locale === 'zh' ? '直接可见 / 不再空白' : 'always visible / no blank field'}
+          {t('signal density with purpose', '有目的的信号密度')}
         </span>
       </div>
 
-      <div className="signal-visual-grid signal-visual-grid-expanded">
-        <article className="chart-card chart-card-dark">
+      <div className="signal-visual-grid">
+        <article className="chart-card chart-card-cadence">
           <div className="chart-meta">
-            <strong>{locale === 'zh' ? '节奏对齐' : 'Cadence alignment'}</strong>
+            <strong>{t('Cadence parity', '节奏对齐')}</strong>
             <p>
-              {locale === 'zh'
-                ? '同一时间窗内，建议产出有没有跟上告警到达。'
-                : 'Whether suggestion emission stays close to alert arrival inside the same window.'}
+              {t(
+                'Whether suggestion emission stays close to alert arrival across the same window.',
+                '同一时间窗内，建议输出是否跟上告警到达的节奏。',
+              )}
             </p>
           </div>
 
@@ -500,13 +504,14 @@ export function RuntimeVisualPanels({
           )}
         </article>
 
-        <article className="chart-card">
+        <article className="chart-card chart-card-evidence">
           <div className="chart-meta">
-            <strong>{locale === 'zh' ? '证据覆盖' : 'Evidence coverage'}</strong>
+            <strong>{t('Evidence attachment', '证据附着率')}</strong>
             <p>
-              {locale === 'zh'
-                ? '当前事件路径上的拓扑、设备和变化上下文附着比例。'
-                : 'Topology, device, and change context rates on the current incident path.'}
+              {t(
+                'Topology, device, and change context rates on the current runtime path.',
+                '当前运行路径上，拓扑、设备与变更上下文的挂载率。',
+              )}
             </p>
           </div>
 
@@ -539,9 +544,9 @@ export function RuntimeVisualPanels({
           )}
         </article>
 
-        <article className="chart-card">
+        <article className="chart-card chart-card-latency">
           <div className="chart-meta">
-            <strong>{locale === 'zh' ? '阶段耗时' : 'Stage latency'}</strong>
+            <strong>{t('Transition latency', '转场时延')}</strong>
             <p>{summaryLine(selectedSuggestion.stageTelemetry, locale)}</p>
           </div>
 
@@ -561,13 +566,12 @@ export function RuntimeVisualPanels({
             </div>
           ) : (
             <div className="chart-empty">
-              <strong>
-                {locale === 'zh' ? '阶段耗时暂不可用' : 'Latency telemetry unavailable'}
-              </strong>
+              <strong>{t('Latency telemetry unavailable', '时延遥测不可用')}</strong>
               <p>
-                {locale === 'zh'
-                  ? '当选中的建议没有真实阶段遥测时，这里明确显示不可用，而不是整块空掉。'
-                  : 'When the selected suggestion does not carry measured stage telemetry, this panel explicitly shows that state instead of disappearing.'}
+                {t(
+                  'This panel stays blank rather than inventing timings when the selected suggestion does not carry measured stage telemetry.',
+                  '如果当前建议没有携带测得的阶段遥测，这个面板会保持空白，而不是伪造计时。',
+                )}
               </p>
             </div>
           )}
