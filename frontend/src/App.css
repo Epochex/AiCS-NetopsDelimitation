@@ -2438,6 +2438,13 @@
   z-index: 64;
   display: flex;
   justify-content: flex-end;
+  isolation: isolate;
+}
+
+.drawer-overlay .drawer-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
 }
 
 .drawer-shell {

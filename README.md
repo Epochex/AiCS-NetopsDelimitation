@@ -150,6 +150,15 @@ flowchart TD
 - `suggestion_engine` converts provider output into the repository's stable suggestion schema
 - `output_sink` persists suggestion audit files for replay and inspection
 
+## Live Demo Packet
+
+For temporary demos, recordings, or quick walkthroughs, use the prepared incident packet instead of depending on whatever the live stream happens to show at that moment.
+
+- [Fault Injection -> Automatic Localization demo script](./documentation/LIVE_DEMO_FAULT_INJECTION_AUTO_LOCALIZATION.md)
+- [Companion demo fixture](./frontend/fixtures/demo/fault-injection-auto-localization.json)
+
+The current packet is built from real runtime history around `deny_burst_v1` on `udp/3702`, localized to a `Dahua / IP Camera` path. It is meant to answer one question clearly: how a single injected fault becomes an operator-readable incident with device, service, path, change signal, and next-step guidance.
+
 ## Frontend Console
 
 The frontend is not the architectural center of the repository, so the root README keeps it short.
@@ -334,56 +343,17 @@ Each log line consists of two parts. The raw sample demonstrates that the source
 ```text
 Feb 21 15:45:27 _gateway date=2026-02-21 time=15:45:26 devname="DAHUA_FORTIGATE" devid="FG100ETK20014183" logid="0001000014" type="traffic" subtype="local" level="notice" vd="root" eventtime=1771685127249713472 tz="+0100" srcip=192.168.16.41 srcname="es-73847E56DA65" srcport=48689 srcintf="LACP" srcintfrole="lan" dstip=255.255.255.255 dstport=48689 dstintf="unknown0" dstintfrole="undefined" sessionid=1211202700 proto=17 action="deny" policyid=0 policytype="local-in-policy" service="udp/48689" dstcountry="Reserved" srccountry="Reserved" trandisp="noop" app="udp/48689" duration=0 sentbyte=0 rcvdbyte=0 sentpkt=0 appcat="unscanned" srchwvendor="Samsung" devtype="Phone" srcfamily="Galaxy" osname="Android" srcswversion="16" mastersrcmac="78:66:9d:a3:4f:51" srcmac="78:66:9d:a3:4f:51" srcserver=0
 ```
-Input field analysis
-| Field Name     | Sample Value          | Purpose                                                   |
-| -------------- | --------------------- | --------------------------------------------------------- |
-| `syslog_month` | `Feb`                 | Syslog header time (month)                                |
-| `syslog_day`   | `21`                  | Syslog header time (day)                                  |
-| `syslog_time`  | `15:45:27`            | Syslog receive time (second-level)                        |
-| `host`         | `_gateway`            | Syslog sender hostname                                    |
-| `date`         | `2026-02-21`          | FortiGate event date (business time)                      |
-| `time`         | `15:45:26`            | FortiGate event time (business time)                      |
-| `devname`      | `DAHUA_FORTIGATE`     | Firewall device name                                      |
-| `devid`        | `FG100ETK20014183`    | Firewall unique device ID                                 |
-| `logid`        | `0001000014`          | FortiGate log type ID                                     |
-| `type`         | `traffic`             | Log primary category (traffic)                            |
-| `subtype`      | `local`               | Log subtype (local-plane traffic)                         |
-| `level`        | `notice`              | Event level                                               |
-| `vd`           | `root`                | VDOM name                                                 |
-| `eventtime`    | `1771685127249713472` | High-precision native event timestamp                     |
-| `tz`           | `+0100`               | Time zone                                                 |
-| `srcip`        | `192.168.16.41`       | Source IP                                                 |
-| `srcname`      | `es-73847E56DA65`     | Source name / endpoint identifier                         |
-| `srcport`      | `48689`               | Source port                                               |
-| `srcintf`      | `LACP`                | Source interface                                          |
-| `srcintfrole`  | `lan`                 | Source interface role                                     |
-| `dstip`        | `255.255.255.255`     | Destination IP (broadcast address)                        |
-| `dstport`      | `48689`               | Destination port                                          |
-| `dstintf`      | `unknown0`            | Destination interface (local-plane / special target clue) |
-| `dstintfrole`  | `undefined`           | Destination interface role                                |
-| `sessionid`    | `1211202700`          | Session ID (correlation key)                              |
-| `proto`        | `17`                  | Protocol number (UDP)                                     |
-| `action`       | `deny`                | Action result (deny)                                      |
-| `policyid`     | `0`                   | Policy ID                                                 |
-| `policytype`   | `local-in-policy`     | Matched policy type (local-plane)                         |
-| `service`      | `udp/48689`           | Service / port label                                      |
-| `dstcountry`   | `Reserved`            | Destination country (reserved address space)              |
-| `srccountry`   | `Reserved`            | Source country (reserved address space)                   |
-| `trandisp`     | `noop`                | Transport / processing status information                 |
-| `app`          | `udp/48689`           | Application identification result (port-level)            |
-| `duration`     | `0`                   | Session duration                                          |
-| `sentbyte`     | `0`                   | Sent bytes                                                |
-| `rcvdbyte`     | `0`                   | Received bytes                                            |
-| `sentpkt`      | `0`                   | Sent packets                                              |
-| `appcat`       | `unscanned`           | Application category status                               |
-| `srchwvendor`  | `Samsung`             | Source hardware vendor (asset profile)                    |
-| `devtype`      | `Phone`               | Device type (asset profile)                               |
-| `srcfamily`    | `Galaxy`              | Device family (asset profile)                             |
-| `osname`       | `Android`             | OS name (asset profile)                                   |
-| `srcswversion` | `16`                  | OS/software version (asset profile)                       |
-| `mastersrcmac` | `78:66:9d:a3:4f:51`   | Master source MAC (device identity normalization clue)    |
-| `srcmac`       | `78:66:9d:a3:4f:51`   | Source MAC (device identity normalization clue)           |
-| `srcserver`    | `0`                   | Device role hint (endpoint / non-server)                  |
+
+The full schema reference has been moved out of the root README so this page stays readable.
+
+- [Open input field analysis](./documentation/FORTIGATE_INGEST_FIELD_REFERENCE.md#input-field-analysis)
+- [Open output field analysis](./documentation/FORTIGATE_INGEST_FIELD_REFERENCE.md#output-field-analysis)
+
+At a glance, the ingest input already carries three classes of meaning that the rest of the system depends on:
+
+- **time and source semantics** from the syslog header and native FortiGate timestamps
+- **network path semantics** such as `srcip`, `dstip`, `service`, `action`, `policytype`, and interfaces
+- **asset profile semantics** such as vendor, device type, OS family, and MAC identity
 
 ##### Ingest Pod Processing Pipeline (`edge/fortigate-ingest`)
 
@@ -400,73 +370,15 @@ The key reliability design of this component is the **checkpoint + inode/offset 
 {"schema_version":1,"event_id":"d811b6b7c362dd6367f3736a19bc9ade","host":"_gateway","event_ts":"2026-01-15T16:49:21+01:00","type":"traffic","subtype":"forward","level":"notice","devname":"DAHUA_FORTIGATE","devid":"FG100ETK20014183","vd":"root","action":"deny","policyid":0,"policytype":"policy","sessionid":1066028432,"proto":17,"service":"udp/3702","srcip":"192.168.1.133","srcport":3702,"srcintf":"fortilink","srcintfrole":"lan","dstip":"192.168.2.108","dstport":3702,"dstintf":"LAN2","dstintfrole":"lan","sentbyte":0,"rcvdbyte":0,"sentpkt":0,"rcvdpkt":null,"bytes_total":0,"pkts_total":0,"parse_status":"ok","logid":"0000000013","eventtime":"1768492161732986577","tz":"+0100","logdesc":null,"user":null,"ui":null,"method":null,"status":null,"reason":null,"msg":null,"trandisp":"noop","app":null,"appcat":"unscanned","duration":0,"srcname":null,"srccountry":"Reserved","dstcountry":"Reserved","osname":null,"srcswversion":null,"srcmac":"b4:4c:3b:c1:29:c1","mastersrcmac":"b4:4c:3b:c1:29:c1","srcserver":0,"srchwvendor":"Dahua","devtype":"IP Camera","srcfamily":"IP Camera","srchwversion":"DHI-VTO4202FB-P","srchwmodel":null,"src_device_key":"b4:4c:3b:c1:29:c1","kv_subset":{"date":"2026-01-15","time":"16:49:21","tz":"+0100","eventtime":"1768492161732986577","logid":"0000000013","type":"traffic","subtype":"forward","level":"notice","vd":"root","action":"deny","policyid":"0","policytype":"policy","devname":"DAHUA_FORTIGATE","devid":"FG100ETK20014183","sessionid":"1066028432","proto":"17","service":"udp/3702","srcip":"192.168.1.133","srcport":"3702","srcintf":"fortilink","srcintfrole":"lan","dstip":"192.168.2.108","dstport":"3702","dstintf":"LAN2","dstintfrole":"lan","trandisp":"noop","duration":"0","sentbyte":"0","rcvdbyte":"0","sentpkt":"0","appcat":"unscanned","dstcountry":"Reserved","srccountry":"Reserved","srcmac":"b4:4c:3b:c1:29:c1","mastersrcmac":"b4:4c:3b:c1:29:c1","srcserver":"0","srchwvendor":"Dahua","devtype":"IP Camera","srcfamily":"IP Camera","srchwversion":"DHI-VTO4202FB-P"},"ingest_ts":"2026-02-16T19:59:59.808411+00:00","source":{"path":"/data/fortigate-runtime/input/fortigate.log-20260130-000004.gz","inode":6160578,"offset":null}}
 ```
 
-| Field Name       | Sample Value                                                     | Purpose                                                                |
-| ---------------- | ---------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| `source.path`    | `/data/fortigate-runtime/input/fortigate.log-20260130-000004.gz` | Source file path (rotated file localization)                           |
-| `source.inode`   | `6160578`                                                        | File inode (file identity)                                             |
-| `source.offset`  | `null`                                                           | Offset (commonly null for compressed files)                            |
-| `schema_version` | `1`                                                              | Output schema version                                                  |
-| `event_id`       | `d811b6b7c362dd6367f3736a19bc9ade`                               | Unique event ID (deduplication / idempotency)                          |
-| `host`           | `_gateway`                                                       | Preserved syslog host                                                  |
-| `event_ts`       | `2026-01-15T16:49:21+01:00`                                      | Normalized event time (primary field for downstream windowing/sorting) |
-| `type`           | `traffic`                                                        | Log primary category                                                   |
-| `subtype`        | `forward`                                                        | Log subtype (forwarded traffic)                                        |
-| `level`          | `notice`                                                         | Event level                                                            |
-| `devname`        | `DAHUA_FORTIGATE`                                                | Firewall device name                                                   |
-| `devid`          | `FG100ETK20014183`                                               | Firewall device ID                                                     |
-| `vd`             | `root`                                                           | VDOM                                                                   |
-| `action`         | `deny`                                                           | Action result                                                          |
-| `policyid`       | `0`                                                              | Policy ID                                                              |
-| `policytype`     | `policy`                                                         | Policy type (regular forwarding policy)                                |
-| `sessionid`      | `1066028432`                                                     | Session correlation key                                                |
-| `proto`          | `17`                                                             | Protocol number (UDP)                                                  |
-| `service`        | `udp/3702`                                                       | Service / port label                                                   |
-| `srcip`          | `192.168.1.133`                                                  | Source IP                                                              |
-| `srcport`        | `3702`                                                           | Source port                                                            |
-| `srcintf`        | `fortilink`                                                      | Source interface                                                       |
-| `srcintfrole`    | `lan`                                                            | Source interface role                                                  |
-| `dstip`          | `192.168.2.108`                                                  | Destination IP                                                         |
-| `dstport`        | `3702`                                                           | Destination port                                                       |
-| `dstintf`        | `LAN2`                                                           | Destination interface                                                  |
-| `dstintfrole`    | `lan`                                                            | Destination interface role                                             |
-| `sentbyte`       | `0`                                                              | Sent bytes                                                             |
-| `rcvdbyte`       | `0`                                                              | Received bytes                                                         |
-| `sentpkt`        | `0`                                                              | Sent packets                                                           |
-| `rcvdpkt`        | `null`                                                           | Received packets (nullable)                                            |
-| `bytes_total`    | `0`                                                              | Derived total bytes (aggregation-friendly)                             |
-| `pkts_total`     | `0`                                                              | Derived total packets (aggregation-friendly)                           |
-| `parse_status`   | `ok`                                                             | Parsing status                                                         |
-| `logid`          | `0000000013`                                                     | FortiGate log ID                                                       |
-| `eventtime`      | `1768492161732986577`                                            | Native high-precision event time                                       |
-| `tz`             | `+0100`                                                          | Time zone                                                              |
-| `logdesc`        | `null`                                                           | Native log description (nullable)                                      |
-| `user`           | `null`                                                           | User field (nullable)                                                  |
-| `ui`             | `null`                                                           | UI/entry field (nullable)                                              |
-| `method`         | `null`                                                           | Method/action field (nullable)                                         |
-| `status`         | `null`                                                           | Status field (nullable)                                                |
-| `reason`         | `null`                                                           | Reason field (nullable)                                                |
-| `msg`            | `null`                                                           | Text message field (nullable)                                          |
-| `trandisp`       | `noop`                                                           | Transport/processing status information                                |
-| `app`            | `null`                                                           | Application identification (nullable)                                  |
-| `appcat`         | `unscanned`                                                      | Application category status                                            |
-| `duration`       | `0`                                                              | Session duration                                                       |
-| `srcname`        | `null`                                                           | Source endpoint name (nullable)                                        |
-| `srccountry`     | `Reserved`                                                       | Source country/address-space classification                            |
-| `dstcountry`     | `Reserved`                                                       | Destination country/address-space classification                       |
-| `osname`         | `null`                                                           | OS name (nullable)                                                     |
-| `srcswversion`   | `null`                                                           | Software/OS version (nullable)                                         |
-| `srcmac`         | `b4:4c:3b:c1:29:c1`                                              | Source MAC                                                             |
-| `mastersrcmac`   | `b4:4c:3b:c1:29:c1`                                              | Master source MAC                                                      |
-| `srcserver`      | `0`                                                              | Device role hint                                                       |
-| `srchwvendor`    | `Dahua`                                                          | Hardware vendor (asset profile)                                        |
-| `devtype`        | `IP Camera`                                                      | Device type (asset profile)                                            |
-| `srcfamily`      | `IP Camera`                                                      | Device family (asset profile)                                          |
-| `srchwversion`   | `DHI-VTO4202FB-P`                                                | Hardware model/version (asset profile)                                 |
-| `srchwmodel`     | `null`                                                           | Hardware model field (nullable)                                        |
-| `src_device_key` | `b4:4c:3b:c1:29:c1`                                              | Normalized device key (core asset-baseline key)                        |
-| `kv_subset`      | `{...}`                                                          | Raw KV subset snapshot (trace-back / validation / schema extension)    |
-| `ingest_ts`      | `2026-02-16T19:59:59.808411+00:00`                               | Ingest output timestamp                                                |
-| `source`         | `{"path":"...","inode":6160578,"offset":null}`                   | Input source metadata (audit / replay localization)                    |
+The parsed schema keeps the fields that matter for downstream windows, replay, and device-level localization:
+
+- **normalized runtime fields** such as `event_ts`, `bytes_total`, and `pkts_total`
+- **preserved audit fields** such as `source.path`, `source.inode`, and `kv_subset`
+- **device-level aggregation fields** such as `src_device_key`, vendor/profile data, and service/path context
+
+For the full field list, use the reference page instead of the root README:
+
+- [Open parsed output field analysis](./documentation/FORTIGATE_INGEST_FIELD_REFERENCE.md#output-field-analysis)
 
 ##### Throughput Snapshot (March 3, 2026)
 
@@ -577,39 +489,7 @@ Edge-side one-shot release entries:
 ./edge/edge_forwarder/scripts/deploy_edge_forwarder.sh
 ```
 
-#### Throughput Measurement and Pressure Testing
-
-Use `core/benchmark` scripts for partition sizing and throughput baselining:
-
-```bash
-python -m core.benchmark.kafka_load_producer \
-  --bootstrap-servers netops-kafka.netops-core.svc.cluster.local:9092 \
-  --topic netops.facts.raw.v1 \
-  --messages 200000 \
-  --payload-bytes 1024 \
-  --batch-size 1000 \
-  --workers 4
-```
-
-```bash
-python -m core.benchmark.kafka_topic_probe \
-  --bootstrap-servers netops-kafka.netops-core.svc.cluster.local:9092 \
-  --topic netops.facts.raw.v1 \
-  --group-id benchmark-probe-v1 \
-  --duration-sec 60
-```
-
-Edge producer runtime rate (r230) can be observed directly from forwarder logs (`eps`, `mbps`, cumulative counters):
-
-```bash
-kubectl logs -n edge deploy/edge-forwarder --tail=200 -f
-```
-
-Correlator quality-gate/throughput stats can be observed from periodic stats logs:
-
-```bash
-kubectl logs -n netops-core deploy/core-correlator --tail=200 -f
-```
+Performance probes, load generators, and longer operational command lists are intentionally kept out of the root README. When needed, use `core/benchmark/*` and the deployment manifests directly instead of treating the README as an operations notebook.
 
 ## X.0 Potential Required Resources and Support
 This section describes the resources and support required to advance the project from the current stage (`r230 -> r450` data plane and core analytics capability construction) to **core streaming analytics + alert-level LLM-augmented inference (CPU/GPU)**. Resource request priorities are focused on **GPU-backed inference access first**, and on **local memory expansion only when on-box serving becomes feasible**,
