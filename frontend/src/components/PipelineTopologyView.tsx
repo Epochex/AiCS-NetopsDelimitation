@@ -10,6 +10,7 @@ const TopologyCanvas = lazy(() =>
 
 interface PipelineTopologyViewProps {
   snapshot: RuntimeSnapshot
+  locale: 'en' | 'zh'
 }
 
 function byLatestSuggestion(a: SuggestionRecord, b: SuggestionRecord) {
@@ -44,9 +45,35 @@ function formatStageState(status: RuntimeSnapshot['stageNodes'][number]['status'
   }
 }
 
-export function PipelineTopologyView({ snapshot }: PipelineTopologyViewProps) {
+function layoutSystemFlowNodes(nodes: RuntimeSnapshot['stageNodes']) {
+  const positions: Record<string, { x: number; y: number }> = {
+    fortigate: { x: 0, y: 96 },
+    ingest: { x: 232, y: 96 },
+    forwarder: { x: 464, y: 96 },
+    'raw-topic': { x: 696, y: 96 },
+    correlator: { x: 696, y: 308 },
+    'alerts-topic': { x: 960, y: 308 },
+    'aiops-agent': { x: 1224, y: 308 },
+    'suggestions-topic': { x: 1488, y: 308 },
+    'alerts-sink': { x: 960, y: 520 },
+    clickhouse: { x: 1224, y: 520 },
+    remediation: { x: 1488, y: 520 },
+  }
+
+  return nodes.map((node) => ({
+    ...node,
+    x: positions[node.id]?.x ?? node.x,
+    y: positions[node.id]?.y ?? node.y,
+  }))
+}
+
+export function PipelineTopologyView({
+  snapshot,
+  locale,
+}: PipelineTopologyViewProps) {
   const suggestions = [...snapshot.suggestions].sort(byLatestSuggestion)
   const latestSuggestion = suggestions[0]
+  const systemNodes = layoutSystemFlowNodes(snapshot.stageNodes)
 
   const serviceCount = new Set(
     suggestions.map((suggestion) => suggestion.context.service).filter(Boolean),
@@ -93,134 +120,139 @@ export function PipelineTopologyView({ snapshot }: PipelineTopologyViewProps) {
   const focusExplanation = latestSuggestion
     ? `${latestSuggestion.summary} Dominant rule: ${dominantRule}. Latest scope: ${latestSuggestion.scope === 'cluster' ? 'repeated-pattern incident' : 'single-path incident'}.`
     : 'Suggestions have not populated yet, so use this view as the end-to-end system map only.'
+  const copy =
+    locale === 'zh'
+      ? {
+          kicker: '系统总览 / 全链路',
+          title: '系统链路地图',
+          subtitle: '这一页只保留系统级链路，不再让单条 suggestion 把地图切碎。',
+          incidents: '活跃事件',
+          footprint: '影响范围',
+          cluster: '聚合态势',
+          action: '主导动作',
+          verdict: '系统判读',
+          readMap: '地图读法',
+          pathRibbon: '当前主链路',
+          loading: '正在载入系统链路图...',
+        }
+      : {
+          kicker: 'integrated runtime map',
+          title: 'System Flow Map',
+          subtitle: 'This page stays system-wide and keeps the map readable instead of fragmenting it around one suggestion at a time.',
+          incidents: 'Active incidents',
+          footprint: 'Affected footprint',
+          cluster: 'Cluster posture',
+          action: 'Dominant action',
+          verdict: 'System verdict',
+          readMap: 'How to read',
+          pathRibbon: 'Current path',
+          loading: 'loading system flow map...',
+        }
 
   return (
     <section className="page system-flow-page">
       <section className="section system-flow-stage">
         <div className="system-flow-map-shell">
           <div className="system-flow-topband">
-            <div className="system-flow-heading">
-              <span className="section-kicker">integrated runtime map</span>
-              <h2 className="section-title">System Flow Map</h2>
+            <div className="system-flow-heading swiss-flow-heading">
+              <span className="section-kicker">{copy.kicker}</span>
+              <h2 className="section-title">{copy.title}</h2>
               <span className="section-subtitle">
-                This page now stays system-wide. It explains the whole incident
-                posture first and leaves per-incident evidence to the Current
-                Brief on the console page instead of making you pick one
-                suggestion at a time.
+                {copy.subtitle}
               </span>
+              <div className="system-flow-ribbons">
+                <article className="system-flow-ribbon-card">
+                  <span>{copy.verdict}</span>
+                  <strong>
+                    {latestSuggestion?.summary ??
+                      (locale === 'zh'
+                        ? '当前没有可展开的建议切片。'
+                        : 'No live suggestion is available right now.')}
+                  </strong>
+                  <p>{systemVerdict}</p>
+                </article>
+                <article className="system-flow-ribbon-card">
+                  <span>{copy.readMap}</span>
+                  <strong>{activeStageSummary}</strong>
+                  <p>{focusExplanation}</p>
+                </article>
+              </div>
             </div>
 
             <div className="system-flow-stat-strip">
               <article className="system-flow-stat-card">
-                <span>Active incidents</span>
+                <span>{copy.incidents}</span>
                 <strong>{suggestions.length}</strong>
                 <p>
-                  {clusterIncidentCount} repeated-pattern / {singlePathCount}{' '}
-                  single-path
+                  {locale === 'zh'
+                    ? `${clusterIncidentCount} 条重复模式 / ${singlePathCount} 条单路径`
+                    : `${clusterIncidentCount} repeated-pattern / ${singlePathCount} single-path`}
                 </p>
               </article>
               <article className="system-flow-stat-card">
-                <span>Affected footprint</span>
+                <span>{copy.footprint}</span>
                 <strong>
-                  {serviceCount} service{serviceCount === 1 ? '' : 's'}
+                  {locale === 'zh'
+                    ? `${serviceCount} 项服务`
+                    : `${serviceCount} service${serviceCount === 1 ? '' : 's'}`}
                 </strong>
                 <p>
-                  {deviceCount} device{deviceCount === 1 ? '' : 's'} in the
-                  current slice
+                  {locale === 'zh'
+                    ? `当前切片涉及 ${deviceCount} 台设备`
+                    : `${deviceCount} device${deviceCount === 1 ? '' : 's'} in the current slice`}
                 </p>
               </article>
               <article className="system-flow-stat-card">
-                <span>Cluster posture</span>
+                <span>{copy.cluster}</span>
                 <strong>{readyClusterCount}</strong>
                 <p>
-                  {warmingClusterCount} watch slot
-                  {warmingClusterCount === 1 ? '' : 's'} still warming
+                  {locale === 'zh'
+                    ? `${warmingClusterCount} 个 watch 槽仍在预热`
+                    : `${warmingClusterCount} watch slot${warmingClusterCount === 1 ? '' : 's'} still warming`}
                 </p>
               </article>
               <article className="system-flow-stat-card">
-                <span>Dominant next action</span>
+                <span>{copy.action}</span>
                 <strong>{dominantRule}</strong>
                 <p>{dominantAction}</p>
               </article>
             </div>
           </div>
 
-          <div className="system-flow-overlay system-flow-overlay-start">
-            <article className="system-flow-callout">
-              <span className="section-kicker">system interpretation</span>
-              <h3>
-                {latestSuggestion?.summary ??
-                  'No live suggestion is available right now.'}
-              </h3>
-              <p>{systemVerdict}</p>
-            </article>
-
-            <article className="system-flow-callout">
-              <span className="section-kicker">how to read this map</span>
-              <dl className="system-flow-definition-list">
-                <div>
-                  <dt>Problem focus</dt>
-                  <dd>{focusExplanation}</dd>
-                </div>
-                <div>
-                  <dt>Current stage focus</dt>
-                  <dd>{activeStageSummary}</dd>
-                </div>
-                <div>
-                  <dt>Recommended action</dt>
-                  <dd>{dominantAction}</dd>
-                </div>
-                <div>
-                  <dt>Single-path means</dt>
-                  <dd>
-                    The evidence is still concentrated on one service-device
-                    path and has not crossed the repetition threshold that would
-                    turn it into a grouped historical event.
-                  </dd>
-                </div>
-              </dl>
-            </article>
-          </div>
-
-          <div className="system-flow-overlay system-flow-overlay-end">
-            <article className="system-flow-callout">
-              <span className="section-kicker">live stage registry</span>
-              <div className="system-flow-stage-list">
-                {snapshot.stageNodes.map((node) => (
-                  <div key={node.id} className="system-flow-stage-item">
-                    <strong>{node.title}</strong>
-                    <span>{formatStageState(node.status)}</span>
-                    <p>{node.subtitle}</p>
-                  </div>
-                ))}
-              </div>
-            </article>
-          </div>
-
           <ErrorBoundary title="System Flow Map">
             <Suspense
               fallback={
                 <div className="flow-frame system-flow-frame chart-fallback">
-                  loading system flow map...
+                  {copy.loading}
                 </div>
               }
             >
               <div className="system-flow-canvas-layer">
                 <TopologyCanvas
-                  nodes={snapshot.stageNodes}
+                  nodes={systemNodes}
                   links={snapshot.stageLinks}
+                  fitPadding={0.04}
+                  nodeWidth={206}
+                  showEdgeLabels={false}
+                  showMiniMap={false}
                 />
               </div>
             </Suspense>
           </ErrorBoundary>
 
           <div className="system-flow-bottom-rail">
-            {snapshot.topologyNotes.slice(0, 4).map((note) => (
-              <article key={note.title} className="system-flow-note-pill">
-                <strong>{note.title}</strong>
-                <p>{note.detail}</p>
-              </article>
-            ))}
+            <article className="system-flow-path-pill system-flow-path-pill-primary">
+              <span>{copy.pathRibbon}</span>
+              <strong>{activeStageSummary}</strong>
+            </article>
+            <div className="system-flow-stage-list">
+              {snapshot.stageNodes.map((node) => (
+                <div key={node.id} className="system-flow-stage-item">
+                  <strong>{node.title}</strong>
+                  <span>{formatStageState(node.status)}</span>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       </section>

@@ -1,22 +1,29 @@
-# FortiGate Ingest Field Reference
+# FortiGate Ingest Field Reference / FortiGate 接入字段参考
 
 This page keeps the field-by-field schema reference out of the root `README.md`.
 Use it when you need to look up exact FortiGate input fields or the parsed JSONL output contract.
 
-- [Input field analysis](#input-field-analysis)
-- [Output field analysis](#output-field-analysis)
+这份文档把逐字段 schema 说明从根 `README.md` 中拆了出来。
+当你需要查 FortiGate 原始输入字段，或者解析后 JSONL 的输出契约时，优先看这里。
 
-## Input Field Analysis
+- [Input field analysis / 输入字段说明](#input-field-analysis--输入字段说明)
+- [Output field analysis / 输出字段说明](#output-field-analysis--输出字段说明)
 
-### Real Raw Sample
+字段名本身保持英文，不做翻译，因为它们需要和真实日志、JSON key、ClickHouse 字段以及代码中的 schema 保持一一对应。
+
+## Input Field Analysis / 输入字段说明
+
+### Real Raw Sample / 原始日志样例
 
 ```text
 Feb 21 15:45:27 _gateway date=2026-02-21 time=15:45:26 devname="DAHUA_FORTIGATE" devid="FG100ETK20014183" logid="0001000014" type="traffic" subtype="local" level="notice" vd="root" eventtime=1771685127249713472 tz="+0100" srcip=192.168.16.41 srcname="es-73847E56DA65" srcport=48689 srcintf="LACP" srcintfrole="lan" dstip=255.255.255.255 dstport=48689 dstintf="unknown0" dstintfrole="undefined" sessionid=1211202700 proto=17 action="deny" policyid=0 policytype="local-in-policy" service="udp/48689" dstcountry="Reserved" srccountry="Reserved" trandisp="noop" app="udp/48689" duration=0 sentbyte=0 rcvdbyte=0 sentpkt=0 appcat="unscanned" srchwvendor="Samsung" devtype="Phone" srcfamily="Galaxy" osname="Android" srcswversion="16" mastersrcmac="78:66:9d:a3:4f:51" srcmac="78:66:9d:a3:4f:51" srcserver=0
 ```
 
-### Input field analysis
+### Input field analysis / 输入字段逐项说明
 
-| Field Name     | Sample Value          | Purpose                                                   |
+The table below keeps the original schema keys intact. The `Purpose / 用途` column explains why each field matters in downstream parsing, correlation, and localization.
+
+| Field Name     | Sample Value          | Purpose / 用途                                            |
 | -------------- | --------------------- | --------------------------------------------------------- |
 | `syslog_month` | `Feb`                 | Syslog header time (month)                                |
 | `syslog_day`   | `21`                  | Syslog header time (day)                                  |
@@ -66,17 +73,19 @@ Feb 21 15:45:27 _gateway date=2026-02-21 time=15:45:26 devname="DAHUA_FORTIGATE"
 | `srcmac`       | `78:66:9d:a3:4f:51`   | Source MAC (device identity normalization clue)           |
 | `srcserver`    | `0`                   | Device role hint (endpoint / non-server)                  |
 
-## Output Field Analysis
+## Output Field Analysis / 输出字段说明
 
-### Parsed JSONL Sample
+### Parsed JSONL Sample / 解析后的 JSONL 样例
 
 ```text
 {"schema_version":1,"event_id":"d811b6b7c362dd6367f3736a19bc9ade","host":"_gateway","event_ts":"2026-01-15T16:49:21+01:00","type":"traffic","subtype":"forward","level":"notice","devname":"DAHUA_FORTIGATE","devid":"FG100ETK20014183","vd":"root","action":"deny","policyid":0,"policytype":"policy","sessionid":1066028432,"proto":17,"service":"udp/3702","srcip":"192.168.1.133","srcport":3702,"srcintf":"fortilink","srcintfrole":"lan","dstip":"192.168.2.108","dstport":3702,"dstintf":"LAN2","dstintfrole":"lan","sentbyte":0,"rcvdbyte":0,"sentpkt":0,"rcvdpkt":null,"bytes_total":0,"pkts_total":0,"parse_status":"ok","logid":"0000000013","eventtime":"1768492161732986577","tz":"+0100","logdesc":null,"user":null,"ui":null,"method":null,"status":null,"reason":null,"msg":null,"trandisp":"noop","app":null,"appcat":"unscanned","duration":0,"srcname":null,"srccountry":"Reserved","dstcountry":"Reserved","osname":null,"srcswversion":null,"srcmac":"b4:4c:3b:c1:29:c1","mastersrcmac":"b4:4c:3b:c1:29:c1","srcserver":0,"srchwvendor":"Dahua","devtype":"IP Camera","srcfamily":"IP Camera","srchwversion":"DHI-VTO4202FB-P","srchwmodel":null,"src_device_key":"b4:4c:3b:c1:29:c1","kv_subset":{"date":"2026-01-15","time":"16:49:21","tz":"+0100","eventtime":"1768492161732986577","logid":"0000000013","type":"traffic","subtype":"forward","level":"notice","vd":"root","action":"deny","policyid":"0","policytype":"policy","devname":"DAHUA_FORTIGATE","devid":"FG100ETK20014183","sessionid":"1066028432","proto":"17","service":"udp/3702","srcip":"192.168.1.133","srcport":"3702","srcintf":"fortilink","srcintfrole":"lan","dstip":"192.168.2.108","dstport":"3702","dstintf":"LAN2","dstintfrole":"lan","trandisp":"noop","duration":"0","sentbyte":"0","rcvdbyte":"0","sentpkt":"0","appcat":"unscanned","dstcountry":"Reserved","srccountry":"Reserved","srcmac":"b4:4c:3b:c1:29:c1","mastersrcmac":"b4:4c:3b:c1:29:c1","srcserver":"0","srchwvendor":"Dahua","devtype":"IP Camera","srcfamily":"IP Camera","srchwversion":"DHI-VTO4202FB-P"},"ingest_ts":"2026-02-16T19:59:59.808411+00:00","source":{"path":"/data/fortigate-runtime/input/fortigate.log-20260130-000004.gz","inode":6160578,"offset":null}}
 ```
 
-### Output field analysis
+### Output field analysis / 输出字段逐项说明
 
-| Field Name       | Sample Value                                                     | Purpose                                                                |
+The parsed schema below keeps the normalized event contract intact. The `Purpose / 用途` column describes how each field is used for replay, aggregation, auditing, and device-level localization.
+
+| Field Name       | Sample Value                                                     | Purpose / 用途                                                         |
 | ---------------- | ---------------------------------------------------------------- | ---------------------------------------------------------------------- |
 | `source.path`    | `/data/fortigate-runtime/input/fortigate.log-20260130-000004.gz` | Source file path (rotated file localization)                           |
 | `source.inode`   | `6160578`                                                        | File inode (file identity)                                             |

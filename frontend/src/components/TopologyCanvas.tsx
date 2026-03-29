@@ -12,6 +12,7 @@ import {
   Panel,
   Position,
   ReactFlow,
+  type ReactFlowInstance,
   type Edge as FlowEdge,
   type EdgeProps,
   type Node as FlowNode,
@@ -25,6 +26,12 @@ interface TopologyCanvasProps {
   nodes: StageNode[]
   links: StageLink[]
   compact?: boolean
+  fitPadding?: number
+  nodeWidth?: number
+  showEdgeLabels?: boolean
+  showMiniMap?: boolean
+  showLegend?: boolean
+  showControls?: boolean
 }
 
 function OperationalNode({ data }: NodeProps<OpsNode>) {
@@ -67,6 +74,7 @@ type OpsNode = FlowNode<NodeData, 'opsNode'>
 
 type EdgeData = Record<string, unknown> & {
   state: StageLink['state']
+  showLabel?: boolean
 }
 
 type OpsEdge = FlowEdge<EdgeData, 'opsEdge'>
@@ -107,18 +115,20 @@ function OperationalEdge({
         }}
         markerEnd={MarkerType.ArrowClosed}
       />
-      <EdgeLabelRenderer>
-        <div
-          style={{
-            position: 'absolute',
-            transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
-            pointerEvents: 'none',
-          }}
-          className="edge-label"
-        >
-          {String(data?.state || 'steady')}
-        </div>
-      </EdgeLabelRenderer>
+      {data?.showLabel !== false ? (
+        <EdgeLabelRenderer>
+          <div
+            style={{
+              position: 'absolute',
+              transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
+              pointerEvents: 'none',
+            }}
+            className="edge-label"
+          >
+            {String(data?.state || 'steady')}
+          </div>
+        </EdgeLabelRenderer>
+      ) : null}
     </>
   )
 }
@@ -130,6 +140,12 @@ export function TopologyCanvas({
   nodes,
   links,
   compact = false,
+  fitPadding,
+  nodeWidth,
+  showEdgeLabels = true,
+  showMiniMap = !compact,
+  showLegend = !compact,
+  showControls = !compact,
 }: TopologyCanvasProps) {
   const flowNodes = useMemo<OpsNode[]>(
     () =>
@@ -146,10 +162,10 @@ export function TopologyCanvas({
           metrics: node.metrics,
         },
         style: {
-          width: compact ? 210 : 228,
+          width: nodeWidth ?? (compact ? 210 : 228),
         } satisfies CSSProperties,
       })),
-    [compact, nodes],
+    [compact, nodeWidth, nodes],
   )
 
   const flowEdges = useMemo<OpsEdge[]>(
@@ -160,10 +176,21 @@ export function TopologyCanvas({
         target: link.target,
         type: 'opsEdge',
         selectable: false,
-        data: { state: link.state },
+        data: { state: link.state, showLabel: showEdgeLabels },
       })),
-    [links],
+    [links, showEdgeLabels],
   )
+  const resolvedFitPadding = fitPadding ?? (compact ? 0.12 : 0.18)
+  const handleInit = (instance: ReactFlowInstance<OpsNode, OpsEdge>) => {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        void instance.fitView({
+          padding: resolvedFitPadding,
+          duration: 320,
+        })
+      })
+    })
+  }
 
   return (
     <div className={compact ? 'flow-frame compact' : 'flow-frame'}>
@@ -174,11 +201,13 @@ export function TopologyCanvas({
           nodeTypes={nodeTypes}
           edgeTypes={edgeTypes}
           fitView
-          fitViewOptions={{ padding: compact ? 0.12 : 0.18 }}
+          fitViewOptions={{ padding: resolvedFitPadding }}
+          onInit={handleInit}
           proOptions={{ hideAttribution: true }}
           nodesDraggable={false}
           zoomOnDoubleClick={false}
           panOnDrag
+          minZoom={0.28}
         >
           <Background
             color="rgba(152, 181, 211, 0.12)"
@@ -186,28 +215,34 @@ export function TopologyCanvas({
             size={1.6}
             variant={BackgroundVariant.Lines}
           />
-          {!compact ? (
+          {showMiniMap || showLegend || showControls ? (
             <>
-              <MiniMap
-                pannable={false}
-                zoomable={false}
-                position="bottom-left"
-                style={{
-                  backgroundColor: 'rgba(7,11,16,0.9)',
-                  border: '1px solid rgba(152,181,211,0.14)',
-                }}
-                nodeColor={(node) =>
-                  (node.data as NodeData | undefined)?.status === 'flowing'
-                    ? '#69f9ff'
-                    : (node.data as NodeData | undefined)?.status === 'planned'
-                      ? '#738699'
-                      : '#ff7a20'
-                }
-              />
-              <Panel position="top-right" className="flow-legend">
-                active / steady / planned
-              </Panel>
-              <Controls position="bottom-right" showInteractive={false} />
+              {showMiniMap ? (
+                <MiniMap
+                  pannable={false}
+                  zoomable={false}
+                  position="bottom-left"
+                  style={{
+                    backgroundColor: 'rgba(7,11,16,0.9)',
+                    border: '1px solid rgba(152,181,211,0.14)',
+                  }}
+                  nodeColor={(node) =>
+                    (node.data as NodeData | undefined)?.status === 'flowing'
+                      ? '#69f9ff'
+                      : (node.data as NodeData | undefined)?.status === 'planned'
+                        ? '#738699'
+                        : '#ff7a20'
+                  }
+                />
+              ) : null}
+              {showLegend ? (
+                <Panel position="top-right" className="flow-legend">
+                  active / steady / planned
+                </Panel>
+              ) : null}
+              {showControls ? (
+                <Controls position="bottom-right" showInteractive={false} />
+              ) : null}
             </>
           ) : null}
         </ReactFlow>

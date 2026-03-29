@@ -387,7 +387,7 @@ function App() {
               locale={locale}
             />
           ) : view === 'topology' ? (
-            <PipelineTopologyView snapshot={snapshot} />
+            <PipelineTopologyView snapshot={snapshot} locale={locale} />
           ) : (
             <Suspense
               fallback={

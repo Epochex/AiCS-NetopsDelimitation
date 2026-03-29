@@ -150,18 +150,24 @@ flowchart TD
 - `suggestion_engine` converts provider output into the repository's stable suggestion schema
 - `output_sink` persists suggestion audit files for replay and inspection
 
-## Live Demo Packet
+## Live Demo Packet / 现场演示包
 
 For temporary demos, recordings, or quick walkthroughs, use the prepared incident packet instead of depending on whatever the live stream happens to show at that moment.
 
-- [Fault Injection -> Automatic Localization demo script](./documentation/LIVE_DEMO_FAULT_INJECTION_AUTO_LOCALIZATION.md)
-- [Companion demo fixture](./frontend/fixtures/demo/fault-injection-auto-localization.json)
+临时演示、录屏或现场讲解时，建议优先使用预制 incident packet，而不是依赖实时流此刻恰好出现什么事件。
+
+- [Fault Injection -> Automatic Localization demo script / 故障注入到自动定位演示脚本](./documentation/LIVE_DEMO_FAULT_INJECTION_AUTO_LOCALIZATION.md)
+- [Companion demo fixture / 配套前端演示数据](./frontend/fixtures/demo/fault-injection-auto-localization.json)
 
 The current packet is built from real runtime history around `deny_burst_v1` on `udp/3702`, localized to a `Dahua / IP Camera` path. It is meant to answer one question clearly: how a single injected fault becomes an operator-readable incident with device, service, path, change signal, and next-step guidance.
 
-## Frontend Console
+当前演示包来自真实运行历史，围绕 `deny_burst_v1` 与 `udp/3702` 构建，并定位到一条 `Dahua / IP Camera` 设备路径。它想清楚回答一个问题：一次单点故障是如何被系统还原成“设备 + 服务 + 路径 + 变更信号 + 下一步建议”的可读 incident。
+
+## Frontend Console / 前端运行台
 
 The frontend is not the architectural center of the repository, so the root README keeps it short.
+
+前端不是这个仓库的架构中心，因此根 README 只保留高层说明。
 
 - It is a read-only operator console for the path `raw -> alert -> suggestion -> remediation boundary`
 - It consumes `GET /api/runtime/snapshot` and `GET /api/runtime/stream`
@@ -170,13 +176,17 @@ The frontend is not the architectural center of the repository, so the root READ
 
 Frontend details, deployment notes, and review workflow now live under [frontend/README.md](./frontend/README.md) and [frontend/documentation](./frontend/documentation).
 
-## Safety Boundary
+更完整的前端说明、部署细节和评审流程请看 [frontend/README.md](./frontend/README.md) 与 [frontend/documentation](./frontend/documentation)。
+
+## Safety Boundary / 安全边界
 
 - Current runtime UI and runtime gateway are observation-only
 - They do not write back to devices, core configuration, Kubernetes, or remediation channels
 - Any future approval or execution path must remain explicitly separated from the current read surface
 
-## Resource Boundary And Next Step
+当前运行台和 runtime gateway 目前都只负责观察，不会回写设备、核心配置、Kubernetes 或任何 remediation 通道。后续如果加入审批或执行，也必须和现有只读界面明确隔离。
+
+## Resource Boundary And Next Step / 资源边界与下一步
 
 The current bottleneck is not the deterministic data plane. The near-term bottleneck is the future inference plane.
 
