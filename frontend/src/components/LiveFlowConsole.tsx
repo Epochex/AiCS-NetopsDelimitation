@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import type { RuntimeConnectionState } from '../hooks/useRuntimeSnapshot'
 import type {
   FeedEvent,
@@ -10,8 +10,6 @@ import type {
   StrategyControl,
   SuggestionRecord,
 } from '../types'
-import { pick, type UiLocale } from '../i18n'
-import { RuntimeVisualPanels } from './RuntimeVisualPanels'
 import {
   formatDurationMs,
   formatMaybeTimestamp,
@@ -32,7 +30,9 @@ interface LiveFlowConsoleProps {
   selectedSuggestion: SuggestionRecord
   onSelectSuggestion: (suggestionId: string) => void
   transportIssue?: string | null
-  locale: UiLocale
+  locale: 'en' | 'zh'
+  onOpenEvidence: () => void
+  onOpenRuntimeSheet: () => void
 }
 
 interface LifecycleBand {
@@ -763,10 +763,8 @@ function lifecycleIntegrityIssues(
   snapshot: RuntimeSnapshot,
   linkedSuggestion: SuggestionRecord,
   connectionState: RuntimeConnectionState,
-  locale: UiLocale,
   transportIssue?: string | null,
 ): LifecycleIntegrityIssue[] {
-  const t = (en: string, zh: string) => pick(locale, en, zh)
   const issues: LifecycleIntegrityIssue[] = []
   if (transportIssue) {
     issues.push({
@@ -785,10 +783,9 @@ function lifecycleIntegrityIssues(
   ) {
     issues.push({
       id: 'missing-telemetry',
-      detail: t(
+      detail:
         'Live snapshot for the active suggestion is missing timeline/stageTelemetry, so lifecycle timing cannot be trusted.',
-        '当前活动建议对应的 live snapshot 缺少 timeline/stageTelemetry，所以生命周期计时不可信。',
-      ),
+      severity: 'hard',
     })
   }
 
@@ -799,10 +796,8 @@ function lifecycleIntegrityIssues(
     if (skewMs > 15 * 60_000) {
       issues.push({
         id: 'stream-skew',
-        detail: t(
-          `Suggestion stream leads alert stream by ${formatDurationMs(skewMs)}.`,
-          `建议流领先告警流 ${formatDurationMs(skewMs)}。`,
-        ),
+        detail: `Latest suggestion timestamp leads the latest alert timestamp by ${formatDurationMs(skewMs)}.`,
+        severity: 'soft',
       })
     }
   }
@@ -811,10 +806,8 @@ function lifecycleIntegrityIssues(
   if (volume && volume.alerts === 0 && volume.suggestions > 0) {
     issues.push({
       id: 'volume-skew',
-      detail: t(
-        `Current-day volume is skewed: ${volume.alerts} alerts / ${volume.suggestions} suggestions.`,
-        `当天流量失衡：${volume.alerts} 条告警 / ${volume.suggestions} 条建议。`,
-      ),
+      detail: `Current-day volume is skewed: ${volume.alerts} alerts / ${volume.suggestions} suggestions.`,
+      severity: 'soft',
     })
   }
 
@@ -1002,10 +995,7 @@ function buildProjectorStations(
           : suggestion.scope === 'cluster'
             ? 'Repeated same-key evidence crossed the cluster gate and is now treated as a pattern incident.'
             : 'Evidence is still concentrated on one path and the system is still watching for repeated pattern formation.',
-      evidence: [
-        storyScopeLabel(suggestion, locale),
-        clusterGateValue,
-      ],
+      evidence: [storyScopeLabel(suggestion, locale), clusterGateValue],
       guidedStageId:
         suggestion.scope === 'cluster' ? 'guided-cluster' : 'guided-alert',
     },
@@ -1056,10 +1046,7 @@ function buildProjectorStations(
           ? '主假设成立'
           : 'lead hypothesis',
       detail: hypothesis,
-      evidence: [
-        suggestion.priority.toUpperCase(),
-        suggestion.confidenceLabel,
-      ],
+      evidence: [suggestion.priority.toUpperCase(), suggestion.confidenceLabel],
       guidedStageId: 'guided-suggestion',
     },
     {
@@ -1197,6 +1184,8 @@ export function LiveFlowConsole({
   onSelectSuggestion,
   transportIssue,
   locale,
+  onOpenEvidence,
+  onOpenRuntimeSheet,
 }: LiveFlowConsoleProps) {
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null)
   const [selectedProjectorId, setSelectedProjectorId] = useState<string | null>(null)
@@ -1207,6 +1196,7 @@ export function LiveFlowConsole({
   } | null>(null)
   const [isIncidentGraphExpanded, setIsIncidentGraphExpanded] = useState(false)
   const stageDetailRef = useRef<HTMLElement | null>(null)
+  const pendingStageRevealRef = useRef(false)
 
   const queueEvents = historicalIncidentQueue(snapshot.suggestions, locale)
   const compactMetrics = snapshot.overviewMetrics.filter((metric) =>
@@ -1265,7 +1255,6 @@ export function LiveFlowConsole({
     snapshot,
     linkedSuggestion,
     connectionState,
-    locale,
     transportIssue,
   )
   const hardIntegrityIssues = integrityIssues.filter(
@@ -1350,6 +1339,18 @@ export function LiveFlowConsole({
     }
   }, [linkedSuggestion.id, locale, story.headline, story.headlineAccent])
 
+  useEffect(() => {
+    if (!pendingStageRevealRef.current) {
+      return
+    }
+
+    stageDetailRef.current?.scrollIntoView({
+      behavior: 'smooth',
+      block: 'start',
+    })
+    pendingStageRevealRef.current = false
+  }, [linkedSuggestion.id, selectedGuidedStage.id])
+
   const selectIncident = (event: HistoricalIncidentEvent) => {
     const nextSuggestion = suggestionForEvent(
       event,
@@ -1378,19 +1379,13 @@ export function LiveFlowConsole({
         <section className="section integrity-warning">
           <div className="section-header">
             <div>
-              <h2 className="section-title">
-                {t('Runtime Integrity Warning', '运行时完整性警告')}
-              </h2>
+              <h2 className="section-title">Runtime Integrity Warning</h2>
               <span className="section-subtitle">
-                {t(
-                  'This console detected live snapshot drift instead of silently pretending lifecycle timing is valid.',
-                  '控制台检测到了 live snapshot 漂移，而不是继续假装生命周期计时仍然有效。',
-                )}
+                This console detected live snapshot drift instead of silently pretending
+                lifecycle timing is valid.
               </span>
             </div>
-            <span className="section-kicker">
-              {t('hard warning / not cosmetic', '硬警告 / 非装饰性提示')}
-            </span>
+            <span className="section-kicker">hard warning / not cosmetic</span>
           </div>
           <ul className="integrity-list">
             {hardIntegrityIssues.map((issue) => (
@@ -1404,20 +1399,27 @@ export function LiveFlowConsole({
         <div className="section-header story-stage-header">
           <div>
             <h2 className="section-title">
-              {t('Guided Incident Overview', '引导式事件总览')}
+              {locale === 'zh' ? '事件主画面' : 'Incident Main Stage'}
             </h2>
             <span className="section-subtitle">
-              {t(
-                'Outcome first for the current active slice. Open tactical detail only when you need it.',
-                '先给出当前事件切片的结论，再按需展开战术细节。',
-              )}
+              {locale === 'zh'
+                ? '先看发生了什么、影响谁、系统准备做什么，再按阶段继续往下钻。'
+                : 'See what happened, who it affects, and what the system prepared before drilling into deeper details.'}
             </span>
           </div>
           <div className="annotation-stack">
             <span className="section-kicker">
-              {t('first-entry page / result first', '入口首页 / 结果优先')}
+              {locale === 'zh' ? '全屏主画面 / 结果优先' : 'full-screen stage / result first'}
             </span>
-            <span className={`signal-chip tone-${pulseTone}`}>{pulseTone}</span>
+            <div className="story-stage-actions">
+              <span className={`signal-chip tone-${pulseTone}`}>{pulseTone}</span>
+              <button type="button" className="story-stage-action" onClick={onOpenRuntimeSheet}>
+                {locale === 'zh' ? '运行概览' : 'Runtime Sheet'}
+              </button>
+              <button type="button" className="story-stage-action is-bright" onClick={onOpenEvidence}>
+                {locale === 'zh' ? '当前建议' : 'Current Brief'}
+              </button>
+            </div>
           </div>
         </div>
 
@@ -1445,49 +1447,44 @@ export function LiveFlowConsole({
               </p>
             </div>
 
-              <div className="incident-scene" aria-hidden="true">
-                <div className="incident-scene-grid" />
-                <div className="scene-core">
-                  <span className="scene-core-kicker">
-                    {t('live verdict', '实时判定')}
-                  </span>
-                  <strong>{stageTitle(selectedGuidedStage.id, selectedGuidedStage.title)}</strong>
-                  <p>{judgmentSummary(linkedSuggestion)}</p>
-                </div>
+            <div className="story-stage-queue">
+              {queueEvents.map((event, index) => {
+                const isLead = index === 0
+                const isActive = activeEvent?.id === event.id
 
-                <div className="scene-orbit-field">
-                  {(attachedKinds.length > 0 ? attachedKinds : ['minimal']).map(
-                    (kind, index) => (
-                      <span
-                        key={`${kind}-${index}`}
-                        className={`scene-orbit kind-${kind}`}
-                        style={{ animationDelay: `${index * 220}ms` }}
-                      >
-                        {kind}
+                return (
+                  <button
+                    key={event.id}
+                    type="button"
+                    className={`event-row kind-${event.kind} ${isLead ? 'is-lead' : ''} ${isActive ? 'is-active' : ''}`}
+                    onClick={() => selectIncident(event)}
+                  >
+                    <div className="event-row-head">
+                      <span className={`signal-chip tone-${event.kind}`}>
+                        {event.scope ? `${event.kind}/${event.scope}` : event.kind}
                       </span>
-                    ),
-                  )}
-                </div>
-
-                <div className="scene-path">
-                  {guidedStages.map((stage, index) => {
-                    const isReached = index <= activeGuidedIndex
-                    const isCurrent = stage.id === activeGuidedStageId
-                    return (
-                      <div
-                        key={`scene-${stage.id}`}
-                        className={`scene-stage ${isReached ? 'is-reached' : ''} ${isCurrent ? 'is-current' : ''} tone-${stage.tone}`}
-                      >
-                        <div className="scene-node">
-                          <i />
-                        </div>
-                        <span>{stageTitle(stage.id, stage.title)}</span>
-                        <small>{stage.value}</small>
+                      <div className="event-row-topline">
+                        <span className="event-row-count">
+                          {groupedRefreshLabel(event.mergedSuggestionCount, locale)}
+                        </span>
+                        <span
+                          className="event-stamp"
+                          title={timestampTooltip(event.stamp)}
+                        >
+                          {formatMaybeTimestamp(event.stamp, 'time')}
+                        </span>
                       </div>
-                    )
-                  })}
-                </div>
-              </div>
+                    </div>
+                    <strong>{event.title}</strong>
+                    <p>{event.detail}</p>
+                    <div className="event-row-meta">
+                      <span>{event.service ?? 'n/a'}</span>
+                      <span>{event.device ?? event.provider ?? 'runtime'}</span>
+                      <span>{event.scopeMeaning}</span>
+                    </div>
+                  </button>
+                )
+              })}
             </div>
 
             <article className="story-stage-abstract">
@@ -1647,61 +1644,18 @@ export function LiveFlowConsole({
       <section className="section incident-pipeline-shell">
         <div className="section-header incident-pipeline-header">
           <div>
-            <h2 className="section-title">{t('Process To Result', '过程到结果')}</h2>
+            <h2 className="section-title">
+              {locale === 'zh' ? '历史事件流程图' : 'Historical Incident Pipeline'}
+            </h2>
             <span className="section-subtitle">
-              {t(
-                'Follow one active incident from source signal to operator boundary. Click a stage to expand its meaning.',
-                '沿着一条活动事件，从源信号一直看到操作边界。点击阶段即可展开语义。',
-              )}
+              {locale === 'zh'
+                ? '以触发簇作为历史事件中心，把所有模块、主题、关卡和人工边界还原成一张可展开的横向流程图。'
+                : 'Treat the trigger cluster as one historical incident and restore the full module, topic, gate, and operator path as an expandable horizontal pipeline.'}
             </span>
           </div>
-          <span className="section-kicker">
-            {t('progressive disclosure / active slice', '渐进展开 / 活动切片')}
-          </span>
-        </div>
-
-        <div className="guided-stage-strip">
-          {guidedStages.map((stage, index) => {
-            const isActive = stage.id === selectedGuidedStage.id
-            const isReached = index <= activeGuidedIndex
-            return (
-              <button
-                key={stage.id}
-                type="button"
-                className={`guided-stage-step state-${stage.status} tone-${stage.tone} ${isActive ? 'is-active' : ''} ${isReached ? 'is-reached' : ''}`}
-                onClick={() => setExpandedStageId(stage.id)}
-              >
-                <span className="guided-stage-index">
-                  {(index + 1).toString().padStart(2, '0')}
-                </span>
-                <strong>{stageTitle(stage.id, stage.title)}</strong>
-                <span className="guided-stage-summary">{stage.summary}</span>
-                <div className="guided-stage-meta">
-                  <span className={`signal-chip tone-${stage.tone}`}>{stage.value}</span>
-                  <span className="guided-stage-status">
-                    {stage.status === 'flowing'
-                      ? t('active', '激活')
-                      : stage.status === 'watch'
-                        ? t('watch', '观察')
-                        : stage.status === 'planned'
-                          ? t('pending', '待定')
-                          : t('ready', '就绪')}
-                  </span>
-                </div>
-              </button>
-            )
-          })}
-        </div>
-
-        <div className="guided-stage-detail">
-          <div className="guided-stage-detail-head">
-            <div>
-              <span className="section-kicker">{t('selected stage', '当前阶段')}</span>
-              <h3>{stageTitle(selectedGuidedStage.id, selectedGuidedStage.title)}</h3>
-              <p>{selectedGuidedStage.summary}</p>
-            </div>
-            <span className={`signal-chip tone-${selectedGuidedStage.tone}`}>
-              {selectedGuidedStage.value}
+          <div className="incident-pipeline-actions">
+            <span className="section-kicker">
+              {locale === 'zh' ? '全屏展开 / 事件中心' : 'expand full screen / incident-centric'}
             </span>
             <button
               type="button"
@@ -1713,24 +1667,28 @@ export function LiveFlowConsole({
           </div>
         </div>
 
-          <p className="guided-stage-detail-copy">{selectedGuidedStage.detail}</p>
-
-          <div className="guided-stage-note-grid">
-            <article className="guided-note-card">
-              <span>{t('time', '时间')}</span>
-              <strong title={timestampTooltip(selectedGuidedStage.stamp)}>
-                {formatMaybeTimestamp(selectedGuidedStage.stamp, 'time')}
-              </strong>
+        <div className="incident-pipeline-layout">
+          <aside className="incident-pipeline-sidebar">
+            <article className="incident-pipeline-card">
+              <span>{locale === 'zh' ? '当前历史事件' : 'selected incident'}</span>
+              <strong>{activeEvent?.title ?? linkedSuggestion.summary}</strong>
+              <p>{selectedProblem}</p>
             </article>
 
-            <article className="guided-note-card">
-              <span>{t('transition', '转场耗时')}</span>
-              <strong>{formatDurationMs(selectedGuidedStage.durationMs)}</strong>
+            <article className="incident-pipeline-card">
+              <span>{locale === 'zh' ? '系统推断' : 'system inference'}</span>
+              <strong>{selectedInference}</strong>
+              <p>{linkedSuggestion.confidenceReason}</p>
             </article>
 
-            <article className="guided-note-card">
-              <span>{t('operator takeaway', '操作提示')}</span>
-              <strong>{primaryRecommendation(linkedSuggestion)}</strong>
+            <article className="incident-pipeline-card">
+              <span>{locale === 'zh' ? '建议动作' : 'recommended action'}</span>
+              <strong>{selectedRecommendation}</strong>
+              <p>
+                {locale === 'zh'
+                  ? `证据 ${evidenceKinds(linkedSuggestion).join(' + ')} 已附带，可直接打开证据抽屉继续看。`
+                  : `Evidence ${evidenceKinds(linkedSuggestion).join(' + ')} is already attached, so you can open the evidence drawer and continue immediately.`}
+              </p>
             </article>
 
             <article className="incident-pipeline-card">
@@ -1744,69 +1702,33 @@ export function LiveFlowConsole({
                     ? `聚合门槛 ${clusterGateValue}`
                     : `cluster gate ${clusterGateValue}`}
                 </li>
-              ))}
-            </ol>
-          ) : null}
-        </div>
-      </section>
+              </ul>
+            </article>
+          </aside>
 
-      <section className="section story-theater">
-        <div className="section-header">
-          <div>
-            <h2 className="section-title">
-              {t('Incident Story And Supporting Visuals', '事件故事与支撑可视化')}
-            </h2>
-            <span className="section-subtitle">
-              {t(
-                'This is now a full-stage data theater: charts, queue, and story timeline all stay visible and linked.',
-                '这里不再是小折叠，而是完整的数据舞台：图表、队列、故事时间线全部联动可见。',
-              )}
-            </span>
-          </div>
-          <span className="section-kicker">
-            {t('global stage / data theater', '全局舞台 / 数据剧场')}
-          </span>
-        </div>
-
-        <div className="tactical-detail-stack story-theater-stack">
-          <RuntimeVisualPanels
-            snapshot={snapshot}
-            selectedSuggestion={linkedSuggestion}
-            locale={locale}
-          />
-
-          <div className="story-theater-grid">
-            <section className="section story-panel">
-            <div className="section-header">
-              <div>
-                <h2 className="section-title">
-                  {t('Selected Runtime Story', '当前运行时故事')}
-                </h2>
-                <span className="section-subtitle">
-                  {t(
-                    'Timeline-driven explanation for the active suggestion slice.',
-                    '围绕当前建议切片的时间线驱动解释。',
-                  )}
-                </span>
-              </div>
-              <span className="section-kicker">{linkedSuggestion.scope}-scope</span>
-            </div>
-
-            <div className="story-summary">
-              <div>
-                <p className="story-marker">{t('active slice', '当前切片')}</p>
-                <h3>{linkedSuggestion.summary}</h3>
-              </div>
-              <div className="story-badges">
-                <span className="signal-chip tone-suggestion">
-                  {linkedSuggestion.context.service}
-                </span>
-                <span className="signal-chip tone-neutral">
-                  {linkedSuggestion.context.srcDeviceKey}
-                </span>
-                <span className="signal-chip tone-alert">
-                  {linkedSuggestion.priority}
-                </span>
+          <div className="incident-pipeline-main">
+            <section className="incident-pipeline-graph-shell">
+              <div className="incident-pipeline-graph-head">
+                <div>
+                  <span className="section-kicker">
+                    {locale === 'zh' ? '横向流程图' : 'horizontal pipeline'}
+                  </span>
+                  <h3>{activeEvent?.title ?? story.headline}</h3>
+                </div>
+                <div className="story-badges">
+                  <span className="signal-chip tone-suggestion">
+                    {linkedSuggestion.context.service}
+                  </span>
+                  <span className="signal-chip tone-neutral">
+                    {friendlyDeviceName(linkedSuggestion)}
+                  </span>
+                  <span className="signal-chip tone-alert">
+                    {clusterGateValue}
+                  </span>
+                  <span className="signal-chip tone-live">
+                    {selectedRefreshSummary}
+                  </span>
+                </div>
               </div>
 
               <Suspense
@@ -1818,71 +1740,14 @@ export function LiveFlowConsole({
                         : 'loading historical incident pipeline...'}
                     </div>
                   </div>
-                </li>
-              ))}
-            </ol>
+                }
+              >
+                <TopologyCanvas
+                  nodes={incidentProcessGraph.nodes}
+                  links={incidentProcessGraph.links}
+                />
+              </Suspense>
             </section>
-
-            <section className="section event-stack-panel story-queue-panel">
-              <div className="section-header">
-                <div>
-                  <h2 className="section-title">{t('Event Queue', '事件队列')}</h2>
-                  <span className="section-subtitle">
-                    {t(
-                      'Use the queue as a live interaction rail. Click an event to rewrite the active story.',
-                      '把队列当作交互轨道来用。点击任一事件，首页故事线会立刻重写。',
-                    )}
-                  </span>
-                </div>
-                <span className="section-kicker">
-                  {t('newest first / linked focus', '最新优先 / 联动聚焦')}
-                </span>
-              </div>
-
-              <div className="event-stack">
-                {queueEvents.map((event, index) => {
-                  const isLead = latestDelta?.feedIds.includes(event.id) ?? index === 0
-                  const isActive = activeEvent?.id === event.id
-
-                  return (
-                    <button
-                      key={`story-${event.id}`}
-                      type="button"
-                      className={`event-row kind-${event.kind} ${isLead ? 'is-lead' : ''} ${isActive ? 'is-active' : ''}`}
-                      onClick={() => {
-                        setSelectedEventId(event.id)
-                        const suggestion = suggestionForEvent(
-                          event,
-                          snapshot.suggestions,
-                          selectedSuggestion,
-                        )
-                        if (suggestion.id !== selectedSuggestion.id) {
-                          onSelectSuggestion(suggestion.id)
-                        }
-                      }}
-                    >
-                      <div className="event-row-head">
-                        <span className={`signal-chip tone-${event.kind}`}>
-                          {event.scope ? `${event.kind}/${event.scope}` : event.kind}
-                        </span>
-                        <span className="event-stamp" title={timestampTooltip(event.stamp)}>
-                          {formatMaybeTimestamp(event.stamp, 'time')}
-                        </span>
-                      </div>
-                      <strong>{event.title}</strong>
-                      <p>{event.detail}</p>
-                      <div className="event-row-meta">
-                        <span>{event.service ?? 'n/a'}</span>
-                        <span>{event.device ?? event.provider ?? 'runtime'}</span>
-                      </div>
-                    </button>
-                  )
-                })}
-              </div>
-            </section>
-          </div>
-        </div>
-      </section>
 
             <section ref={stageDetailRef} className="stage-process-shell incident-stage-detail-shell">
               <div className="stage-process-headline">
@@ -1892,8 +1757,8 @@ export function LiveFlowConsole({
                   </span>
                   <h4>
                     {locale === 'zh'
-                      ? '点击上方投影路径上的节点后，这里会切到对应阶段，并展开动作链与证据读取。'
-                      : 'Click a projected node above and this area will switch to the matching stage, action chain, and evidence read.'}
+                      ? '点击上方事件主画面里唯一可点击的 01-05 后，这里会自动跳到对应阶段，并展开动作链与证据读取。'
+                      : 'Click the only clickable 01-05 strip in the Incident Main Stage above and this area will jump to the matching stage, action chain, and evidence read.'}
                   </h4>
                 </div>
                 <span className={`signal-chip tone-${selectedGuidedStage.tone}`}>
@@ -1929,32 +1794,153 @@ export function LiveFlowConsole({
                       nodes={selectedStageGraph.nodes}
                       links={selectedStageGraph.links}
                     />
-                  </div>
-                  <p>
-                    {item.progress >= item.target
-                      ? `Reached cluster threshold inside the last ${item.windowSec}s.`
-                      : `${item.progress} matching alert(s) in the last ${item.windowSec}s; ${item.target - item.progress} more needed.`}
-                  </p>
-                </li>
-              ))}
-            </ul>
-          </section>
+                  </Suspense>
+                </section>
+              ) : null}
 
-          <section className="section event-focus-panel">
-            <div className="section-header">
-              <div>
-                <h2 className="section-title">{t('Event Focus', '事件聚焦')}</h2>
-                <span className="section-subtitle">
-                  {t(
-                    'Drill into the active event instead of reading every panel at once.',
-                    '不要一次读完所有面板，直接聚焦当前事件。',
-                  )}
-                </span>
+              <div className="stage-process-flow">
+                {selectedStagePhases.length > 0 ? (
+                  selectedStagePhases.map((phase, phaseIndex) => (
+                    <div key={`${selectedGuidedStage.id}-${phase.id}`} className="stage-process-segment">
+                      <article className={`stage-process-card state-${phase.status}`}>
+                        <span className="stage-process-index">
+                          {(phaseIndex + 1).toString().padStart(2, '0')}
+                        </span>
+                        <strong>{phase.title}</strong>
+                        <p>{phase.purpose}</p>
+                        <p className="stage-process-note">{phase.band.detail}</p>
+                        <div className="stage-process-meta">
+                          <span>{phase.systems}</span>
+                          <span>{phase.band.value}</span>
+                        </div>
+
+                        <div className="stage-process-node-strip">
+                          {phase.stageIds.map((stageId) => (
+                            <article
+                              key={`${phase.id}-${stageId}`}
+                              className="stage-node-pill"
+                            >
+                              <strong>{stageNodeTitle(snapshot, stageId, locale)}</strong>
+                              <span>{stageNodeSubtitle(snapshot, stageId, locale)}</span>
+                              <ul className="stage-node-pill-metrics">
+                                {stageNodeMetrics(snapshot, stageId, locale, phase).map(
+                                  (metric) => (
+                                    <li key={`${phase.id}-${stageId}-${metric.label}`}>
+                                      <span>{metric.label}</span>
+                                      <strong>{metric.value}</strong>
+                                    </li>
+                                  ),
+                                )}
+                              </ul>
+                            </article>
+                          ))}
+                        </div>
+
+                        <ul className="guided-stage-facts">
+                          {phase.facts.map((fact) => (
+                            <li key={`${phase.id}-${fact}`}>{fact}</li>
+                          ))}
+                        </ul>
+                      </article>
+                      {phaseIndex < selectedStagePhases.length - 1 ? (
+                        <div className="stage-process-connector" aria-hidden="true">
+                          <span />
+                        </div>
+                      ) : null}
+                    </div>
+                  ))
+                ) : (
+                  <article className="story-empty-panel story-empty-panel-inline">
+                    <strong>
+                      {locale === 'zh'
+                        ? '当前阶段还没有独立动作链'
+                        : 'No dedicated action chain for this stage yet'}
+                    </strong>
+                    <p>
+                      {locale === 'zh'
+                        ? '请继续切换其他阶段或直接展开全屏流程图。'
+                        : 'Switch to another stage or open the fullscreen pipeline for the broader incident path.'}
+                    </p>
+                  </article>
+                )}
               </div>
-              <span className="section-kicker">
-                {activeEvent?.kind ?? t('waiting', '等待中')}
-              </span>
-            </div>
+
+              <div className="stage-process-detail-grid">
+                <article className="focus-card">
+                  <strong>{locale === 'zh' ? '本阶段关键事实' : 'stage facts'}</strong>
+                  <ul className="focus-list">
+                    {selectedGuidedStage.facts.map((fact) => (
+                      <li key={`${selectedGuidedStage.id}-${fact}`}>{fact}</li>
+                    ))}
+                  </ul>
+                </article>
+
+                <article className="focus-card">
+                  <strong>{locale === 'zh' ? '相关时间点' : 'related timeline steps'}</strong>
+                  {relatedTimelineSteps.length > 0 ? (
+                    <ul className="focus-list">
+                      {relatedTimelineSteps.map((step) => (
+                        <li key={`${selectedGuidedStage.id}-${step.id}`}>
+                          {formatMaybeTimestamp(step.stamp, 'time')} · {step.title}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <ul className="focus-list">
+                      <li>
+                        {locale === 'zh'
+                          ? '当前阶段没有独立时间点，使用上方动作链描述。'
+                          : 'No standalone timeline record for this stage; use the action chain above.'}
+                      </li>
+                    </ul>
+                  )}
+                </article>
+
+                <article className="focus-card">
+                  <strong>{locale === 'zh' ? '本阶段读取 / 输出' : 'read / output'}</strong>
+                  <ul className="focus-list">
+                    {selectedStagePhases.map((phase) => (
+                      <li key={`${selectedGuidedStage.id}-${phase.id}-systems`}>
+                        {phase.title}: {phase.systems}
+                      </li>
+                    ))}
+                  </ul>
+                </article>
+              </div>
+            </section>
+          </div>
+        </div>
+      </section>
+
+      {isIncidentGraphExpanded ? (
+        <div className="pipeline-overlay">
+          <button
+            type="button"
+            className="pipeline-overlay-backdrop"
+            aria-label={locale === 'zh' ? '关闭流程图' : 'Close pipeline'}
+            onClick={() => setIsIncidentGraphExpanded(false)}
+          />
+          <div className="pipeline-overlay-shell">
+            <section className="section pipeline-overlay-panel">
+              <div className="section-header">
+                <div>
+                  <h2 className="section-title">
+                    {locale === 'zh' ? '历史事件全屏流程图' : 'Fullscreen Incident Pipeline'}
+                  </h2>
+                  <span className="section-subtitle">
+                    {locale === 'zh'
+                      ? '当前事件的流程、证据和阶段链路在这里展开到全屏。'
+                      : 'Expand the selected incident graph, evidence path, and stage chain into a full-screen workspace.'}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  className="story-stage-action"
+                  onClick={() => setIsIncidentGraphExpanded(false)}
+                >
+                  {locale === 'zh' ? '关闭' : 'Close'}
+                </button>
+              </div>
 
               <div className="pipeline-overlay-grid">
                 <div className="pipeline-overlay-graph">
@@ -1985,7 +1971,7 @@ export function LiveFlowConsole({
                   </article>
 
                   <article className="focus-card">
-                    <strong>{t('linked analysis', '联动分析')}</strong>
+                    <strong>{locale === 'zh' ? '完整时间线' : 'full timeline'}</strong>
                     <ul className="focus-list">
                       {incidentTimeline.map((step) => (
                         <li key={`${linkedSuggestion.id}-overlay-${step.id}`}>

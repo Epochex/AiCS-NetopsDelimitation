@@ -6,7 +6,6 @@ import { LiveFlowConsole } from './components/LiveFlowConsole'
 import { PipelineTopologyView } from './components/PipelineTopologyView'
 import { runtimeSnapshot } from './data/runtimeModel'
 import { useRuntimeSnapshot } from './hooks/useRuntimeSnapshot'
-import { pick, type UiLocale } from './i18n'
 import { formatMaybeTimestamp, timestampTooltip } from './utils/time'
 
 type ViewMode = 'console' | 'topology' | 'compare'
@@ -50,7 +49,10 @@ function App() {
   const defaultSuggestionId =
     snapshot.defaultSuggestionId || suggestionPool[0]?.id || runtimeSnapshot.defaultSuggestionId
   const [view, setView] = useState<ViewMode>('console')
-  const [locale, setLocale] = useState<UiLocale>('en')
+  const [locale, setLocale] = useState<Locale>('en')
+  const [showSurfacePanel, setShowSurfacePanel] = useState(false)
+  const [showEvidenceDrawer, setShowEvidenceDrawer] = useState(false)
+  const [showSurfaceDock, setShowSurfaceDock] = useState(true)
   const [preferredSuggestionId, setPreferredSuggestionId] =
     useState(defaultSuggestionId)
   const activeSuggestionId = suggestionPool.some(
@@ -117,60 +119,84 @@ function App() {
     () =>
       view === 'console'
         ? [
+            { label: copy.labels.service, value: selectedSuggestion.context.service },
             {
-              label: pick(locale, 'active service', '当前服务'),
-              value: selectedSuggestion.context.service,
+              label: copy.labels.device,
+              value:
+                firstDeviceName(snapshot) ??
+                selectedSuggestion.context.srcDeviceKey,
             },
             {
-              label: pick(locale, 'active device', '当前设备'),
-              value: selectedSuggestion.context.srcDeviceKey,
-            },
-            {
-              label: pick(locale, 'judgment', '系统判断'),
+              label: copy.labels.judgment,
               value: `${selectedSuggestion.scope} · ${selectedSuggestion.confidenceLabel}`,
             },
+            { label: copy.labels.stream, value: connectionState, tone: connectionState },
             {
-              label: pick(locale, 'stream', '流状态'),
-              value: connectionState,
-              tone: connectionState,
-            },
-            {
-              label: pick(locale, 'latest suggestion', '最新建议'),
+              label: copy.labels.latestSuggestion,
               value: snapshot.runtime.latestSuggestionTs,
             },
             {
-              label: pick(locale, 'next action', '下一动作'),
+              label: copy.labels.nextAction,
               value:
                 selectedSuggestion.recommendedActions[0] ??
-                pick(locale, 'inspect evidence bundle', '检查证据包'),
+                'inspect evidence bundle',
             },
           ]
         : [
-            { label: pick(locale, 'branch', '分支'), value: snapshot.repo.branch },
-            { label: pick(locale, 'validation', '校验'), value: snapshot.repo.validation },
+            { label: copy.labels.branch, value: snapshot.repo.branch },
+            { label: copy.labels.validation, value: snapshot.repo.validation },
+            { label: copy.labels.stream, value: connectionState, tone: connectionState },
+            { label: copy.labels.latestAlert, value: snapshot.runtime.latestAlertTs },
             {
-              label: pick(locale, 'stream', '流状态'),
-              value: connectionState,
-              tone: connectionState,
-            },
-            {
-              label: pick(locale, 'latest alert', '最新告警'),
-              value: snapshot.runtime.latestAlertTs,
-            },
-            {
-              label: pick(locale, 'latest suggestion', '最新建议'),
+              label: copy.labels.latestSuggestion,
               value: snapshot.runtime.latestSuggestionTs,
             },
-            { label: pick(locale, 'closure', '闭环状态'), value: metricValue(snapshot, 'closure') },
+            { label: copy.labels.closure, value: metricValue(snapshot, 'closure') },
           ],
-    [connectionState, locale, selectedSuggestion, snapshot, view],
+    [connectionState, copy, selectedSuggestion, snapshot, view],
+  )
+  const dockSummary = useMemo(
+    () =>
+      locale === 'zh'
+        ? `${selectedSuggestion.context.service} · ${selectedDeviceLabel(snapshot, selectedSuggestion)} · ${selectedSuggestion.confidenceLabel}`
+        : `${selectedSuggestion.context.service} · ${selectedDeviceLabel(snapshot, selectedSuggestion)} · ${selectedSuggestion.confidenceLabel}`,
+    [locale, selectedSuggestion, snapshot],
   )
   const primaryTitle =
     view === 'console'
-      ? pick(locale, 'Guided Runtime Overview', '运行总览')
+      ? copy.titleConsole
       : view === 'topology'
-        ? pick(locale, 'Pipeline Topology', '拓扑视图')
-        : pick(locale, 'Compare Mode', '对照模式')
+        ? copy.titleTopology
+        : copy.titleCompare
+  const canCollapseDock =
+    view === 'console' && !showSurfacePanel && !showEvidenceDrawer
+
+  useEffect(() => {
+    if (!canCollapseDock) {
+      setShowSurfaceDock(true)
+      return
+    }
+
+    let previousY = window.scrollY
+
+    const handleScroll = () => {
+      const currentY = window.scrollY
+      const scrollingDown = currentY > previousY
+
+      if (currentY <= 20) {
+        setShowSurfaceDock(true)
+      } else if (scrollingDown && currentY > 40) {
+        setShowSurfaceDock(false)
+      } else if (!scrollingDown && previousY - currentY > 10) {
+        setShowSurfaceDock(true)
+      }
+
+      previousY = currentY
+    }
+
+    window.addEventListener('scroll', handleScroll, { passive: true })
+    return () => window.removeEventListener('scroll', handleScroll)
+  }, [canCollapseDock])
 
   if (!selectedSuggestion) {
     return (
@@ -181,25 +207,14 @@ function App() {
               <div>
                 <h2 className="section-title">No Suggestion Available</h2>
                 <span className="section-subtitle">
-                  {pick(
-                    locale,
-                    'The frontend has no suggestion slice to bind the current runtime story to.',
-                    '当前前端没有可绑定的 suggestion slice，所以无法建立运行时故事线。',
-                  )}
+                  The frontend has no suggestion slice to bind the current
+                  runtime story to.
                 </span>
               </div>
-              <span className="section-kicker">
-                {pick(locale, 'empty runtime selection', '运行时选择为空')}
-              </span>
+              <span className="section-kicker">empty runtime selection</span>
             </div>
             <div className="error-panel-body">
-              <strong>
-                {pick(
-                  locale,
-                  'Check `/api/runtime/snapshot` and the local fallback model.',
-                  '检查 `/api/runtime/snapshot` 与本地 fallback model。',
-                )}
-              </strong>
+              <strong>Check `/api/runtime/snapshot` and the local fallback model.</strong>
             </div>
           </section>
         </section>
@@ -208,72 +223,43 @@ function App() {
   }
 
   return (
-    <div className="app-shell">
-      <header className="utility-rail">
-        <div className="rail-brand">
-          <p className="rail-kicker">
-            {pick(
-              locale,
-              'Hybrid NetOps / Tactical Runtime Console',
-              '混合式 NetOps / 战术运行时控制台',
-            )}
-          </p>
-          <div className="rail-title-row">
-            <h1>{primaryTitle}</h1>
+    <div
+      className={`app-shell ${canCollapseDock && !showSurfaceDock ? 'dock-collapsed' : ''}`}
+    >
+      <header
+        className={`surface-dock ${canCollapseDock && !showSurfaceDock ? 'is-hidden' : ''}`}
+      >
+        <div className="surface-dock-brand">
+          <span className="surface-dock-kicker">{copy.kicker}</span>
+          <div className="surface-dock-title">
+            <strong>{primaryTitle}</strong>
             <span
               className={`live-dot state-${connectionState}`}
               aria-hidden="true"
             />
           </div>
-          <span className="surface-dock-summary">{dockSummary}</span> 
+          <span className="surface-dock-summary">{dockSummary}</span>
         </div>
 
-        <nav className="view-switch" aria-label="Primary views">
-          <button
-            type="button"
-            className={view === 'console' ? 'tab is-active' : 'tab'}
-            onClick={() => setView('console')}
-          >
-            {pick(locale, 'Guided Overview', '首页总览')}
-          </button>
-          <button
-            type="button"
-            className={view === 'topology' ? 'tab is-active' : 'tab'}
-            onClick={() => setView('topology')}
-          >
-            {pick(locale, 'Pipeline Topology', '管线拓扑')}
-          </button>
-          <button
-            type="button"
-            className={view === 'compare' ? 'tab is-active' : 'tab'}
-            onClick={() => setView('compare')}
-          >
-            {pick(locale, 'Compare Mode', '对照模式')}
-          </button>
-        </nav>
-
-        <div className="locale-switch" aria-label="Language switch">
-          <button
-            type="button"
-            className={locale === 'en' ? 'tab is-active' : 'tab'}
-            onClick={() => setLocale('en')}
-          >
-            EN
-          </button>
-          <button
-            type="button"
-            className={locale === 'zh' ? 'tab is-active' : 'tab'}
-            onClick={() => setLocale('zh')}
-          >
-            中文
-          </button>
-        </div>
-
-        <div className="utility-track">
-          {utilityItems.map((item) => (
-            <div
-              key={item.label}
-              className={`utility-item tone-${item.tone ?? 'neutral'}`}
+        <div className="surface-dock-controls">
+          <nav className="view-switch surface-switch" aria-label="Primary views">
+            <button
+              type="button"
+              className={view === 'console' ? 'tab is-active' : 'tab'}
+              onClick={() => {
+                setView('console')
+                setShowSurfacePanel(false)
+              }}
+            >
+              {copy.navConsole}
+            </button>
+            <button
+              type="button"
+              className={view === 'topology' ? 'tab is-active' : 'tab'}
+              onClick={() => {
+                setView('topology')
+                setShowSurfacePanel(false)
+              }}
             >
               {copy.navTopology}
             </button>
@@ -385,6 +371,8 @@ function App() {
               onSelectSuggestion={setPreferredSuggestionId}
               transportIssue={transportIssue}
               locale={locale}
+              onOpenEvidence={() => setShowEvidenceDrawer(true)}
+              onOpenRuntimeSheet={() => setShowSurfacePanel(true)}
             />
           ) : view === 'topology' ? (
             <PipelineTopologyView snapshot={snapshot} locale={locale} />
@@ -393,7 +381,7 @@ function App() {
               fallback={
                 <section className="page">
                   <section className="section chart-fallback">
-                    {pick(locale, 'loading compare mode...', '正在加载对照模式...')}
+                    loading compare mode...
                   </section>
                 </section>
               }
@@ -402,17 +390,6 @@ function App() {
             </Suspense>
           )}
         </ErrorBoundary>
-
-        {view !== 'compare' ? (
-          <ErrorBoundary title="Evidence Drawer">
-            <EvidenceDrawer
-              key={selectedSuggestion.id}
-              suggestion={selectedSuggestion}
-              controls={snapshot.strategyControls}
-              locale={locale}
-            />
-          </ErrorBoundary>
-        ) : null}
       </main>
 
       {view === 'console' && !showEvidenceDrawer ? (
@@ -444,7 +421,6 @@ function App() {
                 suggestion={selectedSuggestion}
                 controls={snapshot.strategyControls}
                 locale={locale}
-                onClose={() => setShowEvidenceDrawer(false)}
               />
             </ErrorBoundary>
           </div>

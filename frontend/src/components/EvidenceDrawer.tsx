@@ -161,7 +161,7 @@ export function EvidenceDrawer({
             <article className="drawer-glance-card">
               <span>{copy.problem}</span>
               <strong>{humanReadableTitle(suggestion, locale)}</strong>
-              <p>{whyItMatters(suggestion)}</p>
+              <p>{whyItMatters(suggestion, locale)}</p>
             </article>
             <article className="drawer-glance-card">
               <span>{copy.inference}</span>
