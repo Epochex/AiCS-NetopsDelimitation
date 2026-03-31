@@ -1,8 +1,9 @@
 # Frontend Runtime Architecture 2026-03-28
 
-本文件用于说明当前前端 runtime console 的交互架构、`fallback -> live` 的真实含义、2026-03-28 这轮故障的根因，以及更适合长期稳定运行的演进方案。
+本文件是带日期的历史架构说明与故障复盘，主要记录 `2026-03-28` 这轮 frontend runtime incident 当时的交互架构、`fallback -> live` 语义和根因判断。
+如果你要看“当前仓库现在到底怎么部署、当前挂载 runtime 到哪一层、当前 alert / suggestion 水位是什么”，请优先看 [README_CN.md](../README_CN.md) 和 [PROJECT_STATE_CN.md](./PROJECT_STATE_CN.md)。
 
-- 最后更新：2026-03-28 15:20 UTC
+- 事件记录时间：2026-03-28 15:20 UTC
 - 关联状态入口：[PROJECT_STATE.md](./PROJECT_STATE.md)
 - 关联问题日志：[ISSUES_LOG.md](./ISSUES_LOG.md)
 

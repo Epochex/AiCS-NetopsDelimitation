@@ -1,168 +1,373 @@
-# Towards NetOps
+## Towards NetOps：Hybrid AIOps 驱动的网络感知与运维辅助平台
+[![English](https://img.shields.io/badge/Language-English-1f6feb)](./README.md) [![简体中文](https://img.shields.io/badge/%E8%AF%AD%E8%A8%80-%E7%AE%80%E4%BD%93%E4%B8%AD%E6%96%87-2ea043)](./README_CN.md)
 
-## 项目定位
+> Hybrid AIOps Platform: Deterministic Streaming Core + CPU Local LLM (On-Demand) + Multi-Agent Orchestration
 
-这个仓库不是展示页，也不是把几个概念堆在一起的 AIOps demo。
-它要解决的是一个更具体、也更难伪装的问题：如何把真实网络设备日志变成可以稳定消费、可以追溯来源、可以审计回放、可以继续做告警解释的系统对象。
+#### 这个仓库到底在做什么
 
-当前工程立场很明确。原始日志先在近源侧完成解析、规范化和回放语义固化；实时检测先保持确定性；AIOps 只在告警契约已经成立之后介入；前端只负责把证据链和控制边界表达清楚，而不是假装系统已经具备闭环自治能力。
+这个仓库不是单纯做一个“会说话的 AIOps demo”，而是按下面这个顺序搭系统：
 
-仓库之所以拆成现在这样，不是为了好看，而是因为这些边界在当前阶段都是真问题。原始日志处理、确定性告警、审计存储、热查询、建议生成和运行台表达，必须各自独立，才能在资源受限、真实流量、持续迭代的条件下把主链路做稳。
+1. 先把原始设备日志变成结构化、可回放、可审计的事实对象
+2. 再用确定性流式规则做第一轮系统级判断
+3. 再把 alert 持久化成审计面和热查询面
+4. 最后才允许模型增强在 alert contract 之上工作
+5. 前端必须把整条链路和控制边界说明白，而不是伪装成已经能安全执行
 
-## 系统主链路总览
+这就是整个架构的核心。
+这个仓库不是为了证明“LLM 能不能对网络日志说点像样的话”，而是为了证明真实网络运行时能不能先被收束成稳定数据面，然后再在不破坏实时链路的前提下，叠加有边界的 AIOps 增强。
+
+## 系统拓扑
 
 ```mermaid
 flowchart LR
   A[FortiGate 或其他网络设备 syslog] --> B[edge/fortigate-ingest]
-  B --> C[edge/edge_forwarder]
-  C --> D[Kafka: netops.facts.raw.v1]
-  D --> E[core/correlator]
-  E --> F[Kafka: netops.alerts.v1]
-  F --> G[core/alerts_sink]
-  F --> H[core/alerts_store]
-  F --> I[core/aiops_agent]
-  I --> J[Kafka: netops.aiops.suggestions.v1]
-  J --> K[frontend runtime gateway]
-  K --> L[operator console]
+  B --> C[Parsed fact JSONL]
+  C --> D[edge/edge_forwarder]
+  D --> E[Kafka: netops.facts.raw.v1]
+  E --> F[core/correlator]
+  F --> G[Kafka: netops.alerts.v1]
+  G --> H[core/alerts_sink]
+  G --> I[core/alerts_store]
+  G --> J[core/aiops_agent]
+  I --> K[ClickHouse]
+  J --> L[Kafka: netops.aiops.suggestions.v1]
+  J --> M[Suggestion JSONL]
+  H --> N[frontend runtime gateway]
+  M --> N
+  K --> N
+  N --> O[operator console]
+  O -. 显式边界 .-> P[审批 / remediation plane]
 ```
 
-边缘侧首先负责把“原始设备文本”收束成“结构化事实”。
-`edge/fortigate-ingest` 处理文件发现、checkpoint 推进、回放恢复、syslog 解析和 JSONL 输出。到这一步，系统拿到的已经不再只是文本行，而是带有时间、设备标识、来源文件和解析结果的结构化事件。
+这张图表达的是：
 
-`edge/edge_forwarder` 负责把这份结构化事实送进共享流式链路。
-这一步很关键，因为它把“边缘侧文件语义”与“核心侧分析语义”明确切开。核心侧消费的是 `netops.facts.raw.v1` 上的统一事实流，而不是 FortiGate 文本本身。
+- `edge/fortigate-ingest` 把厂商 syslog 变成有 replay 语义的结构化事实
+- `edge/edge_forwarder` 把事实对象送进共享流式通道
+- `core/correlator` 负责确定性判断并产出 alert
+- `core/alerts_sink` 留审计轨迹
+- `core/alerts_store` 留热查询上下文
+- `core/aiops_agent` 把 alert 变成 evidence-backed suggestion
+- `frontend/gateway` 把这些运行态产物投影成只读控制台
 
-`core/correlator` 是整个系统当前真正的实时判定点。
-它消费结构化事实，执行质量门禁、规则判断和滑窗聚合，产出 `netops.alerts.v1`。从这里开始，系统面对的对象已经是告警，而不是原始日志。
+## 端到端数据流
 
-同一条告警随后进入两类持久化面和一条增强面。
-`core/alerts_sink` 把告警写成按小时分桶的 JSONL 审计轨迹；`core/alerts_store` 把告警写入 ClickHouse，供近历史查询和上下文检索；`core/aiops_agent` 在同一条告警契约之上继续生成建议，而不是参与第一轮检测。
-
-前端不在热路径里承担判断责任。
-`frontend/gateway/app/runtime_reader.py` 读取运行时产物和部署控制参数，投影成前端可消费的 `RuntimeSnapshot`。运行台的任务是解释链路、显示证据、暴露边界，而不是把执行能力偷偷包进一个 dashboard。
-
-## 解析与处理全链路
-
-### 1. 原始 syslog 到边缘结构化事实
-
-第一层转换发生在 `edge/fortigate-ingest`。
-这一段实现分散在 `bin/source_file.py`、`bin/parser_fgt_v1.py`、`bin/sink_jsonl.py` 和 `bin/checkpoint.py` 里。这样拆不是形式主义，因为 FortiGate 接入真正难的地方从来不只是“把字段切出来”，还包括文件轮转、回放恢复、偏移推进、失败恢复和输出契约稳定性。
-
-这一层输出的不是“解析后的文本”，而是一份可复用的事实契约。
-像 `event_id`、`event_ts`、`src_device_key`、`service`、`action`、`kv_subset`、`source.path`、`source.inode` 这样的字段，把单条设备日志变成了可传输、可回放、可追溯、可做后续分析的系统对象。
-
-字段级说明见 [documentation/FORTIGATE_INGEST_FIELD_REFERENCE_CN.md](./documentation/FORTIGATE_INGEST_FIELD_REFERENCE_CN.md)。
-
-### 2. 结构化事实进入共享流式链路
-
-`edge/edge_forwarder` 把解析后的 JSONL 事实送到 `netops.facts.raw.v1`。
-从这一步开始，系统不再把数据看成某台边缘机器上的文件，而是看成所有核心模块共享的运行时事件流。这样做的结果是：核心侧不需要理解厂商原始文本，也不需要接管边缘解析和文件语义。
-
-### 3. 共享事实流进入确定性告警链路
-
-`core/correlator` 消费 `netops.facts.raw.v1`，产出 `netops.alerts.v1`。
-它的职责被刻意压缩在质量过滤、规则判断、滑窗聚合和告警生成上。这里的关键不是“规则是否永远不变”，而是第一轮系统级判断必须可解释、可重放、可定位到具体阈值或规则路径，而不能先依赖模型生成意见。
-
-### 4. 告警进入审计面与查询面
-
-同一条告警会被持久化两次，因为两类问题完全不同。
-`core/alerts_sink` 负责按小时写出 JSONL，保留最接近运行时原貌的审计轨迹；`core/alerts_store` 负责写入 ClickHouse，用来做近历史查询、相似告警计数和下游上下文检索。
-
-所以 JSONL 和 ClickHouse 不是冗余副本。
-前者负责证据和回放，后者负责热查询和上下文装配。没有 JSONL，系统缺少审计抓手；没有 ClickHouse，AIOps 和运维查询又会退回到扫文件。
-
-### 5. 告警进入有边界的 AIOps 增强
-
-`core/aiops_agent` 从 `netops.alerts.v1` 出发，而不是直接消费原始日志。
-它会基于告警和近期上下文组装证据包，再把建议写入 `netops.aiops.suggestions.v1`。这样做带来两个直接收益：其一，参与推理的输入规模被约束在“已经成立的告警”上；其二，输入内容已经带有结构化字段和近历史上下文，不需要再从原始文本重新猜测。
-
-当前仓库已经同时支持告警级建议和告警簇级建议。
-但这仍然只是增强层。检测主链路仍在 correlator 里，AIOps 负责补解释和下一步建议，而不是替代系统先判断“是否有问题”。
-
-### 6. 运行时投影进入操作员控制台
-
-前端网关会读取运行时 JSONL、建议输出和部署控制参数，再拼出前端消费的 `RuntimeSnapshot`。
-这是一层投影，不是事实源。它的存在是为了让运行台把新鲜度、事件流、证据包和控制边界放在同一个语义平面上，而不是让 React 组件直接去拼底层运行时文件。
-
-运行台之所以强调 `raw -> alert -> suggestion -> remediation boundary`，是因为当前最重要的不是把页面做成指标墙，而是让操作者看清这条链路如何一步一步收束成 incident，以及系统在哪一步停下、不越界。
-
-## 架构边界与工程取舍
+最容易理解这个仓库的方法，不是背模块名，而是跟着“对象”走一遍。
 
 ```mermaid
 flowchart LR
-  A[原始设备日志] --> B[边缘解析与规范化]
-  B --> C[结构化事实]
-  C --> D[确定性关联分析]
-  D --> E[告警]
-  E --> F[JSONL 审计轨迹]
-  E --> G[ClickHouse 上下文存储]
-  E --> H[AIOps 证据包]
-  H --> I[建议]
-  I --> J[只读运行台]
-  J -. 显式边界 .-> K[审批与处置控制面]
+  A[原始 syslog 文本] --> B[结构化 fact event]
+  B --> C[确定性 alert]
+  C --> D[持久化 alert 记录]
+  C --> E[evidence bundle]
+  E --> F[结构化 suggestion]
+  D --> G[RuntimeSnapshot]
+  F --> G
+  G --> H[操作员可读的 incident story]
 ```
 
-检测必须先保持确定性，因为当前系统首先要证明的是“原始日志如何稳定变成告警”，而不是“模型能不能讲出一段像样的话”。
-在真实流量、资源受限和需要回放验证的条件下，把模型推到第一判定点，只会让吞吐、复现和故障定位都变得更差。
+同一条事件在系统里会经历几次“语义升级”：
 
-AIOps 放在告警下游，是因为告警契约才是成本、语义和上下文三者首次对齐的地方。
-到这一步，系统已经拥有归一化设备字段、告警时间、规则结果和可索引的历史上下文。相比直接面对未经筛选的原始日志流，这是一种更便宜、更可控、也更容易审计的输入。
-
-前端现在保持只读，不是因为“以后也许可以做执行”这种空话，而是因为执行和解释根本不是一个风险等级的问题。
-当前网关只读取运行时产物和部署配置，不写设备、不改 Kubernetes、不触碰 remediation 通道。观察面和控制面必须显式分开，否则所谓“运维控制台”只会变成一个难以审计的执行入口。
-
-自动审批、自动处置和闭环执行仍然放在边界之外，也不是为了掩饰能力缺口。
-恰恰相反，这是当前阶段最合理的工程选择。只有当审批流、回滚策略、写路径审计和失败处理被单独设计清楚之后，处置平面才配得上进入主文档的“已交付能力”。
-
-## 仓库结构与模块职责
-
-| 区域 | 关键路径 | 责任 | 明确不负责的部分 |
+| 阶段 | 数据对象 | 生产者 | 为什么需要这一层 |
 | --- | --- | --- | --- |
-| 边缘接入 | `edge/fortigate-ingest`、`edge/edge_forwarder` | 解析原始设备日志，维护 checkpoint 与 replay 语义，产出结构化事实并送入 Kafka | 核心关联分析、运行台表达、处置执行 |
-| 核心流式处理 | `core/correlator`、`core/alerts_sink`、`core/alerts_store`、`core/aiops_agent` | 把事实流变成告警，完成审计落盘、热查询存储与有边界的建议生成 | 厂商原始日志解析、前端展现 |
-| 操作员界面 | `frontend`、`frontend/gateway/app` | 把运行时状态投影成可读的控制台，展示新鲜度、证据链和控制边界 | 直接回写设备或自动触发 remediation |
-| 验证能力 | `tests`、`core/benchmark` | 提供回放验证、运行时检查、吞吐探测和时间审计工具 | 生产执行控制逻辑 |
-| 项目文档 | `documentation` | 记录架构说明、字段契约、运行态事实和验证结果 | 作为实时运行事实源 |
+| 源头 | FortiGate 原始 syslog 行 | 设备 / 网关 | 带着原始网络语义，但还是厂商文本格式 |
+| Edge fact | 结构化 JSONL 事实事件 | `edge/fortigate-ingest` | 标准化时间、身份、来源元数据和 replay 语义 |
+| 共享传输 | Kafka fact record | `edge/edge_forwarder` | 把 edge 本地文件处理和 core 分析解耦 |
+| Alert | 结构化 alert contract | `core/correlator` | 第一次把“有流量事件”升级成“系统确认有告警” |
+| 审计/查询产物 | JSONL + ClickHouse alert record | `core/alerts_sink`, `core/alerts_store` | 同时满足证据保留和热查询装配 |
+| Suggestion 输入 | evidence bundle + context | `core/aiops_agent` | 把 alert、拓扑、设备、历史上下文压缩成受控推理对象 |
+| Suggestion 输出 | 结构化 suggestion record | `core/aiops_agent` | 输出操作员能读的摘要、置信度、假设和下一步动作 |
+| UI 视图 | `RuntimeSnapshot` | `frontend/gateway` | 把整条链路作为一个 incident story 投影给前端 |
 
-## 当前范围与未交付边界
+## 系统到底产出什么数据，以及这些数据的意义
 
-当前已经落地并可运行的能力：
+### 1. Structured Fact Events
 
-- 面向 FortiGate 的边缘接入与 checkpoint 驱动的 JSONL 输出
-- 结构化事实进入 `netops.facts.raw.v1`
-- 基于规则与滑窗的确定性告警产出
-- 告警 JSONL 审计轨迹与 ClickHouse 热存储
-- 告警级与告警簇级建议输出到 `netops.aiops.suggestions.v1`
-- 只读运行时网关与操作员控制台
+边缘层不是“盯文件然后原样往后转”。
+它必须先把设备日志变成 downstream 可以信任的事实对象。
 
-当前明确保留、但还没有作为生产能力交付的部分：
+事实对象这一层至少要保证：
 
-- 对网络设备的写回和闭环处置
-- 会修改线上状态的审批流
-- 针对 remediation 通道的自动执行
-- 超出当前建议链路之外的完整推理执行平面
-- 任何“前端已经是执行控制台”的表述
+- 保留源文件路径、inode、offset 这种 provenance
+- 把原始时间收束成可排序的 `event_ts`
+- 生成稳定的 `src_device_key`，让后续能围绕设备聚合
+- 保留 `kv_subset` 作为紧凑回溯桥，避免每次调试都回到原始日志
 
-## 部署与验证入口
+完整字段表放在：
 
-根 README 只负责建立整体架构认知。模块级部署步骤请看各自子文档。
+- [FortiGate 原始输入字段分析](./documentation/FORTIGATE_INPUT_FIELD_ANALYSIS.md)
+- [FortiGate parsed JSONL 输出样例](./documentation/FORTIGATE_PARSED_OUTPUT_SAMPLE.md)
 
-仓库级常用检查命令：
+### 2. Deterministic Alerts
+
+alert 是这个仓库里第一个真正的“incident contract”。
+它代表系统第一次正式做出判断：这不再只是一个原始流量事件，而是一次规则或阈值命中的告警。
+
+当前挂载 runtime 里的一条 alert 样例如下：
+
+```json
+{
+  "alert_id": "2081f46a5146d642d4110253926698c1b8b6fced",
+  "alert_ts": "2026-03-26T18:56:04+00:00",
+  "rule_id": "deny_burst_v1",
+  "severity": "warning",
+  "metrics": { "deny_count": 321, "window_sec": 60, "threshold": 200 },
+  "event_excerpt": {
+    "action": "deny",
+    "srcip": "5.188.206.46",
+    "dstip": "77.236.99.125",
+    "service": "tcp/3472"
+  },
+  "topology_context": {
+    "service": "tcp/3472",
+    "srcintf": "wan1",
+    "dstintf": "unknown0",
+    "zone": "wan"
+  }
+}
+```
+
+这层数据的意义很直接：
+
+- `metrics` 说明告警为什么成立
+- `event_excerpt` 保留局部 incident 形状
+- `topology_context`、`device_profile`、`change_context` 让后续 investigation 不再只是看一个规则名
+
+### 3. 持久化 Alert 产物
+
+同一条 alert 要落两次，不是冗余设计，而是因为这两层用途完全不同。
+
+| 产物 | 路径 / 系统 | 意义 |
+| --- | --- | --- |
+| Alert JSONL | `/data/netops-runtime/alerts/alerts-*.jsonl` | 审计轨迹、回放、保留原始 emitted record |
+| Alert 表记录 | `core/alerts_store` 写入 ClickHouse | 支撑近历史检索、相似告警查询、上下文装配 |
+
+所以 JSONL 和 ClickHouse 不是“重复存一下”。
+JSONL 是证据面。
+ClickHouse 是检索面。
+
+### 4. Structured Suggestions
+
+suggestion 不是一段自由聊天文本，而是 alert 下游的结构化运行时产物。
+
+当前挂载 runtime 里的一条 suggestion 样例如下：
+
+```json
+{
+  "suggestion_id": "598b2edba0f164f9a0048e8d6021974123d1927c",
+  "suggestion_ts": "2026-03-31T15:35:49.119215+00:00",
+  "suggestion_scope": "alert",
+  "alert_id": "2081f46a5146d642d4110253926698c1b8b6fced",
+  "rule_id": "deny_burst_v1",
+  "priority": "P2",
+  "summary": "deny_burst_v1 triggered for service=tcp/3472 device=5.188.206.46",
+  "context": {
+    "service": "tcp/3472",
+    "src_device_key": "5.188.206.46",
+    "recent_similar_1h": 0,
+    "provider": "template"
+  }
+}
+```
+
+这层产物的意义是：
+
+- suggestion 仍然明确指回某条 alert
+- 它没有替代检测链，而是在 alert 已成立后补解释和下一步动作
+- 输出 schema 稳定，包含 summary、priority、hypotheses、recommended actions 等操作员可消费信息
+
+## 各个组件是怎么联系起来流动的
+
+理解这个仓库最好的方式，是把每个组件放进它前后相邻的数据关系里讲。
+
+### Edge 层
+
+#### `edge/fortigate-ingest`
+
+这是厂商设备现实和系统事实对象之间的第一道边界。
+
+它负责：
+
+- 扫描 active / rotated FortiGate 日志文件
+- 维护 checkpoint 与 replay 语义
+- 解析 syslog + FortiGate key-value payload
+- 按小时写出 parsed facts
+- 保留故障恢复和审计所需的 provenance
+
+它不负责判断 incident 是否成立。
+它只负责把原始日志变成一个后续系统可以安全消费的事实对象。
+
+#### `edge/edge_forwarder`
+
+这个组件存在的原因，是把“文件处理语义”和“共享传输语义”切开。
+
+它负责：
+
+- 读取 parsed JSONL facts
+- 转发到 `netops.facts.raw.v1`
+- 不重解释事件，只做 transport handoff
+
+如果没有这一层，core 会被迫继承 edge 本地文件处理逻辑。
+
+### Core 层
+
+#### `core/correlator`
+
+这是实时判定点。
+
+它负责：
+
+- 消费 `netops.facts.raw.v1`
+- 做 quality gate
+- 跑确定性规则和滑窗聚合
+- 输出 `netops.alerts.v1`
+
+这也是仓库里最重要的架构线：
+第一次“系统确认有告警”这件事必须保持确定性。
+只有这样，整条链路才能继续保持可回放、可审计、可调优。
+
+#### `core/alerts_sink`
+
+这是 alert 流的长审计记忆。
+
+它负责：
+
+- 消费 `netops.alerts.v1`
+- 按小时落 JSONL
+- 保留 alert 在运行时真正被发出的样子
+
+这样仓库讨论 alert 历史时，依赖的是 runtime artifact，而不是会变化的图表快照。
+
+#### `core/alerts_store`
+
+这是热查询面。
+
+它负责：
+
+- 消费 `netops.alerts.v1`
+- 把 alert 写入 ClickHouse
+- 支撑 recent-similar lookup、历史检索和 suggestion 的上下文装配
+
+没有它，历史查询基本都会退化成扫文件。
+
+#### `core/aiops_agent`
+
+这是当前的 bounded augmentation layer。
+
+它负责：
+
+- 从 alert 开始，而不是从 raw logs 开始
+- 组装 alert、history、topology、device、change context
+- 同时支持 alert-scope 和 cluster-scope suggestion
+- 把 suggestion 继续落盘，保留审计轨迹
+
+它不是 correlator 的替代品。
+它的职责是在 alert 已经成立之后，补出证据组织、总结和下一步建议。
+
+### Frontend 与 Projection 层
+
+#### `frontend/gateway`
+
+网关是 projection builder，不是 system of record。
+
+它负责：
+
+- 读取 alert JSONL、suggestion JSONL 和 deployment controls
+- 组装 `RuntimeSnapshot`
+- 用 `SSE` 把变化推给前端
+
+这样前端不会凭空再造一套“真相模型”，而是尽量贴近 runtime artifact 本身。
+
+#### `frontend`
+
+React 控制台不是 panel-first，而是 process-first。
+
+它应该回答的问题是：
+
+- 当前 incident 在链路的哪一段已经显形
+- 现在哪些 evidence 已经具备，哪些还缺
+- 系统推断了什么，它是从哪条 alert 和哪份 context 推出来的
+- 解释边界在哪里结束，控制边界从哪里开始
+
+重要的不是页面能不能渲染，而是页面能不能把系统边界讲明白。
+
+## 当前挂载 Runtime 的真实数据
+
+下面这些数字都来自当前工作区挂载的 `/data/netops-runtime`。
+
+| 运行切片 | 当前事实 |
+| --- | --- |
+| Alert sink 覆盖范围 | `554` 个小时文件，累计 `152,481` 条 alert |
+| Alert sink 时间范围 | `2026-03-04T15:09:11+00:00` 到 `2026-03-27T23:00:17+00:00` |
+| Suggestion sink 覆盖范围 | `480` 个小时文件 |
+| Suggestion sink 时间范围 | `2026-03-09T05:08:56.549849+00:00` 到 `2026-03-31T15:36:55.895982+00:00` |
+| 最新 6 个 alert 分桶 | `504` 条 alert，覆盖 `2026-03-27T18:00:14+00:00` 到 `2026-03-27T23:00:17+00:00` |
+| 最新 6 个 suggestion 分桶 | `3,703` 条 suggestion，覆盖 `2026-03-31T10:00:16.165096+00:00` 到 `2026-03-31T15:36:55.895982+00:00` |
+| 最近 24 个 alert 分桶 | `warning=2067`，`critical=2` |
+| 最近 24 个 alert rule | `deny_burst_v1=2067`，`bytes_spike_v1=2` |
+| 最近 24 个 suggestion scope | `alert=9058`，`cluster=1353` |
+| 最近 24 个 suggestion provider | `template=10411` |
+
+这里有一个必须说清楚的事实：
+当前挂载 runtime 不是一份时间完全对齐的 live snapshot。
+最新 suggestion 记录大多仍在引用 3 月 26 日的 alert 上下文，而最新 alert 文件停在 3 月 27 日。
+所以这份数据可以证明仓库的输出产物链路是持续存在的，但不能写成“所有层现在严格同步地 live 在跑”。
+
+## 这些最终产物对操作员意味着什么
+
+到了控制台这一层，系统其实已经把一条设备日志变成了四层不同语义的产物：
+
+| 产物 | 对操作员的意义 |
+| --- | --- |
+| Raw-derived fact | 这条事件真实发生过，而且可以追溯来源 |
+| Deterministic alert | 系统可以明确解释它为什么跨过了规则或阈值 |
+| Evidence bundle | 这条 alert 已经带上了足够做 investigation 的上下文 |
+| Suggestion | 系统可以总结什么最值得下一步看，但没有假装自己已经执行 |
+
+这也是为什么前端要把 remediation boundary 显式画出来。
+这个系统已经能解释 incident path，但还没有资格把自己说成安全闭环执行系统。
+
+## 已落地范围与显式边界
+
+已经落地的部分：
+
+- replay-aware FortiGate ingest
+- 结构化 facts 进入 Kafka
+- 确定性 alerting
+- alert 审计 JSONL
+- ClickHouse 热告警检索
+- alert-scope 和 cluster-scope 的 bounded suggestion
+- 只读 runtime console 和薄网关
+
+明确还不在当前已交付路径里的部分：
+
+- 设备写回
+- 审批驱动执行
+- 自动 remediation
+- 全量事件流模型判定
+- “当前 UI 已经是闭环控制平面”这种说法
+
+## 验证入口
 
 ```bash
 python3 -m pytest -q tests/core
-python3 -m compileall -q core edge
-cd frontend && npm run build
+pytest -q tests/frontend/test_runtime_reader_snapshot.py tests/frontend/test_runtime_stream_delta.py
+python3 -m compileall -q core edge frontend/gateway
 python3 -m core.benchmark.live_runtime_check
+cd frontend && npm run build
 ```
 
-更细的发布和部署说明，请直接看下面的模块文档。
+当前测试采集基线：
 
-## 文档导航
+- `tests/core` 加上两个 runtime console 测试，一共 `33` 个测试
+
+## 更详细的文档
 
 - [当前项目状态](./documentation/PROJECT_STATE_CN.md)
+- [受控验证记录](./documentation/CONTROLLED_VALIDATION_20260322.md)
+- [前端 runtime 架构](./documentation/FRONTEND_RUNTIME_ARCHITECTURE_20260328_CN.md)
+- [Edge 运行指南](./documentation/EDGE_RUNTIME_GUIDE.md)
+- [Core 运行指南](./documentation/CORE_RUNTIME_GUIDE.md)
+- [Frontend 工作区指南](./documentation/FRONTEND_WORKSPACE_GUIDE.md)
+- [FortiGate 原始输入字段分析](./documentation/FORTIGATE_INPUT_FIELD_ANALYSIS.md)
+- [FortiGate parsed JSONL 输出样例](./documentation/FORTIGATE_PARSED_OUTPUT_SAMPLE.md)
 - [FortiGate 接入字段参考](./documentation/FORTIGATE_INGEST_FIELD_REFERENCE_CN.md)
-- [前端运行时架构](./documentation/FRONTEND_RUNTIME_ARCHITECTURE_20260328_CN.md)
-- [边缘模块 README](./edge/README_CN.md)
-- [核心模块 README](./core/README_CN.md)
-- [前端模块 README](./frontend/README_CN.md)

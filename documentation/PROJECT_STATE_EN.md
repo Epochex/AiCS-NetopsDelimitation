@@ -1,73 +1,96 @@
 # NetOps Project State
 
-- Last updated: 2026-03-30 UTC
-- Scope of this note: current repository state, live chain shape, and active boundaries
+- Last updated: 2026-03-31 UTC
+- Scope: current repository posture, current mounted runtime facts, and active delivery boundary
 
 ## Current Objective
 
-The repository is no longer trying to prove that raw logs can be parsed.
-The active objective is to keep the full chain stable:
+The repository is no longer in the "can raw logs be parsed at all?" phase.
+The current objective is to keep the whole chain stable and explainable:
 
-1. FortiGate syslog reaches the edge node
-2. edge ingest turns raw text into replayable structured facts
-3. facts flow into Kafka and become deterministic alerts
-4. alerts land in both audit storage and hot query storage
-5. AIOps emits bounded suggestions from the alert contract
-6. the runtime console projects the result as an operator-readable chain
+1. FortiGate syslog is turned into structured fact events
+2. structured facts move through Kafka into deterministic alerting
+3. alerts are persisted into audit and hot-query surfaces
+4. bounded AIOps emits suggestions from alert context
+5. the runtime console projects the result as an operator-readable chain
 
-The key evaluation criteria at this stage are practical rather than cosmetic:
+The evaluation questions at this stage are practical:
 
-- the chain must process real device traffic, not only fixtures
-- evidence fields must survive from edge parsing into core alerts
-- runtime outputs must be auditable from files and queryable from ClickHouse
-- the UI must reflect the real runtime path without pretending execution already exists
+- can the chain stay tied to real runtime artifacts
+- can evidence survive from ingest into alert and suggestion products
+- can alerts be audited from files and queried from ClickHouse
+- can the UI show the runtime path honestly without implying execution already exists
 
-## Live Chain
+## Current Dataflow
 
-The current live path is:
+The active repository mainline is:
 
 `FortiGate -> edge/fortigate-ingest -> edge/edge_forwarder -> netops.facts.raw.v1 -> core/correlator -> netops.alerts.v1 -> alerts_sink / alerts_store / aiops_agent -> netops.aiops.suggestions.v1 -> frontend runtime gateway`
 
-Important runtime facts:
+The current architectural meaning of each step is:
 
-- edge ingest reads `/data/fortigate-runtime/input/fortigate.log*`
-- parsed facts are written to `/data/fortigate-runtime/output/parsed/events-*.jsonl`
-- alerts are written to `/data/netops-runtime/alerts/alerts-*.jsonl`
-- suggestions are written to `/data/netops-runtime/aiops/suggestions-*.jsonl`
-- ClickHouse stores the hot alert view used for recent-history lookup and AIOps context
+- `fortigate-ingest`: normalize vendor text into replayable facts
+- `edge_forwarder`: decouple edge file handling from shared transport
+- `correlator`: keep first-pass detection deterministic
+- `alerts_sink`: preserve emitted alerts as audit records
+- `alerts_store`: preserve queryable recent history
+- `aiops_agent`: assemble evidence and emit bounded suggestions
+- `frontend gateway`: project runtime artifacts into a read-only operator surface
 
-## Current Working State
+## Current Mounted Runtime Facts
 
-Code already present in the repository:
+The workspace currently exposes `/data/netops-runtime`.
+The following facts are directly derived from those mounted artifacts:
 
-- replay-safe FortiGate ingest and structured fact output
+| Runtime slice | Observed fact |
+| --- | --- |
+| Alert sink coverage | `554` hourly files, `152,481` alert records |
+| Alert sink range | `2026-03-04T15:09:11+00:00` to `2026-03-27T23:00:17+00:00` |
+| Suggestion sink coverage | `480` hourly files |
+| Suggestion sink range | `2026-03-09T05:08:56.549849+00:00` to `2026-03-31T15:36:55.895982+00:00` |
+| Latest 6 alert partitions | `504` alerts from `2026-03-27T18:00:14+00:00` to `2026-03-27T23:00:17+00:00` |
+| Latest 6 suggestion partitions | `3,703` suggestions from `2026-03-31T10:00:16.165096+00:00` to `2026-03-31T15:36:55.895982+00:00` |
+| Last 24 alert partitions | `warning=2067`, `critical=2`; `deny_burst_v1=2067`, `bytes_spike_v1=2` |
+| Last 24 suggestion partitions | `alert=9058`, `cluster=1353`; provider `template=10411` |
+
+Important honesty note:
+
+- the current workspace does not expose a live `/data/fortigate-runtime` volume
+- the mounted suggestion sink is newer than the mounted alert sink
+- the newest suggestion batches still mostly reference March 26 alert context
+
+This means the repository clearly demonstrates alert and suggestion products, but this mounted workspace should not be described as a perfectly synchronized live snapshot across every runtime layer.
+
+## What Is Already Landed
+
+- replay-aware FortiGate ingest
 - edge forwarding into Kafka raw topic
-- deterministic correlation and alert emission
-- JSONL audit persistence for alerts
+- deterministic alerting on `netops.alerts.v1`
+- alert JSONL audit persistence
 - ClickHouse-backed hot alert storage
-- bounded AIOps suggestion path with alert-scope and cluster-scope outputs
-- runtime gateway and operator console
+- bounded AIOps suggestion path with `alert` and `cluster` scopes
+- read-only runtime gateway and operator console
 
-What the repository does not currently claim:
+## What Is Explicitly Outside The Current Delivered Path
 
-- autonomous remediation against devices
+- device write-back
 - approval workflows that mutate live state
-- a production-grade closed-loop execution plane
+- production-grade closed-loop remediation
 - model-driven first-pass detection on the full raw stream
+- any claim that the current frontend is already an execution console
 
 ## Active Constraints
 
-The present architecture reflects current operating limits.
-
-- The environment is resource-constrained; inference cannot be treated as a free hot-path dependency.
-- Replay and audit still matter more than narrative fluency.
-- The frontend is a projection layer over runtime artifacts, not a control plane.
-- JSONL and ClickHouse are both kept because audit and hot retrieval are different jobs.
+- inference cannot be treated as a free hot-path dependency
+- replay and audit still matter more than narrative polish
+- the frontend is a projection layer over runtime artifacts, not a control plane
+- JSONL and ClickHouse are both kept because audit and hot retrieval are different jobs
 
 ## Related Documents
 
+- [Edge runtime guide](./EDGE_RUNTIME_GUIDE.md)
+- [Core runtime guide](./CORE_RUNTIME_GUIDE.md)
+- [Frontend workspace guide](./FRONTEND_WORKSPACE_GUIDE.md)
 - [FortiGate ingest field reference](./FORTIGATE_INGEST_FIELD_REFERENCE_EN.md)
 - [Frontend runtime architecture](./FRONTEND_RUNTIME_ARCHITECTURE_20260328_EN.md)
-- [Core module README](../core/README.md)
-- [Edge module README](../edge/README.md)
-- [Frontend module README](../frontend/README.md)
+- [Controlled validation log](./CONTROLLED_VALIDATION_20260322.md)

@@ -1,6 +1,7 @@
 # 前端运行时架构 2026-03-28
 
-这份文档讲的是当前运行台如何取到实时状态、网关到底在做什么，以及为什么前端现在仍然只是投影层，而不是伪装成后端的“大控制台”。
+这是一份带日期的架构说明，保留的是 `2026-03-28` 当时前端运行台的交互模型和问题背景。
+如果你想确认今天这个工作区实际挂载到了哪些 runtime 数据、当前仓库怎么描述系统边界，请优先看 [README_CN.md](../README_CN.md) 和 [PROJECT_STATE_CN.md](./PROJECT_STATE_CN.md)。
 
 ## 运行时模型
 
@@ -58,4 +59,4 @@
 
 - [项目状态](./PROJECT_STATE_CN.md)
 - [根 README](../README_CN.md)
-- [前端模块 README](../frontend/README_CN.md)
+- [Frontend 工作区指南](./FRONTEND_WORKSPACE_GUIDE.md)

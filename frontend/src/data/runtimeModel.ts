@@ -1,52 +1,55 @@
 import type { RuntimeSnapshot } from '../types'
 
+// Historical fallback fixture for offline rendering and compare mode.
+// Top-level repo/runtime metadata is kept aligned with the current mounted runtime,
+// while detailed per-suggestion traces below remain stable example records.
 export const runtimeSnapshot: RuntimeSnapshot = {
   repo: {
-    branch: 'feature/frontend-demo',
-    validation: '31 tests passed · core compileall ok',
+    branch: 'main',
+    validation: '33 tests collected · docs aligned to current mounted runtime',
   },
   runtime: {
-    latestAlertTs: '2026-03-23T10:44:40+00:00',
-    latestSuggestionTs: '2026-03-23T10:44:40.593912+00:00',
+    latestAlertTs: '2026-03-27T23:00:17+00:00',
+    latestSuggestionTs: '2026-03-31T15:36:55.895982+00:00',
     contextNote:
-      'Derived from repository docs plus the latest /data/netops-runtime alerts and suggestions sinks.',
+      'Fallback snapshot aligned to current mounted /data/netops-runtime facts. The mounted workspace exposes alert/suggestion artifacts but not a live, fully time-aligned edge runtime.',
   },
   defaultSuggestionId: 's-udp-10004',
   overviewMetrics: [
     {
       id: 'raw-freshness',
       label: 'Raw Freshness',
-      value: '7s',
-      hint: 'Last live runtime check reported raw payload age at 7 seconds.',
-      state: 'ok',
+      value: 'n/a',
+      hint: 'Current workspace does not expose a live /data/fortigate-runtime volume, so raw freshness cannot be claimed from mounted artifacts alone.',
+      state: 'watch',
     },
     {
       id: 'alert-latest',
       label: 'Latest Alert',
-      value: '10:44:40 UTC',
-      hint: 'Current sink max alert_ts in alerts-20260323-10.jsonl.',
+      value: '2026-03-27 23:00 UTC',
+      hint: 'Current mounted sink max alert_ts is 2026-03-27T23:00:17+00:00.',
       state: 'ok',
     },
     {
       id: 'suggestion-latest',
       label: 'Latest Suggestion',
-      value: '10:44:40.593 UTC',
-      hint: 'AIOps alert-scope suggestion is keeping pace with current-time alerts.',
-      state: 'ok',
+      value: '2026-03-31 15:36 UTC',
+      hint: 'Current mounted sink max suggestion_ts is newer than the mounted alert sink; this workspace is not a perfectly time-aligned live snapshot.',
+      state: 'watch',
     },
     {
       id: 'backlog',
       label: 'History Backlog',
-      value: 'false',
-      hint: 'System stayed out of replay/backfill mode in the latest runtime audit.',
-      state: 'ok',
+      value: 'artifact-only',
+      hint: 'Mounted artifacts prove alert/suggestion products exist, but they do not expose a fresh synchronized raw-runtime audit window.',
+      state: 'watch',
     },
     {
       id: 'lag',
       label: 'Critical Lag',
-      value: '0 / 4 groups',
-      hint: 'Correlator, sink, store, and AIOps agent consumer groups were all at zero lag.',
-      state: 'ok',
+      value: 'n/a',
+      hint: 'Consumer lag cannot be asserted from the mounted artifact set alone.',
+      state: 'watch',
     },
     {
       id: 'closure',
@@ -87,7 +90,7 @@ export const runtimeSnapshot: RuntimeSnapshot = {
       y: 90,
       metrics: [
         { label: 'parsed', value: 'events-*.jsonl' },
-        { label: 'backlog', value: 'false' },
+        { label: 'backlog', value: 'runtime not mounted' },
       ],
     },
     {
@@ -110,7 +113,7 @@ export const runtimeSnapshot: RuntimeSnapshot = {
       x: 800,
       y: 90,
       metrics: [
-        { label: 'freshness', value: '7s' },
+        { label: 'freshness', value: 'n/a' },
         { label: 'kind', value: 'raw topic' },
       ],
     },
@@ -134,8 +137,8 @@ export const runtimeSnapshot: RuntimeSnapshot = {
       x: 1320,
       y: 90,
       metrics: [
-        { label: 'latest', value: '10:44:40' },
-        { label: 'today', value: '11 alerts' },
+        { label: 'latest', value: '2026-03-27 23:00' },
+        { label: 'last 24 files', value: '2069 alerts' },
       ],
     },
     {
@@ -147,7 +150,7 @@ export const runtimeSnapshot: RuntimeSnapshot = {
       y: 260,
       metrics: [
         { label: 'bucket', value: 'alert_ts' },
-        { label: 'file', value: 'alerts-20260323-10' },
+        { label: 'file', value: 'alerts-20260327-23' },
       ],
     },
     {
@@ -183,7 +186,7 @@ export const runtimeSnapshot: RuntimeSnapshot = {
       y: 90,
       metrics: [
         { label: 'provider', value: 'template' },
-        { label: 'today', value: '11 suggestions' },
+        { label: 'last 24 files', value: '10411 suggestions' },
       ],
     },
     {

@@ -1,7 +1,8 @@
 # Frontend Runtime Architecture 2026-03-28
 
-This note describes the current runtime-console shape rather than the visual design.
-The important question is how the UI gets live state, what the gateway actually does, and why the console remains a projection layer instead of becoming a backend in disguise.
+This is a dated architecture note and incident record from `2026-03-28`.
+Use it to understand the runtime-console interaction model and that day's failure mode, not as the canonical source for today's mounted runtime timestamps or deployment facts.
+For current repository and mounted-runtime wording, use [README.md](../README.md) and [PROJECT_STATE_EN.md](./PROJECT_STATE_EN.md).
 
 ## Runtime Model
 
@@ -59,4 +60,4 @@ That distinction matters. A projection layer can tolerate partial degradation an
 
 - [Project state](./PROJECT_STATE_EN.md)
 - [Root README](../README.md)
-- [Frontend module README](../frontend/README.md)
+- [Frontend workspace guide](./FRONTEND_WORKSPACE_GUIDE.md)
