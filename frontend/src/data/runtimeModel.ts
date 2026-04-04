@@ -293,7 +293,7 @@ export const runtimeSnapshot: RuntimeSnapshot = {
       severity: 'warning',
       priority: 'P2',
       summary:
-        'deny_burst_v1 triggered for service=udp/10004 device=20:7b:d2:ac:75:4e',
+        'LEON-PC reached 200/200 denies for udp/10004 inside 60s on the local broadcast path; src=192.168.16.152 dst=255.255.255.255.',
       context: {
         service: 'udp/10004',
         srcDeviceKey: '20:7b:d2:ac:75:4e',
@@ -341,18 +341,81 @@ export const runtimeSnapshot: RuntimeSnapshot = {
         },
       },
       hypotheses: [
-        'The alert may indicate a localized policy or traffic anomaly on this source device.',
-        'The observed traffic class may have drifted from the current deterministic rule baseline.',
+        'The repeated deny pattern is concentrated on one local broadcast tuple, so the first check should stay on the udp/10004 path instead of widening to the whole device.',
+        'Because udp/10004 is already listed in the device profile, this looks more like policy intent or path-specific mismatch than a brand-new service class.',
       ],
       recommendedActions: [
-        'Inspect the source device session trace and recent deny history in ClickHouse.',
-        'Check whether the affected service is expected for this device profile and interface path.',
-        'If this repeats, compare it with the cluster-level suggestion stream before tuning thresholds.',
+        'Review the last 15 minutes in ClickHouse with rule_id=deny_burst_v1, service=udp/10004, src_device_key=20:7b:d2:ac:75:4e, and srcip=192.168.16.152 to confirm the same broadcast tuple keeps repeating.',
+        'Confirm whether udp/10004 broadcast traffic is expected for LEON-PC on this path before changing any threshold; if it is expected, the first fix is policy/path review rather than correlator tuning.',
+        'Replay the latest deny samples first and verify whether they stay on the same source and destination pair before escalating to cluster-level review.',
       ],
       confidence: 0.66,
       confidenceLabel: 'medium',
       confidenceReason:
-        'Confidence is based on alert severity, one-hour recurrence, and whether change/risk markers exist.',
+        'Confidence uses the deterministic threshold hit, the single-path tuple concentration, and the fact that the service already exists in the current device profile.',
+      projectionBasis: {
+        'projector-trigger': [
+          {
+            label: 'deny threshold',
+            section: 'rule_context',
+            field: 'metrics.deny_count',
+            value: '200/200 in 60s',
+            reason: 'This is the deterministic condition that emitted the alert.',
+          },
+          {
+            label: 'service',
+            section: 'topology_context',
+            field: 'service',
+            value: 'udp/10004',
+            reason: 'The current incident stays scoped to the service carried by the alert.',
+          },
+        ],
+        'projector-aggregate': [
+          {
+            label: 'recent similar',
+            section: 'historical_context',
+            field: 'recent_similar_1h',
+            value: '0',
+            reason: 'Historical recurrence is still low, so the evidence is concentrated on the current slice.',
+          },
+        ],
+        'projector-path': [
+          {
+            label: 'tuple',
+            section: 'topology_context',
+            field: 'srcip,dstip',
+            value: '192.168.16.152 -> 255.255.255.255',
+            reason: 'The path node stays tied to the exact tuple observed by the alert.',
+          },
+        ],
+        'projector-device': [
+          {
+            label: 'device profile',
+            section: 'device_context',
+            field: 'device_name,known_services',
+            value: 'LEON-PC / udp/10004',
+            reason: 'The current device profile already knows this service, which narrows the likely cause.',
+          },
+        ],
+        'projector-inference': [
+          {
+            label: 'analysis basis',
+            section: 'historical_context',
+            field: 'cluster_size,recent_similar_1h',
+            value: 'cluster=1 / recent=0',
+            reason: 'The current reading is based on a single-path alert, not on a repeated cluster.',
+          },
+        ],
+        'projector-action': [
+          {
+            label: 'query target',
+            section: 'topology_context',
+            field: 'src_device_key,srcip,service',
+            value: '20:7b:d2:ac:75:4e / 192.168.16.152 / udp/10004',
+            reason: 'The first operator action should use the exact tuple that triggered the alert.',
+          },
+        ],
+      },
       timeline: [
         {
           id: 'step-edge',
@@ -486,7 +549,7 @@ export const runtimeSnapshot: RuntimeSnapshot = {
       severity: 'warning',
       priority: 'P2',
       summary:
-        'deny_burst_v1 triggered for service=udp/1900 device=fe80::19f6:8fb1:57ea:abd',
+        'deny_burst_v1 repeated on udp/1900 for fe80::19f6:8fb1:57ea:abd; the current slice is the SSDP multicast path fe80::19f6:8fb1:57ea:abd -> ff02::c.',
       context: {
         service: 'udp/1900',
         srcDeviceKey: 'fe80::19f6:8fb1:57ea:abd',
@@ -534,18 +597,56 @@ export const runtimeSnapshot: RuntimeSnapshot = {
         },
       },
       hypotheses: [
-        'The alert may indicate a localized policy or traffic anomaly on this source device.',
-        'The observed traffic class may have drifted from the current deterministic rule baseline.',
+        'The deny is concentrated on the SSDP multicast tuple, so the first review should stay on that path instead of widening to generic device anomaly.',
+        'Because the service already matches udp/1900, the more likely question is whether this multicast deny is intentional on the current path.',
       ],
       recommendedActions: [
-        'Inspect the source device session trace and recent deny history in ClickHouse.',
-        'Check whether the affected service is expected for this device profile and interface path.',
-        'If this repeats, compare it with the cluster-level suggestion stream before tuning thresholds.',
+        'Query ClickHouse for rule_id=deny_burst_v1, service=udp/1900, and srcip=fe80::19f6:8fb1:57ea:abd over the last 15 minutes to confirm whether the same multicast tuple dominates the deny history.',
+        'Confirm whether SSDP multicast should be denied on this path before changing thresholds; if the deny is intentional, keep the rule and document the posture.',
+        'If the same tuple keeps reappearing across replays, compare policy intent and path scope before widening to cluster tuning.',
       ],
       confidence: 0.66,
       confidenceLabel: 'medium',
       confidenceReason:
-        'Confidence is based on alert severity, one-hour recurrence, and whether change/risk markers exist.',
+        'Confidence uses the deterministic deny threshold and the path-localized multicast tuple carried by the alert evidence.',
+      projectionBasis: {
+        'projector-trigger': [
+          {
+            label: 'rule',
+            section: 'rule_context',
+            field: 'rule_id',
+            value: 'deny_burst_v1',
+            reason: 'The current suggestion remains anchored to the deterministic rule that fired.',
+          },
+        ],
+        'projector-path': [
+          {
+            label: 'tuple',
+            section: 'topology_context',
+            field: 'srcip,dstip',
+            value: 'fe80::19f6:8fb1:57ea:abd -> ff02::c',
+            reason: 'The path node stays tied to the multicast tuple seen in the alert.',
+          },
+        ],
+        'projector-device': [
+          {
+            label: 'service profile',
+            section: 'device_context',
+            field: 'known_services',
+            value: 'udp/1900',
+            reason: 'The current device profile already carries the service that was denied.',
+          },
+        ],
+        'projector-action': [
+          {
+            label: 'query target',
+            section: 'topology_context',
+            field: 'srcip,service',
+            value: 'fe80::19f6:8fb1:57ea:abd / udp/1900',
+            reason: 'The first operator action should use the exact tuple seen in the alert.',
+          },
+        ],
+      },
       timeline: [
         {
           id: 'step-edge',
@@ -679,7 +780,7 @@ export const runtimeSnapshot: RuntimeSnapshot = {
       severity: 'warning',
       priority: 'P2',
       summary:
-        'deny_burst_v1 triggered for service=udp/5353 device=20:7b:d2:ac:75:4e',
+        'deny_burst_v1 repeated on udp/5353 for 20:7b:d2:ac:75:4e; the current slice is the mDNS multicast path fe80::19f6:8fb1:57ea:abd -> ff02::fb.',
       context: {
         service: 'udp/5353',
         srcDeviceKey: '20:7b:d2:ac:75:4e',
@@ -727,18 +828,56 @@ export const runtimeSnapshot: RuntimeSnapshot = {
         },
       },
       hypotheses: [
-        'The alert may indicate a localized policy or traffic anomaly on this source device.',
-        'The observed traffic class may have drifted from the current deterministic rule baseline.',
+        'The current deny burst stays on the mDNS multicast path, so the first review should stay on one local tuple rather than treating it as a broad device anomaly.',
+        'Because udp/5353 already matches the current Windows device profile, the next question is whether this multicast deny is intended on this path.',
       ],
       recommendedActions: [
-        'Inspect the source device session trace and recent deny history in ClickHouse.',
-        'Check whether the affected service is expected for this device profile and interface path.',
-        'If this repeats, compare it with the cluster-level suggestion stream before tuning thresholds.',
+        'Query ClickHouse for rule_id=deny_burst_v1, service=udp/5353, and src_device_key=20:7b:d2:ac:75:4e over the last 15 minutes to confirm whether the same mDNS multicast tuple dominates.',
+        'Check whether local mDNS deny is the intended posture on this path before changing thresholds; if the deny is expected, keep the rule and document it.',
+        'If replays keep landing on the same tuple, compare policy intent and interface scope before escalating to cluster tuning.',
       ],
       confidence: 0.66,
       confidenceLabel: 'medium',
       confidenceReason:
-        'Confidence is based on alert severity, one-hour recurrence, and whether change/risk markers exist.',
+        'Confidence uses the deterministic threshold hit and the fact that the denied service already exists in the current Windows device profile.',
+      projectionBasis: {
+        'projector-trigger': [
+          {
+            label: 'rule',
+            section: 'rule_context',
+            field: 'rule_id',
+            value: 'deny_burst_v1',
+            reason: 'The current suggestion remains tied to the deterministic rule emission.',
+          },
+        ],
+        'projector-path': [
+          {
+            label: 'tuple',
+            section: 'topology_context',
+            field: 'srcip,dstip',
+            value: 'fe80::19f6:8fb1:57ea:abd -> ff02::fb',
+            reason: 'The path node stays tied to the multicast tuple seen in the alert.',
+          },
+        ],
+        'projector-device': [
+          {
+            label: 'service profile',
+            section: 'device_context',
+            field: 'known_services',
+            value: 'udp/5353',
+            reason: 'The current device profile already includes the denied service.',
+          },
+        ],
+        'projector-action': [
+          {
+            label: 'query target',
+            section: 'topology_context',
+            field: 'src_device_key,service',
+            value: '20:7b:d2:ac:75:4e / udp/5353',
+            reason: 'The first operator action should use the exact service tuple from the alert.',
+          },
+        ],
+      },
       timeline: [
         {
           id: 'step-edge',

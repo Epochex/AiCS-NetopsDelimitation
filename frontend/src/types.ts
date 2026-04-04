@@ -64,6 +64,14 @@ export interface TimelineStep {
   durationMs?: number | null
 }
 
+export interface ProjectionBasisEntry {
+  label: string
+  section: string
+  field: string
+  value: string
+  reason: string
+}
+
 export interface SuggestionRecord {
   id: string
   alertId: string
@@ -95,6 +103,7 @@ export interface SuggestionRecord {
   confidence: number
   confidenceLabel: string
   confidenceReason: string
+  projectionBasis?: Record<string, ProjectionBasisEntry[]>
   timeline?: TimelineStep[]
   stageTelemetry?: StageTelemetry[]
 }
@@ -193,85 +202,151 @@ export interface RuntimeSnapshot {
   topologyNotes: Array<{ title: string; detail: string }>
 }
 
+export type CompareProviderType = 'template' | 'llm'
+export type CompareProviderStatus = 'ready' | 'placeholder' | 'failed' | 'unavailable'
+export type CompareDatasetKind = 'paired-fixture' | 'baseline-only'
+export type CompareDatasetSource = 'fixture' | 'runtime'
+export type CompareTabId =
+  | 'explanation'
+  | 'action'
+  | 'stability'
+  | 'runtime'
+export type CompareExportFormat = 'json' | 'csv'
+
 export interface CompareWindow {
   start: string
   end: string
   label: string
 }
 
-export interface CompareCurrentSlice {
+export interface CompareReplayMetadata {
+  replayId: string
+  replayLabel: string
+  runId: string
+  runCount: number
+  window: CompareWindow
+  source: string
+  notes: string[]
+}
+
+export interface CompareMetricBundle {
+  explanationCompleteness: number | null
+  actionability: number | null
+  evidenceBinding: number | null
+  stability: number | null
+  auditability: number | null
+  hallucinationRate: number | null
+  latencyMs: number | null
+  estimatedCostUsd: number | null
+  failureRate: number | null
+}
+
+export interface CompareOutputBlock {
+  kind: 'summary' | 'hypotheses' | 'actions' | 'notes'
   title: string
+  lines: string[]
+}
+
+export interface CompareEvidenceReference {
+  id: string
+  claim: string
+  sourceSection: 'topology' | 'device' | 'change' | 'historical'
+  sourceField: string
+  sourceValue: string
+  supported: boolean
+}
+
+export interface CompareUnsupportedClaim {
+  id: string
+  claim: string
+  reason: string
+  severity: 'low' | 'medium' | 'high'
+}
+
+export interface CompareProviderRuntimeMetadata {
+  latencyMs: number | null
+  inputTokens: number | null
+  outputTokens: number | null
+  estimatedCostUsd: number | null
+  failure: boolean
+  failureReason: string | null
+  replayConsistency: number | null
+  auditTrailCoverage: number | null
+}
+
+export interface CompareProviderEvaluation {
+  providerType: CompareProviderType
+  providerName: string
+  status: CompareProviderStatus
+  availability: 'available' | 'planned'
+  metrics: CompareMetricBundle
+  outputText: string
+  outputBlocks: CompareOutputBlock[]
+  recommendedActions: string[]
+  evidenceReferences: CompareEvidenceReference[]
+  unsupportedClaims: CompareUnsupportedClaim[]
+  runtime: CompareProviderRuntimeMetadata
+  notes: string[]
+}
+
+export interface CompareEvidenceBundle {
+  topology: Record<string, string | string[]>
+  device: Record<string, string | string[]>
+  change: Record<string, string | number | boolean | string[] | null>
+  historical: Record<string, string | number | string[]>
+}
+
+export interface CompareSampleUnit {
+  id: string
+  bundleId: string
   alertId: string
+  ruleId: string
+  severity: string
   service: string
   device: string
+  path: string
+  baselineStatus: string
+  llmStatus: string
+  replay: CompareReplayMetadata
+  evidenceBundle: CompareEvidenceBundle
+  baseline: CompareProviderEvaluation
+  llm: CompareProviderEvaluation
+  reviewNotes: string[]
+}
+
+export interface CompareWorkbenchDataset {
+  id: string
+  label: string
+  kind: CompareDatasetKind
+  source: CompareDatasetSource
+  description: string
+  defaultReplayId: string
+  samples: CompareSampleUnit[]
+}
+
+export interface CompareDatasetFilters {
+  replayId: string
+  providerName: string
+  severity: string
   ruleId: string
-  focus: string
-}
-
-export interface CompareMetrics {
-  alertCount: number
-  clusterTriggerCount: number
-  suggestionEmissionCount: number
-  operatorActionCount: number
-  remediationClosureCount: number
-  medianTransitionMs: number
-  tokenCost: number
-  cpuProxyPct: number
-}
-
-export interface CompareTimelineStep {
-  stamp: string
-  title: string
-  detail: string
-  state: 'observed' | 'gated' | 'generated' | 'acted' | 'closed' | 'reserved'
-}
-
-export interface CompareControlBoundary {
+  service: string
   status: string
-  detail: string
-  exportReadiness: 'ready' | 'partial' | 'blocked'
+  query: string
 }
 
-export interface CompareExportArtifacts {
-  status: 'ready' | 'partial' | 'blocked'
-  detail: string
-  items: string[]
-}
-
-export interface CompareFixtureBranch {
+export interface CompareKpiCard {
   id: string
   label: string
-  mode: 'rule-only' | 'agent-enhanced'
-  timeWindow: CompareWindow
-  summary: string
-  currentSlice: CompareCurrentSlice
-  metrics: CompareMetrics
-  timeline: CompareTimelineStep[]
-  controlBoundary: CompareControlBoundary
-  exportArtifacts: CompareExportArtifacts
+  ruleValue: number | null
+  llmValue: number | null
+  ruleDisplay: string
+  llmDisplay: string
+  deltaDisplay: string
+  deltaState: 'improved' | 'regressed' | 'flat' | 'pending'
+  note: string
 }
 
-export interface CompareHighlight {
-  label: string
-  ruleOnly: string
-  agentEnhanced: string
-  delta: string
-}
-
-export interface RuntimeUiScenario {
+export interface CompareTableColumn {
   id: string
   label: string
-  state: string
-  why: string
-  propsPreview: string[]
-}
-
-export interface RuntimeUiStory {
-  componentId: string
-  intent: string
-  scenarios: RuntimeUiScenario[]
-}
-
-export interface RuntimeUiStoryCatalog {
-  components: RuntimeUiStory[]
 }

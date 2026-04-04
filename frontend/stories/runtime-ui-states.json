@@ -117,6 +117,28 @@
             "summary=service + device + judgment",
             "details=click-to-expand"
           ]
+        },
+        {
+          "id": "slice-immersive-scroll-handoff",
+          "label": "Immersive scroll handoff",
+          "state": "hero-snap",
+          "why": "The first downward scroll should fully clear the floating dock and hand the viewport to the incident stage instead of leaving a dead spacer band.",
+          "propsPreview": [
+            "trigger=first downward scroll",
+            "dock=hidden",
+            "focus=runtime-main-stage"
+          ]
+        },
+        {
+          "id": "slice-docked-adaptive-clearance",
+          "label": "Adaptive dock clearance",
+          "state": "docked-responsive",
+          "why": "When the floating dock wraps into multiple rows, the main stage and runtime sheet must clear the measured dock height instead of relying on fixed offsets.",
+          "propsPreview": [
+            "dockHeight=measured",
+            "mainStage=not occluded",
+            "runtimeSheet=below dock"
+          ]
         }
       ]
     },
@@ -168,6 +190,17 @@
           "propsPreview": [
             "activeStage=cluster",
             "clusterProgress=2/3"
+          ]
+        },
+        {
+          "id": "hero-scene-rule-aware",
+          "label": "Rule-aware narrative",
+          "state": "rule-bound",
+          "why": "The hero copy should derive from the live ruleId, scope, and provider instead of hard-coding a deny-only incident headline.",
+          "propsPreview": [
+            "ruleId=bytes_spike_v1",
+            "scope=alert",
+            "provider=template"
           ]
         }
       ]
@@ -267,6 +300,50 @@
           "propsPreview": [
             "criticalCss=present",
             "liveStream=stalled"
+          ]
+        },
+        {
+          "id": "theater-viewport-takeover",
+          "label": "Viewport takeover",
+          "state": "immersive-stage",
+          "why": "After the dock collapses, the incident stage should hold nearly the full viewport so the queue rail and projector become the primary read.",
+          "propsPreview": [
+            "dock=collapsed",
+            "stage=min-height viewport",
+            "queue=primary rail"
+          ]
+        },
+        {
+          "id": "theater-auto-chain-playback",
+          "label": "Auto chain playback",
+          "state": "node-replay",
+          "why": "When an incident becomes active, the projector should replay the chain node by node with automatic highlight, card expansion, and a running elapsed counter.",
+          "propsPreview": [
+            "start=0.00s",
+            "activeNode=auto-advance",
+            "theme=alert-until-finished"
+          ]
+        },
+        {
+          "id": "theater-three-line-headline",
+          "label": "Three-line headline",
+          "state": "readability-priority",
+          "why": "The projector headline should dedicate separate lines to incident type, device name, and service plus address identity so operators can parse it in one glance.",
+          "propsPreview": [
+            "line1=incident",
+            "line2=device",
+            "line3=service + mac/ip"
+          ]
+        },
+        {
+          "id": "theater-human-annotation-card",
+          "label": "Human annotation card",
+          "state": "operator-readable",
+          "why": "Node cards should explain what the system is checking now and why it matters, instead of exposing tiny machine-style tags or raw field dumps.",
+          "propsPreview": [
+            "copy=plain-language",
+            "facts=label-value rows",
+            "chips=removed"
           ]
         }
       ]

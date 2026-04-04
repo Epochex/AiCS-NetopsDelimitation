@@ -1,190 +1,180 @@
-import { compareBranches, compareCurrentSlice, compareHighlights, compareWindow } from '../data/compareFixtures'
-import { runtimeUiStoryCatalog } from '../data/runtimeUiStories'
-import type { CompareFixtureBranch } from '../types'
-import { formatMaybeTimestamp, timestampTooltip } from '../utils/time'
+import {
+  startTransition,
+  useDeferredValue,
+  useMemo,
+  useState,
+} from 'react'
+import './CompareModeView.css'
+import {
+  buildDefaultFilters,
+  buildFilterOptions,
+  compareWorkbenchDatasets,
+  getCompareDataset,
+  sortCompareSamples,
+  summarizeCompareKpis,
+  filterCompareSamples,
+} from '../data/compareWorkbench'
+import { CompareAnalysisTabs } from './compare/CompareAnalysisTabs'
+import { CompareDetailPanel } from './compare/CompareDetailPanel'
+import { CompareKpiStrip } from './compare/CompareKpiStrip'
+import { CompareSampleMatrix } from './compare/CompareSampleMatrix'
+import { CompareSampleTable } from './compare/CompareSampleTable'
+import { CompareWorkbenchHeader } from './compare/CompareWorkbenchHeader'
+import { exportCompareSamples } from '../utils/compareExport'
+import type { CompareDatasetFilters, CompareTabId } from '../types'
 
-function metricRows(branch: CompareFixtureBranch) {
-  return [
-    ['alert count', `${branch.metrics.alertCount}`],
-    ['cluster trigger', `${branch.metrics.clusterTriggerCount}`],
-    ['suggestion emission', `${branch.metrics.suggestionEmissionCount}`],
-    ['operator action', `${branch.metrics.operatorActionCount}`],
-    ['remediation closure', `${branch.metrics.remediationClosureCount}`],
-    ['median transition', `${branch.metrics.medianTransitionMs} ms`],
-    ['token cost', `${branch.metrics.tokenCost.toLocaleString()}`],
-    ['cpu proxy', `${branch.metrics.cpuProxyPct}%`],
-  ]
+interface CompareModeViewProps {
+  locale: 'en' | 'zh'
 }
 
-export function CompareModeView() {
+export function CompareModeView({ locale }: CompareModeViewProps) {
+  const [activeDatasetId, setActiveDatasetId] = useState(compareWorkbenchDatasets[0].id)
+  const dataset = useMemo(() => getCompareDataset(activeDatasetId), [activeDatasetId])
+  const [filters, setFilters] = useState<CompareDatasetFilters>(() => buildDefaultFilters(dataset))
+  const [activeTab, setActiveTab] = useState<CompareTabId>('explanation')
+  const [sortKey, setSortKey] = useState('bundleId')
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
+  const [selectedSampleId, setSelectedSampleId] = useState(dataset.samples[0]?.id ?? '')
+  const [isDetailOpen, setIsDetailOpen] = useState(false)
+
+  const deferredQuery = useDeferredValue(filters.query)
+  const effectiveFilters = useMemo(
+    () => ({
+      ...filters,
+      query: deferredQuery,
+    }),
+    [deferredQuery, filters],
+  )
+
+  const filterOptions = useMemo(() => buildFilterOptions(dataset), [dataset])
+  const filteredSamples = useMemo(
+    () => filterCompareSamples(dataset, effectiveFilters),
+    [dataset, effectiveFilters],
+  )
+  const sortedSamples = useMemo(
+    () => sortCompareSamples(filteredSamples, sortKey, sortDirection),
+    [filteredSamples, sortDirection, sortKey],
+  )
+  const kpiCards = useMemo(() => summarizeCompareKpis(sortedSamples), [sortedSamples])
+  const activeSelectedSampleId = sortedSamples.some((sample) => sample.id === selectedSampleId)
+    ? selectedSampleId
+    : sortedSamples[0]?.id ?? ''
+  const selectedSample = sortedSamples.find((sample) => sample.id === activeSelectedSampleId)
+
+  function handleDatasetChange(datasetId: string) {
+    startTransition(() => {
+      const nextDataset = getCompareDataset(datasetId)
+      setActiveDatasetId(datasetId)
+      setFilters(buildDefaultFilters(nextDataset))
+      setSelectedSampleId(nextDataset.samples[0]?.id ?? '')
+      setActiveTab('explanation')
+      setSortKey('bundleId')
+      setSortDirection('asc')
+      setIsDetailOpen(false)
+    })
+  }
+
+  function handleFilterChange(patch: Partial<CompareDatasetFilters>) {
+    startTransition(() => {
+      setFilters((current) => ({
+        ...current,
+        ...patch,
+      }))
+    })
+  }
+
+  function handleSortChange(nextSortKey: string) {
+    startTransition(() => {
+      if (nextSortKey === sortKey) {
+        setSortDirection((current) => (current === 'asc' ? 'desc' : 'asc'))
+        return
+      }
+      setSortKey(nextSortKey)
+      setSortDirection('asc')
+    })
+  }
+
+  function handleSampleInspect(sampleId: string) {
+    startTransition(() => {
+      setSelectedSampleId(sampleId)
+      setIsDetailOpen(true)
+    })
+  }
+
   return (
-    <section className="page compare-page">
-      <section className="section compare-hero">
-        <div className="section-header">
-          <div>
-            <h2 className="section-title">Compare Mode</h2>
-            <span className="section-subtitle">
-              Same-window branch review for rule-only and agent-enhanced runtime paths.
-            </span>
-          </div>
-          <span className="section-kicker">{compareWindow.label}</span>
-        </div>
+    <section className="page compare-workbench">
+      <CompareWorkbenchHeader
+        locale={locale}
+        datasets={compareWorkbenchDatasets}
+        activeDatasetId={activeDatasetId}
+        filters={filters}
+        replayOptions={filterOptions.replays}
+        providerOptions={filterOptions.providers}
+        severityOptions={filterOptions.severities}
+        ruleOptions={filterOptions.rules}
+        serviceOptions={filterOptions.services}
+        statusOptions={filterOptions.statuses}
+        onDatasetChange={handleDatasetChange}
+        onFilterChange={handleFilterChange}
+        onExportJson={() => exportCompareSamples(sortedSamples, dataset.label, 'json')}
+        onExportCsv={() => exportCompareSamples(sortedSamples, dataset.label, 'csv')}
+      />
 
-        <div className="compare-hero-grid">
-          <article className="compare-current-slice">
-            <p className="story-marker">current slice</p>
-            <h3>{compareCurrentSlice.title}</h3>
-            <p>{compareCurrentSlice.focus}</p>
-            <div className="story-badges">
-              <span className="signal-chip tone-alert">{compareCurrentSlice.ruleId}</span>
-              <span className="signal-chip tone-suggestion">{compareCurrentSlice.service}</span>
-              <span className="signal-chip tone-neutral">{compareCurrentSlice.device}</span>
+      <CompareKpiStrip cards={kpiCards} locale={locale} />
+
+      <CompareAnalysisTabs
+        locale={locale}
+        activeTab={activeTab}
+        samples={sortedSamples}
+        selectedSampleId={activeSelectedSampleId}
+        onTabChange={(tabId) => startTransition(() => setActiveTab(tabId))}
+        onInspectSample={handleSampleInspect}
+      />
+
+      <CompareSampleMatrix
+        locale={locale}
+        samples={sortedSamples}
+        selectedSampleId={activeSelectedSampleId}
+        onSampleFocus={(sampleId) => setSelectedSampleId(sampleId)}
+        onInspectSample={handleSampleInspect}
+      />
+
+      <section className="section compare-shell-section compare-ledger-shell">
+        <details className="compare-ledger-details">
+          <summary className="compare-ledger-summary">
+            <div>
+              <h3 className="compare-section-title">
+                {locale === 'zh' ? '审计账本' : 'Audit Ledger'}
+              </h3>
+              <p className="compare-section-copy compare-section-copy-tight">
+                {locale === 'zh'
+                  ? '完整可排序行账本保留在紧凑矩阵之后。'
+                  : 'Full sortable row ledger kept behind the compact matrix.'}
+              </p>
             </div>
-          </article>
+            <span className="compare-inline-note">
+              {locale === 'zh' ? `${sortedSamples.length} 行` : `${sortedSamples.length} rows`}
+            </span>
+          </summary>
 
-          <article className="compare-highlights">
-            <strong>Branch deltas</strong>
-            <ul className="compare-highlight-list">
-              {compareHighlights.map((item) => (
-                <li key={item.label}>
-                  <span>{item.label}</span>
-                  <div>
-                    <strong>{item.delta}</strong>
-                    <small>
-                      {item.ruleOnly} {'->'} {item.agentEnhanced}
-                    </small>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          </article>
-        </div>
+          <CompareSampleTable
+            locale={locale}
+            samples={sortedSamples}
+            selectedSampleId={activeSelectedSampleId}
+            sortKey={sortKey}
+            sortDirection={sortDirection}
+            onRowSelect={handleSampleInspect}
+            onSortChange={handleSortChange}
+          />
+        </details>
       </section>
 
-      <section className="section">
-        <div className="section-header">
-          <div>
-            <h2 className="section-title">Compare Branches</h2>
-            <span className="section-subtitle">
-              Hold the current slice constant and let only the runtime path diverge.
-            </span>
-          </div>
-          <span className="section-kicker">rule-only vs agent-enhanced</span>
-        </div>
-
-        <div className="compare-branch-grid">
-          {compareBranches.map((branch) => (
-            <article
-              key={branch.id}
-              className={`compare-branch-card branch-${branch.mode}`}
-            >
-              <div className="compare-branch-head">
-                <div>
-                  <span className="section-kicker">{branch.mode}</span>
-                  <h3>{branch.label}</h3>
-                </div>
-                <span className="signal-chip tone-neutral">
-                  {branch.controlBoundary.exportReadiness}
-                </span>
-              </div>
-
-              <p className="compare-branch-summary">{branch.summary}</p>
-
-              <dl className="compare-metric-grid">
-                {metricRows(branch).map(([label, value]) => (
-                  <div key={`${branch.id}-${label}`} className="compare-metric-card">
-                    <dt>{label}</dt>
-                    <dd>{value}</dd>
-                  </div>
-                ))}
-              </dl>
-
-              <ol className="timeline-list compare-timeline">
-                {branch.timeline.map((step, index) => (
-                  <li
-                    key={`${branch.id}-${step.title}`}
-                    className={`timeline-item ${index === branch.timeline.length - 1 ? 'is-active' : ''}`}
-                  >
-                    <span
-                      className="timeline-stamp"
-                      title={timestampTooltip(step.stamp)}
-                    >
-                      {formatMaybeTimestamp(step.stamp)}
-                    </span>
-                    <div className="timeline-body">
-                      <h3>{step.title}</h3>
-                      <p>{step.detail}</p>
-                    </div>
-                  </li>
-                ))}
-              </ol>
-
-              <div className="compare-boundary-card">
-                <strong>Control boundary</strong>
-                <p>{branch.controlBoundary.detail}</p>
-                <span>
-                  {branch.controlBoundary.status} · {branch.controlBoundary.exportReadiness}
-                </span>
-              </div>
-            </article>
-          ))}
-        </div>
-      </section>
-
-      <div className="compare-bottom-grid">
-        <section className="section">
-          <div className="section-header">
-            <div>
-              <h2 className="section-title">Export Metrics</h2>
-              <span className="section-subtitle">
-                Replay and figure generation stay visible as first-class outputs.
-              </span>
-            </div>
-            <span className="section-kicker">review / replay / paper</span>
-          </div>
-          <div className="compare-export-grid">
-            {compareBranches.map((branch) => (
-              <article key={`export-${branch.id}`} className="compare-export-card">
-                <strong>{branch.label}</strong>
-                <p>{branch.exportArtifacts.detail}</p>
-                <span className="signal-chip tone-neutral">{branch.exportArtifacts.status}</span>
-                <ul className="focus-list">
-                  {branch.exportArtifacts.items.map((item) => (
-                    <li key={`${branch.id}-${item}`}>{item}</li>
-                  ))}
-                </ul>
-              </article>
-            ))}
-          </div>
-        </section>
-
-        <section className="section">
-          <div className="section-header">
-            <div>
-              <h2 className="section-title">State Stories</h2>
-              <span className="section-subtitle">
-                Component states are fixed before larger homepage iteration continues.
-              </span>
-            </div>
-            <span className="section-kicker">state-constrained development</span>
-          </div>
-          <div className="compare-story-grid">
-            {runtimeUiStoryCatalog.components.map((component) => (
-              <article key={component.componentId} className="compare-story-card">
-                <strong>{component.componentId}</strong>
-                <p>{component.intent}</p>
-                <ul className="focus-list">
-                  {component.scenarios.map((scenario) => (
-                    <li key={scenario.id}>
-                      {scenario.label}: {scenario.why}
-                    </li>
-                  ))}
-                </ul>
-              </article>
-            ))}
-          </div>
-        </section>
-      </div>
+      <CompareDetailPanel
+        locale={locale}
+        isOpen={isDetailOpen}
+        sample={selectedSample}
+        onClose={() => setIsDetailOpen(false)}
+      />
     </section>
   )
 }

@@ -41,12 +41,23 @@ def _ensure_schema(client: Any, database: str, table: str) -> None:
             metrics_json String,
             dimensions_json String,
             event_excerpt_json String,
+            topology_context_json String,
+            device_profile_json String,
+            change_context_json String,
             ingest_ts DateTime64(3, 'UTC')
         )
         ENGINE = MergeTree
         ORDER BY (emit_ts, rule_id, severity, alert_id)
         """
     )
+    for column_name in (
+        "topology_context_json",
+        "device_profile_json",
+        "change_context_json",
+    ):
+        client.command(
+            f"ALTER TABLE {database}.{table} ADD COLUMN IF NOT EXISTS {column_name} String DEFAULT ''"
+        )
 
 
 def _parse_dt(raw: Any) -> datetime:
@@ -77,6 +88,9 @@ def _to_row(alert: dict[str, Any]) -> list[Any]:
         json.dumps(alert.get("metrics") or {}, ensure_ascii=True, separators=(",", ":")),
         json.dumps(alert.get("dimensions") or {}, ensure_ascii=True, separators=(",", ":")),
         json.dumps(excerpt, ensure_ascii=True, separators=(",", ":")),
+        json.dumps(alert.get("topology_context") or {}, ensure_ascii=True, separators=(",", ":")),
+        json.dumps(alert.get("device_profile") or {}, ensure_ascii=True, separators=(",", ":")),
+        json.dumps(alert.get("change_context") or {}, ensure_ascii=True, separators=(",", ":")),
         datetime.now(timezone.utc),
     ]
 
@@ -138,6 +152,9 @@ def main() -> None:
                     "metrics_json",
                     "dimensions_json",
                     "event_excerpt_json",
+                    "topology_context_json",
+                    "device_profile_json",
+                    "change_context_json",
                     "ingest_ts",
                 ],
             )

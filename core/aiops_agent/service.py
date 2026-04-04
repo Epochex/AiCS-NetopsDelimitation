@@ -5,7 +5,7 @@ from typing import Any
 
 from core.aiops_agent.app_config import AgentConfig
 from core.aiops_agent.cluster_aggregator import AlertClusterAggregator
-from core.aiops_agent.context_lookup import recent_similar_count
+from core.aiops_agent.context_lookup import build_alert_history_context, recent_similar_count
 from core.aiops_agent.evidence_bundle import build_alert_evidence_bundle, build_cluster_evidence_bundle
 from core.aiops_agent.inference_queue import InMemoryInferenceQueue
 from core.aiops_agent.inference_schema import build_alert_inference_request, build_cluster_inference_request
@@ -97,8 +97,14 @@ def run_agent_loop(config: AgentConfig, consumer: Any, producer: Any, clickhouse
                 rule_id,
                 service,
             )
+            history_support = build_alert_history_context(
+                clickhouse_client,
+                config.clickhouse_db,
+                config.clickhouse_alerts_table,
+                alert,
+            )
 
-            alert_evidence = build_alert_evidence_bundle(alert, recent_similar_1h)
+            alert_evidence = build_alert_evidence_bundle(alert, recent_similar_1h, history_support)
             alert_request = build_alert_inference_request(alert, alert_evidence, provider.name)
             should_commit = _run_inference_and_emit(
                 queue=queue,
@@ -119,7 +125,12 @@ def run_agent_loop(config: AgentConfig, consumer: Any, producer: Any, clickhouse
             trigger = aggregator.observe(alert)
             if trigger is not None:
                 stats["cluster_triggers"] += 1
-                cluster_evidence = build_cluster_evidence_bundle(alert, trigger, recent_similar_1h)
+                cluster_evidence = build_cluster_evidence_bundle(
+                    alert,
+                    trigger,
+                    recent_similar_1h,
+                    history_support,
+                )
                 cluster_request = build_cluster_inference_request(alert, trigger, cluster_evidence, provider.name)
                 cluster_ok = _run_inference_and_emit(
                     queue=queue,

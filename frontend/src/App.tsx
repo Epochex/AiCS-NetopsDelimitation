@@ -1,12 +1,17 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
+import {
+  lazy,
+  Suspense,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import './App.css'
-import { EvidenceDrawer } from './components/EvidenceDrawer'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { LiveFlowConsole } from './components/LiveFlowConsole'
 import { PipelineTopologyView } from './components/PipelineTopologyView'
 import { runtimeSnapshot } from './data/runtimeModel'
 import { useRuntimeSnapshot } from './hooks/useRuntimeSnapshot'
-import { formatMaybeTimestamp, timestampTooltip } from './utils/time'
 
 type ViewMode = 'console' | 'topology' | 'compare'
 type Locale = 'en' | 'zh'
@@ -16,10 +21,6 @@ const CompareModeView = lazy(() =>
     default: module.CompareModeView,
   })),
 )
-
-function metricValue(snapshot: ReturnType<typeof useRuntimeSnapshot>['snapshot'], id: string) {
-  return snapshot.overviewMetrics.find((metric) => metric.id === id)?.value ?? 'n/a'
-}
 
 function firstDeviceName(snapshot: ReturnType<typeof useRuntimeSnapshot>['snapshot']) {
   const suggestion = snapshot.suggestions[0]
@@ -42,6 +43,7 @@ function selectedDeviceLabel(
 function App() {
   const { snapshot, latestDelta, connectionState, transportIssue } =
     useRuntimeSnapshot()
+  const heroStageRef = useRef<HTMLElement | null>(null)
   const suggestionPool =
     snapshot.suggestions.length > 0
       ? snapshot.suggestions
@@ -50,8 +52,6 @@ function App() {
     snapshot.defaultSuggestionId || suggestionPool[0]?.id || runtimeSnapshot.defaultSuggestionId
   const [view, setView] = useState<ViewMode>('console')
   const [locale, setLocale] = useState<Locale>('en')
-  const [showSurfacePanel, setShowSurfacePanel] = useState(false)
-  const [showEvidenceDrawer, setShowEvidenceDrawer] = useState(false)
   const [showSurfaceDock, setShowSurfaceDock] = useState(true)
   const [preferredSuggestionId, setPreferredSuggestionId] =
     useState(defaultSuggestionId)
@@ -115,46 +115,6 @@ function App() {
           },
     [locale],
   )
-  const utilityItems = useMemo(
-    () =>
-      view === 'console'
-        ? [
-            { label: copy.labels.service, value: selectedSuggestion.context.service },
-            {
-              label: copy.labels.device,
-              value:
-                firstDeviceName(snapshot) ??
-                selectedSuggestion.context.srcDeviceKey,
-            },
-            {
-              label: copy.labels.judgment,
-              value: `${selectedSuggestion.scope} · ${selectedSuggestion.confidenceLabel}`,
-            },
-            { label: copy.labels.stream, value: connectionState, tone: connectionState },
-            {
-              label: copy.labels.latestSuggestion,
-              value: snapshot.runtime.latestSuggestionTs,
-            },
-            {
-              label: copy.labels.nextAction,
-              value:
-                selectedSuggestion.recommendedActions[0] ??
-                'inspect evidence bundle',
-            },
-          ]
-        : [
-            { label: copy.labels.branch, value: snapshot.repo.branch },
-            { label: copy.labels.validation, value: snapshot.repo.validation },
-            { label: copy.labels.stream, value: connectionState, tone: connectionState },
-            { label: copy.labels.latestAlert, value: snapshot.runtime.latestAlertTs },
-            {
-              label: copy.labels.latestSuggestion,
-              value: snapshot.runtime.latestSuggestionTs,
-            },
-            { label: copy.labels.closure, value: metricValue(snapshot, 'closure') },
-          ],
-    [connectionState, copy, selectedSuggestion, snapshot, view],
-  )
   const dockSummary = useMemo(
     () =>
       locale === 'zh'
@@ -168,26 +128,24 @@ function App() {
       : view === 'topology'
         ? copy.titleTopology
         : copy.titleCompare
-  const canCollapseDock =
-    view === 'console' && !showSurfacePanel && !showEvidenceDrawer
+  const dockAutoHide = true
 
   useEffect(() => {
-    if (!canCollapseDock) {
-      setShowSurfaceDock(true)
+    if (!dockAutoHide) {
       return
     }
-
     let previousY = window.scrollY
 
     const handleScroll = () => {
       const currentY = window.scrollY
-      const scrollingDown = currentY > previousY
+      const downDelta = currentY - previousY
+      const upDelta = previousY - currentY
 
-      if (currentY <= 20) {
+      if (currentY <= 16) {
         setShowSurfaceDock(true)
-      } else if (scrollingDown && currentY > 40) {
+      } else if (downDelta > 6 && currentY > 56) {
         setShowSurfaceDock(false)
-      } else if (!scrollingDown && previousY - currentY > 10) {
+      } else if (upDelta > 10) {
         setShowSurfaceDock(true)
       }
 
@@ -196,7 +154,7 @@ function App() {
 
     window.addEventListener('scroll', handleScroll, { passive: true })
     return () => window.removeEventListener('scroll', handleScroll)
-  }, [canCollapseDock])
+  }, [dockAutoHide])
 
   if (!selectedSuggestion) {
     return (
@@ -224,10 +182,10 @@ function App() {
 
   return (
     <div
-      className={`app-shell ${canCollapseDock && !showSurfaceDock ? 'dock-collapsed' : ''}`}
+      className={`app-shell ${dockAutoHide && !showSurfaceDock ? 'dock-collapsed' : ''}`}
     >
       <header
-        className={`surface-dock ${canCollapseDock && !showSurfaceDock ? 'is-hidden' : ''}`}
+        className={`surface-dock ${dockAutoHide && !showSurfaceDock ? 'is-hidden' : ''}`}
       >
         <div className="surface-dock-brand">
           <span className="surface-dock-kicker">{copy.kicker}</span>
@@ -248,7 +206,7 @@ function App() {
               className={view === 'console' ? 'tab is-active' : 'tab'}
               onClick={() => {
                 setView('console')
-                setShowSurfacePanel(false)
+                setShowSurfaceDock(true)
               }}
             >
               {copy.navConsole}
@@ -258,7 +216,7 @@ function App() {
               className={view === 'topology' ? 'tab is-active' : 'tab'}
               onClick={() => {
                 setView('topology')
-                setShowSurfacePanel(false)
+                setShowSurfaceDock(true)
               }}
             >
               {copy.navTopology}
@@ -268,8 +226,7 @@ function App() {
               className={view === 'compare' ? 'tab is-active' : 'tab'}
               onClick={() => {
                 setView('compare')
-                setShowSurfacePanel(false)
-                setShowEvidenceDrawer(false)
+                setShowSurfaceDock(true)
               }}
             >
               {copy.navCompare}
@@ -292,75 +249,17 @@ function App() {
               中文
             </button>
           </div>
-
-          <div className="surface-dock-actions">
-            <button
-              type="button"
-              className={showSurfacePanel ? 'tab is-active' : 'tab'}
-              onClick={() => setShowSurfacePanel((open) => !open)}
-            >
-              {locale === 'zh' ? '运行概览' : 'Runtime Sheet'}
-            </button>
-
-            {view !== 'compare' ? (
-              <button
-                type="button"
-                className={showEvidenceDrawer ? 'tab is-active' : 'tab'}
-                onClick={() => setShowEvidenceDrawer((open) => !open)}
-              >
-                {locale === 'zh' ? '当前建议' : 'Current Brief'}
-              </button>
-            ) : null}
-          </div>
         </div>
       </header>
 
-      {showSurfacePanel ? (
-        <>
-          <button
-            type="button"
-            className="surface-backdrop"
-            aria-label={locale === 'zh' ? '关闭运行概览' : 'Close runtime sheet'}
-            onClick={() => setShowSurfacePanel(false)}
-          />
-          <aside className="surface-panel">
-            <div className="surface-panel-header">
-              <div>
-                <span className="section-kicker">
-                  {locale === 'zh' ? '折叠运行面板' : 'collapsed runtime surface'}
-                </span>
-                <h2>{locale === 'zh' ? '运行概览' : 'Runtime Sheet'}</h2>
-              </div>
-              <button
-                type="button"
-                className="surface-close"
-                onClick={() => setShowSurfacePanel(false)}
-              >
-                {locale === 'zh' ? '关闭' : 'Close'}
-              </button>
-            </div>
-
-            <div className="utility-track surface-track">
-              {utilityItems.map((item) => (
-                <div
-                  key={item.label}
-                  className={`utility-item tone-${item.tone ?? 'neutral'}`}
-                >
-                  <span className="utility-label">{item.label}</span>
-                  <strong
-                    className="utility-value"
-                    title={timestampTooltip(item.value)}
-                  >
-                    {formatMaybeTimestamp(item.value)}
-                  </strong>
-                </div>
-              ))}
-            </div>
-          </aside>
-        </>
-      ) : null}
-
-      <main className={view === 'compare' ? 'workspace workspace-compare' : 'workspace'}>
+      <main
+        className={[
+          view === 'compare' ? 'workspace workspace-compare' : 'workspace',
+          dockAutoHide ? 'workspace-with-dock-offset' : '',
+        ]
+          .filter(Boolean)
+          .join(' ')}
+      >
         <ErrorBoundary title="Primary View">
           {view === 'console' ? (
             <LiveFlowConsole
@@ -371,8 +270,7 @@ function App() {
               onSelectSuggestion={setPreferredSuggestionId}
               transportIssue={transportIssue}
               locale={locale}
-              onOpenEvidence={() => setShowEvidenceDrawer(true)}
-              onOpenRuntimeSheet={() => setShowSurfacePanel(true)}
+              heroStageRef={heroStageRef}
             />
           ) : view === 'topology' ? (
             <PipelineTopologyView snapshot={snapshot} locale={locale} />
@@ -381,51 +279,16 @@ function App() {
               fallback={
                 <section className="page">
                   <section className="section chart-fallback">
-                    loading compare mode...
+                    {locale === 'zh' ? '正在载入对比模式...' : 'loading compare mode...'}
                   </section>
                 </section>
               }
             >
-              <CompareModeView />
+              <CompareModeView locale={locale} />
             </Suspense>
           )}
         </ErrorBoundary>
       </main>
-
-      {view === 'console' && !showEvidenceDrawer ? (
-        <button
-          type="button"
-          className="drawer-launcher"
-          onClick={() => setShowEvidenceDrawer(true)}
-        >
-          <span>{locale === 'zh' ? '展开当前建议' : 'Open current brief'}</span>
-          <strong>
-            {selectedSuggestion.context.service} ·{' '}
-            {selectedDeviceLabel(snapshot, selectedSuggestion)}
-          </strong>
-        </button>
-      ) : null}
-
-      {view === 'console' && showEvidenceDrawer ? (
-        <div className="drawer-overlay">
-          <button
-            type="button"
-            className="drawer-backdrop"
-            aria-label={locale === 'zh' ? '关闭当前建议' : 'Close current brief'}
-            onClick={() => setShowEvidenceDrawer(false)}
-          />
-          <div className="drawer-shell">
-            <ErrorBoundary title="Evidence Drawer">
-              <EvidenceDrawer
-                key={selectedSuggestion.id}
-                suggestion={selectedSuggestion}
-                controls={snapshot.strategyControls}
-                locale={locale}
-              />
-            </ErrorBoundary>
-          </div>
-        </div>
-      ) : null}
     </div>
   )
 }

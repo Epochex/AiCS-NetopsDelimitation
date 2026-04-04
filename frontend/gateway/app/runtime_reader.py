@@ -795,6 +795,118 @@ def _build_stage_telemetry(
   ]
 
 
+def _normalize_projection_basis(value: Any) -> dict[str, list[dict[str, str]]]:
+  if not isinstance(value, dict):
+    return {}
+  normalized: dict[str, list[dict[str, str]]] = {}
+  for key, raw_entries in value.items():
+    if not isinstance(raw_entries, list):
+      continue
+    entries: list[dict[str, str]] = []
+    for raw_entry in raw_entries:
+      if not isinstance(raw_entry, dict):
+        continue
+      entry = {
+        'label': _get_text(raw_entry, 'label') or 'source',
+        'section': _get_text(raw_entry, 'section') or 'evidence',
+        'field': _get_text(raw_entry, 'field') or 'field',
+        'value': _get_text(raw_entry, 'value') or 'n/a',
+        'reason': _get_text(raw_entry, 'reason') or 'basis',
+      }
+      entries.append(entry)
+    if entries:
+      normalized[str(key)] = entries
+  return normalized
+
+
+def _fallback_projection_basis(
+  evidence_bundle: dict[str, Any],
+  *,
+  service: str,
+  src_device_key: str,
+  rule_id: str,
+  provider: str,
+) -> dict[str, list[dict[str, str]]]:
+  topology = evidence_bundle.get('topology_context', {}) if isinstance(evidence_bundle.get('topology_context'), dict) else {}
+  device = evidence_bundle.get('device_context', {}) if isinstance(evidence_bundle.get('device_context'), dict) else {}
+  change = evidence_bundle.get('change_context', {}) if isinstance(evidence_bundle.get('change_context'), dict) else {}
+  history = evidence_bundle.get('historical_context', {}) if isinstance(evidence_bundle.get('historical_context'), dict) else {}
+  path_signature = (
+    _get_text(topology, 'path_signature')
+    or f"{_get_text(topology, 'srcintf') or 'unknown'}->{_get_text(topology, 'dstintf') or 'unknown'}"
+  )
+  return {
+    'projector-trigger': [
+      {
+        'label': 'rule',
+        'section': 'rule_context',
+        'field': 'rule_id',
+        'value': rule_id,
+        'reason': 'Current suggestion is anchored to the deterministic alert rule.',
+      },
+      {
+        'label': 'service',
+        'section': 'topology_context',
+        'field': 'service',
+        'value': service,
+        'reason': 'Current suggestion stays on the same service slice.',
+      },
+    ],
+    'projector-aggregate': [
+      {
+        'label': 'recent similar',
+        'section': 'historical_context',
+        'field': 'recent_similar_1h',
+        'value': str(history.get('recent_similar_1h', '0')),
+        'reason': 'Historical recurrence is the closest currently mounted context signal.',
+      },
+    ],
+    'projector-path': [
+      {
+        'label': 'path',
+        'section': 'topology_context',
+        'field': 'path_signature',
+        'value': path_signature,
+        'reason': 'Path evidence comes from the current alert enrichment block.',
+      },
+    ],
+    'projector-device': [
+      {
+        'label': 'device',
+        'section': 'device_context',
+        'field': 'src_device_key',
+        'value': src_device_key,
+        'reason': 'Device identity anchors the current suggestion scope.',
+      },
+      {
+        'label': 'change',
+        'section': 'change_context',
+        'field': 'change_refs',
+        'value': ', '.join(_string_list(change.get('change_refs'))) or 'none',
+        'reason': 'Change markers are included when the alert carried them.',
+      },
+    ],
+    'projector-inference': [
+      {
+        'label': 'provider',
+        'section': 'context',
+        'field': 'provider',
+        'value': provider,
+        'reason': 'Inference mode is attached directly to the suggestion context.',
+      },
+    ],
+    'projector-action': [
+      {
+        'label': 'service tuple',
+        'section': 'topology_context',
+        'field': 'srcip,dstip,service',
+        'value': f"{_get_text(topology, 'srcip') or 'n/a'} -> {_get_text(topology, 'dstip') or 'n/a'} / {service}",
+        'reason': 'Action view should remain tied to the tuple observed by the alert.',
+      },
+    ],
+  }
+
+
 def _build_suggestion_records(
   suggestions: list[dict[str, Any]],
   alerts_by_id: dict[str, dict[str, Any]],
@@ -847,6 +959,18 @@ def _build_suggestion_records(
       service=service,
       src_device_key=src_device_key,
     )
+    projection_basis = _normalize_projection_basis(
+      suggestion.get('projection_basis')
+      or _get_dict(suggestion, 'inference', 'raw_response', 'projection_basis')
+    )
+    if not projection_basis:
+      projection_basis = _fallback_projection_basis(
+        evidence_bundle,
+        service=service,
+        src_device_key=src_device_key,
+        rule_id=_get_text(suggestion, 'rule_id') or 'unknown',
+        provider=_get_text(context, 'provider') or 'template',
+      )
     records.append(
       {
         'id': _get_text(suggestion, 'suggestion_id') or _get_text(suggestion, 'alert_id') or 'unknown',
@@ -880,6 +1004,7 @@ def _build_suggestion_records(
         'confidenceLabel': _get_text(suggestion, 'confidence_label') or _confidence_label(confidence),
         'confidenceReason': _get_text(suggestion, 'confidence_reason')
         or 'Confidence is based on current alert evidence and recurrence context.',
+        'projectionBasis': projection_basis,
         'timeline': timeline,
         'stageTelemetry': stage_telemetry,
       },

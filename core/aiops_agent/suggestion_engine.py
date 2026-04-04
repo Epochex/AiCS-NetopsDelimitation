@@ -116,6 +116,7 @@ def _build_pipeline_suggestion_payload(
             "provider": inference_result.provider_name,
         },
         "evidence_bundle": evidence_bundle,
+        "projection_basis": inference_result.raw_response.get("projection_basis", {}),
         "inference": inference_result.to_payload(),
         "hypotheses": inference_result.hypotheses,
         "recommended_actions": inference_result.recommended_actions,

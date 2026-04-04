@@ -1,7 +1,16 @@
-import { lazy, Suspense, useEffect, useRef, useState } from 'react'
+import {
+  lazy,
+  Suspense,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type RefObject,
+} from 'react'
 import type { RuntimeConnectionState } from '../hooks/useRuntimeSnapshot'
 import type {
   FeedEvent,
+  ProjectionBasisEntry,
   RuntimeSnapshot,
   RuntimeStreamDelta,
   StageLink,
@@ -31,8 +40,7 @@ interface LiveFlowConsoleProps {
   onSelectSuggestion: (suggestionId: string) => void
   transportIssue?: string | null
   locale: 'en' | 'zh'
-  onOpenEvidence: () => void
-  onOpenRuntimeSheet: () => void
+  heroStageRef?: RefObject<HTMLElement | null>
 }
 
 interface LifecycleBand {
@@ -91,8 +99,9 @@ interface GuidedStage {
 
 interface StoryCopy {
   eyebrow: string
-  headline: string
-  headlineAccent: string
+  headlinePrimary: string
+  headlineDevice: string
+  headlineRoute: string
   summary: string
   whatHappenedLabel: string
   whatHappened: string
@@ -102,17 +111,38 @@ interface StoryCopy {
   next: string
 }
 
+interface ProjectorFact {
+  label: string
+  value: string
+}
+
+type ProjectorEvidenceState = 'none' | 'partial' | 'rich'
+type ProjectorRuntimeSource =
+  | 'telemetry-window'
+  | 'phase-sum'
+  | 'timeline-window'
+  | 'timeline-sum'
+  | 'demo-clock'
+
+interface ProjectorRuntimeMeasurement {
+  durationMs: number | null
+  source: ProjectorRuntimeSource
+}
+
 interface ProjectorStation {
   id: string
   title: string
   token: string
   caption: string
   detail: string
-  evidence: string[]
+  facts: ProjectorFact[]
+  sources: ProjectionBasisEntry[]
   guidedStageId: string
+  evidenceState: ProjectorEvidenceState
 }
 
 const SCRAMBLE_GLYPHS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/+*-=<>'
+const PROJECTOR_CLOCK_DURATION_MS = 3_200
 
 function scrambleProjectorText(target: string, progress: number) {
   const revealCount = Math.floor(target.length * progress)
@@ -131,6 +161,18 @@ function scrambleProjectorText(target: string, progress: number) {
       return SCRAMBLE_GLYPHS[Math.floor(Math.random() * SCRAMBLE_GLYPHS.length)]
     })
     .join('')
+}
+
+function formatProjectorTimer(ms: number) {
+  return `${(Math.max(0, ms) / 1000).toFixed(2)}s`
+}
+
+function isIpLike(value: string) {
+  return /^(?:\d{1,3}\.){3}\d{1,3}$/.test(value) || value.includes(':')
+}
+
+function isMacLike(value: string) {
+  return /^[0-9a-f]{2}(?::[0-9a-f]{2}){5}$/i.test(value)
 }
 
 function controlValue(controls: StrategyControl[], label: string) {
@@ -480,10 +522,10 @@ function incidentProblemSummary(
   const deviceLabel = friendlyDeviceName(suggestion)
 
   if (locale === 'zh') {
-    return `${ruleLabel} 在 ${deviceLabel} 的 ${suggestion.context.service} 路径上命中了确定性阈值。`
+    return `${deviceLabel} 的 ${suggestion.context.service} 命中了 ${ruleLabel}，这条路径需要优先确认。`
   }
 
-  return `${ruleLabel} crossed its deterministic threshold on ${deviceLabel} for ${suggestion.context.service}.`
+  return `${deviceLabel} crossed ${ruleLabel} on ${suggestion.context.service}, so this path is now the priority review.`
 }
 
 function incidentInferenceSummary(
@@ -496,8 +538,8 @@ function incidentInferenceSummary(
   }
 
   return locale === 'zh'
-    ? '当前没有单独的假设文本，先沿着附带证据继续检查。'
-    : 'No standalone hypothesis text is attached yet, so continue from the evidence already attached.'
+    ? '当前还没有额外假设文本，先顺着已附带的设备、拓扑和变更证据继续判断。'
+    : 'There is no extra hypothesis text yet, so continue from the device, topology, and change evidence already attached.'
 }
 
 function incidentScopeMeaning(
@@ -566,8 +608,8 @@ function historicalIncidentQueue(
       kind: 'suggestion' as const,
       title:
         locale === 'zh'
-          ? `${latestSuggestion.context.service} 在 ${deviceLabel} 上出现问题`
-          : `${latestSuggestion.context.service} anomaly on ${deviceLabel}`,
+          ? `${deviceLabel} 的 ${latestSuggestion.context.service} 需要关注`
+          : `${deviceLabel} needs attention on ${latestSuggestion.context.service}`,
       detail:
         locale === 'zh'
           ? `${refreshLabel}；${incidentScopeMeaning(latestSuggestion, locale)}`
@@ -829,11 +871,144 @@ function friendlyDeviceName(suggestion: SuggestionRecord) {
   return suggestion.context.srcDeviceKey
 }
 
+function projectorDeviceName(
+  suggestion: SuggestionRecord,
+  locale: 'en' | 'zh',
+) {
+  const rawDeviceName = suggestion.evidenceBundle.device.device_name
+  if (typeof rawDeviceName === 'string' && rawDeviceName.trim().length > 0) {
+    return rawDeviceName.trim()
+  }
+
+  const vendor = suggestion.evidenceBundle.device.vendor
+  const family = suggestion.evidenceBundle.device.family
+  const role = suggestion.evidenceBundle.device.device_role
+  const vendorText = typeof vendor === 'string' ? vendor.trim() : ''
+  const familyText = typeof family === 'string' ? family.trim() : ''
+  const roleText = typeof role === 'string' ? role.trim() : ''
+
+  if (vendorText && familyText) {
+    return `${vendorText} ${familyText}`
+  }
+
+  if (familyText) {
+    return familyText
+  }
+
+  if (roleText) {
+    return roleText
+  }
+
+  const fallback = suggestion.context.srcDeviceKey.trim()
+  if (fallback && !isIpLike(fallback) && !isMacLike(fallback)) {
+    return fallback
+  }
+
+  return locale === 'zh' ? '未命名设备' : 'Unlabeled Device'
+}
+
+function preferredIdentityLabel(
+  suggestion: SuggestionRecord,
+  locale: 'en' | 'zh',
+) {
+  const topology = suggestion.evidenceBundle.topology
+  const device = suggestion.evidenceBundle.device
+  const candidates = [
+    topology.srcip,
+    device.srcmac,
+    suggestion.context.srcDeviceKey,
+  ]
+
+  for (const candidate of candidates) {
+    if (typeof candidate === 'string' && candidate.trim().length > 0) {
+      return candidate.trim()
+    }
+  }
+
+  return locale === 'zh' ? '设备身份待补齐' : 'device identity pending'
+}
+
+function projectorRouteLine(
+  suggestion: SuggestionRecord,
+  locale: 'en' | 'zh',
+) {
+  return `${suggestion.context.service} / ${preferredIdentityLabel(suggestion, locale)}`
+}
+
+function projectorEvidenceState(
+  facts: ProjectorFact[],
+  locale: 'en' | 'zh',
+): ProjectorEvidenceState {
+  const emptyTokens =
+    locale === 'zh'
+      ? new Set(['未附带', '设备身份待补齐', 'unknown', 'n/a'])
+      : new Set(['not attached', 'device identity pending', 'unknown', 'n/a'])
+  const meaningfulCount = facts.filter((fact) => {
+    const value = fact.value.trim().toLowerCase()
+    return value.length > 0 && !emptyTokens.has(value)
+  }).length
+
+  if (meaningfulCount >= 3) {
+    return 'rich'
+  }
+  if (meaningfulCount >= 1) {
+    return 'partial'
+  }
+  return 'none'
+}
+
 function prettyRuleName(ruleId: string) {
   return ruleId
     .replace(/_v\d+$/i, '')
     .replace(/_/g, ' ')
     .replace(/\b\w/g, (char) => char.toUpperCase())
+}
+
+function normalizedRuleId(ruleId: string) {
+  return ruleId.replace(/_v\d+$/i, '').trim().toLowerCase()
+}
+
+function analysisModeLabel(
+  suggestion: SuggestionRecord,
+  locale: 'en' | 'zh',
+) {
+  const provider = suggestion.context.provider.trim().toLowerCase() || 'template'
+  if (locale === 'zh') {
+    return provider === 'template'
+      ? '规则告警 + 模板建议'
+      : `规则告警 + ${provider} 建议`
+  }
+
+  return provider === 'template'
+    ? 'deterministic alert + template suggestion'
+    : `deterministic alert + ${provider} suggestion`
+}
+
+function incidentHeadline(
+  suggestion: SuggestionRecord,
+  locale: 'en' | 'zh',
+) {
+  const rule = normalizedRuleId(suggestion.ruleId)
+  const isCluster = suggestion.scope === 'cluster'
+
+  if (rule === 'deny_burst') {
+    if (locale === 'zh') {
+      return isCluster ? '重复 deny 模式' : 'deny 阈值命中'
+    }
+    return isCluster ? 'Repeated deny pattern' : 'Deny threshold hit'
+  }
+
+  if (rule === 'bytes_spike') {
+    if (locale === 'zh') {
+      return isCluster ? '重复流量峰值' : '流量峰值命中'
+    }
+    return isCluster ? 'Repeated traffic spike' : 'Traffic spike hit'
+  }
+
+  if (locale === 'zh') {
+    return isCluster ? '重复规则模式' : '规则阈值命中'
+  }
+  return isCluster ? 'Repeated rule pattern' : 'Rule threshold hit'
 }
 
 function storyScopeLabel(
@@ -850,23 +1025,26 @@ function storyCopy(
   suggestion: SuggestionRecord,
   locale: 'en' | 'zh',
 ): StoryCopy {
-  const deviceName = friendlyDeviceName(suggestion)
+  const deviceName = projectorDeviceName(suggestion, locale)
   const scopeLabel = storyScopeLabel(suggestion, locale)
   const ruleLabel = prettyRuleName(suggestion.ruleId)
+  const modeLabel = analysisModeLabel(suggestion, locale)
   const recentSimilar = suggestion.context.recentSimilar1h
+  const routeLine = projectorRouteLine(suggestion, locale)
 
   if (locale === 'zh') {
     return {
       eyebrow: '当前运行事件',
-      headline: '重复 deny 流量',
-      headlineAccent: suggestion.context.service,
-      summary: `${deviceName} 的 ${suggestion.context.service} 在规则窗口内连续命中阈值，系统已给出一条可审查的${scopeLabel}建议。`,
+      headlinePrimary: incidentHeadline(suggestion, locale),
+      headlineDevice: deviceName,
+      headlineRoute: routeLine,
+      summary: `${deviceName} 的 ${suggestion.context.service} 刚被系统锁定为当前主路径。现在看到的是 ${scopeLabel}，分析方式是 ${modeLabel}。`,
       whatHappenedLabel: '发生了什么',
-      whatHappened: `${ruleLabel} 在 ${friendlyDeviceName(suggestion)} 上被触发，当前焦点是 ${suggestion.context.service} 这条通信路径。`,
+      whatHappened: `${ruleLabel} 在 ${deviceName} 上触发，当前焦点是 ${suggestion.context.service} 这条通信路径。`,
       whyLabel: '为什么重要',
       why: recentSimilar > 0
         ? `过去 1 小时内还有 ${recentSimilar} 次相似告警，说明这不是一次孤立波动。`
-        : '这次告警已经附带设备、拓扑和变化上下文，可以直接进入判断。',
+        : `当前建议来自 ${modeLabel}，并且已经附带设备、拓扑和变化上下文，可以直接进入判断。`,
       nextLabel: '下一步该做什么',
       next: primaryRecommendation(suggestion),
     }
@@ -874,15 +1052,16 @@ function storyCopy(
 
   return {
     eyebrow: 'Live incident',
-    headline: 'Repeated deny bursts',
-    headlineAccent: `on ${suggestion.context.service}`,
-    summary: `${deviceName} crossed the rule threshold for ${suggestion.context.service}, and the system has prepared one ${scopeLabel} suggestion for review.`,
+    headlinePrimary: incidentHeadline(suggestion, locale),
+    headlineDevice: deviceName,
+    headlineRoute: routeLine,
+    summary: `${deviceName} is the current focus on ${suggestion.context.service}. This slice is a ${scopeLabel} running in ${modeLabel}.`,
     whatHappenedLabel: 'What happened',
-    whatHappened: `${ruleLabel} fired on ${friendlyDeviceName(suggestion)}. The current slice is the ${suggestion.context.service} traffic path.`,
+    whatHappened: `${ruleLabel} fired on ${deviceName}. The current slice is the ${suggestion.context.service} traffic path.`,
     whyLabel: 'Why it matters',
     why: recentSimilar > 0
       ? `${recentSimilar} similar alerts were seen in the last hour, so this is no longer a one-off spike.`
-      : 'Device, topology, and change context are already attached, so this incident is ready for review.',
+      : `The current recommendation comes from ${modeLabel}, and device, topology, and change context are already attached for review.`,
     nextLabel: 'What to do next',
     next: primaryRecommendation(suggestion),
   }
@@ -954,6 +1133,7 @@ function buildProjectorStations(
   const topology = suggestion.evidenceBundle.topology
   const device = suggestion.evidenceBundle.device
   const change = suggestion.evidenceBundle.change
+  const projectionBasis = suggestion.projectionBasis ?? {}
   const ruleLabel = prettyRuleName(suggestion.ruleId)
   const deviceLabel = friendlyDeviceName(suggestion)
   const hypothesis =
@@ -965,6 +1145,90 @@ function buildProjectorStations(
     firstCompactRecordValue(topology, ['srcip', 'src_device_key'], locale),
     firstCompactRecordValue(topology, ['dstip', 'neighbor_refs', 'zone'], locale),
   ].join(' -> ')
+  const triggerFacts = [
+    {
+      label: locale === 'zh' ? '当前服务' : 'service',
+      value: suggestion.context.service,
+    },
+    {
+      label: locale === 'zh' ? '设备名' : 'device name',
+      value: projectorDeviceName(suggestion, locale),
+    },
+    {
+      label: locale === 'zh' ? '事件身份' : 'event identity',
+      value: preferredIdentityLabel(suggestion, locale),
+    },
+  ]
+  const aggregateFacts = [
+    {
+      label: locale === 'zh' ? '当前判断' : 'current posture',
+      value: storyScopeLabel(suggestion, locale),
+    },
+    {
+      label: locale === 'zh' ? '聚合门槛' : 'cluster gate',
+      value: clusterGateValue,
+    },
+    {
+      label: locale === 'zh' ? '相似事件' : 'recent similar',
+      value: `${suggestion.context.recentSimilar1h}`,
+    },
+  ]
+  const pathFacts = [
+    {
+      label: locale === 'zh' ? '源 IP/MAC' : 'source identity',
+      value: firstCompactRecordValue(topology, ['srcip', 'src_device_key'], locale),
+    },
+    {
+      label: locale === 'zh' ? '服务' : 'service',
+      value: suggestion.context.service,
+    },
+    {
+      label: locale === 'zh' ? '目标路径' : 'destination',
+      value: firstCompactRecordValue(topology, ['dstip', 'neighbor_refs', 'zone'], locale),
+    },
+  ]
+  const deviceFacts = [
+    {
+      label: locale === 'zh' ? '设备名' : 'device name',
+      value: projectorDeviceName(suggestion, locale),
+    },
+    {
+      label: locale === 'zh' ? '设备画像' : 'fingerprint',
+      value: firstCompactRecordValue(device, ['device_role', 'vendor', 'family'], locale),
+    },
+    {
+      label: locale === 'zh' ? '变更线索' : 'change clue',
+      value: firstCompactRecordValue(change, ['change_refs', 'level', 'suspected_change'], locale),
+    },
+  ]
+  const inferenceFacts = [
+    {
+      label: locale === 'zh' ? '优先级' : 'priority',
+      value: suggestion.priority.toUpperCase(),
+    },
+    {
+      label: locale === 'zh' ? '把握度' : 'confidence',
+      value: suggestion.confidenceLabel,
+    },
+    {
+      label: locale === 'zh' ? '分析方式' : 'analysis mode',
+      value: analysisModeLabel(suggestion, locale),
+    },
+  ]
+  const actionFacts = [
+    {
+      label: locale === 'zh' ? '建议来源' : 'provider',
+      value: compactEvidenceValue(suggestion.context.provider, locale),
+    },
+    {
+      label: locale === 'zh' ? '当前服务' : 'service',
+      value: suggestion.context.service,
+    },
+    {
+      label: locale === 'zh' ? '动作类型' : 'action type',
+      value: locale === 'zh' ? '人工确认后执行' : 'operator-reviewed next move',
+    },
+  ]
 
   return [
     {
@@ -973,31 +1237,35 @@ function buildProjectorStations(
       token: formatMaybeTimestamp(suggestion.suggestionTs, 'time'),
       caption:
         locale === 'zh'
-          ? '服务路径锁定'
-          : 'service lane armed',
+          ? '系统已锁定目标路径'
+          : 'service lane locked',
       detail:
         locale === 'zh'
-          ? `${ruleLabel} 已经进入运行链路，当前切片锁定在这条服务路径。`
-          : `${ruleLabel} has entered the runtime path and the current slice is locked to this service lane.`,
-      evidence: [suggestion.context.service, deviceLabel],
+          ? `${ruleLabel} 刚把 ${deviceLabel} 的 ${suggestion.context.service} 标成当前主事件，后面所有节点都会围绕这条路径继续解释。`
+          : `${ruleLabel} just marked ${suggestion.context.service} on ${deviceLabel} as the current incident, and the rest of the chain now explains that path.`,
+      facts: triggerFacts,
+      sources: projectionBasis['projector-trigger'] ?? [],
       guidedStageId: 'guided-source',
+      evidenceState: projectorEvidenceState(triggerFacts, locale),
     },
     {
       id: 'projector-aggregate',
       title: locale === 'zh' ? '聚合' : 'Aggregate',
       token: clusterGateValue,
-      caption: locale === 'zh' ? '聚合观察' : 'gate watch',
+      caption: locale === 'zh' ? '系统判断是否已成重复模式' : 'repeat-pattern check',
       detail:
         locale === 'zh'
           ? suggestion.scope === 'cluster'
-            ? '重复键值已经跨过聚合门槛，系统把它当成模式事件。'
-            : '证据仍集中在单一路径上，系统还在观察是否形成重复模式。'
+            ? '相同键值已经跨过聚合门槛，所以系统不再把它当成单次抖动，而是当成重复模式事件。'
+            : '证据暂时还集中在这一条路径上，系统正在观察它会不会继续累积成重复模式。'
           : suggestion.scope === 'cluster'
-            ? 'Repeated same-key evidence crossed the cluster gate and is now treated as a pattern incident.'
-            : 'Evidence is still concentrated on one path and the system is still watching for repeated pattern formation.',
-      evidence: [storyScopeLabel(suggestion, locale), clusterGateValue],
+          ? 'The same-key evidence crossed the cluster gate, so the system now treats it as a repeated pattern instead of a one-off spike.'
+          : 'The evidence is still concentrated on one path, so the system is watching whether it grows into a repeated pattern.',
+      facts: aggregateFacts,
+      sources: projectionBasis['projector-aggregate'] ?? [],
       guidedStageId:
         suggestion.scope === 'cluster' ? 'guided-cluster' : 'guided-alert',
+      evidenceState: projectorEvidenceState(aggregateFacts, locale),
     },
     {
       id: 'projector-path',
@@ -1005,18 +1273,16 @@ function buildProjectorStations(
       token: compactEvidenceValue(topology.zone, locale),
       caption:
         locale === 'zh'
-          ? '拓扑路径已挂载'
-          : 'topology attached',
+          ? '当前主路径'
+          : 'main traffic lane',
       detail:
         locale === 'zh'
-          ? `当前先看 ${pathToken} 这条主路径。`
-          : `The current review is centered on ${pathToken}.`,
-      evidence: [
-        firstCompactRecordValue(topology, ['srcip', 'src_device_key'], locale),
-        suggestion.context.service,
-        firstCompactRecordValue(topology, ['dstip', 'neighbor_refs', 'zone'], locale),
-      ],
+          ? `现在优先看的就是 ${pathToken} 这条路线，它告诉我们问题是在什么路径上被观察到的。`
+          : `The current review stays centered on ${pathToken}, which tells us where the issue is being observed.`,
+      facts: pathFacts,
+      sources: projectionBasis['projector-path'] ?? [],
       guidedStageId: 'guided-source',
+      evidenceState: projectorEvidenceState(pathFacts, locale),
     },
     {
       id: 'projector-device',
@@ -1024,18 +1290,16 @@ function buildProjectorStations(
       token: firstCompactRecordValue(change, ['level', 'suspected_change'], locale),
       caption:
         locale === 'zh'
-          ? '画像与变更已挂载'
-          : 'fingerprint attached',
+          ? '设备身份与变更线索'
+          : 'identity and change clues',
       detail:
         locale === 'zh'
-          ? `设备身份以 ${deviceLabel} 为主，变更信号帮助判断这是噪声还是姿态漂移。`
-          : `${deviceLabel} is the primary identity anchor, while change markers help decide whether this is noise or posture drift.`,
-      evidence: [
-        deviceLabel,
-        firstCompactRecordValue(device, ['device_role', 'vendor', 'family'], locale),
-        firstCompactRecordValue(change, ['change_refs', 'level', 'suspected_change'], locale),
-      ],
+          ? `系统现在用 ${deviceLabel} 作为主设备身份，同时结合变更线索判断这更像偶发噪声，还是设备姿态真的发生了变化。`
+          : `The system now uses ${deviceLabel} as the main identity anchor and combines it with change clues to decide whether this is noise or a real posture shift.`,
+      facts: deviceFacts,
+      sources: projectionBasis['projector-device'] ?? [],
       guidedStageId: 'guided-alert',
+      evidenceState: projectorEvidenceState(deviceFacts, locale),
     },
     {
       id: 'projector-inference',
@@ -1043,11 +1307,13 @@ function buildProjectorStations(
       token: suggestion.confidenceLabel,
       caption:
         locale === 'zh'
-          ? '主假设成立'
-          : 'lead hypothesis',
+          ? '当前最值得先验证的判断'
+          : 'best current reading',
       detail: hypothesis,
-      evidence: [suggestion.priority.toUpperCase(), suggestion.confidenceLabel],
+      facts: inferenceFacts,
+      sources: projectionBasis['projector-inference'] ?? [],
       guidedStageId: 'guided-suggestion',
+      evidenceState: projectorEvidenceState(inferenceFacts, locale),
     },
     {
       id: 'projector-action',
@@ -1055,16 +1321,193 @@ function buildProjectorStations(
       token: compactEvidenceValue(suggestion.context.provider, locale),
       caption:
         locale === 'zh'
-          ? '首个动作出口'
-          : 'next move',
+          ? '下一步建议'
+          : 'recommended next move',
       detail: primaryRecommendation(suggestion),
-      evidence: [
-        compactEvidenceValue(suggestion.context.provider, locale),
-        suggestion.context.service,
-      ],
+      facts: actionFacts,
+      sources: projectionBasis['projector-action'] ?? [],
       guidedStageId: 'guided-operator',
+      evidenceState: projectorEvidenceState(actionFacts, locale),
     },
   ] satisfies ProjectorStation[]
+}
+
+function projectorRuntimeMeasurement(
+  lifecycle: LifecyclePhase[],
+  suggestion: SuggestionRecord,
+  timeline: RuntimeSnapshot['timeline'],
+): ProjectorRuntimeMeasurement {
+  const telemetry = suggestion.stageTelemetry ?? []
+  const startedAtValues = telemetry
+    .map((item) => parseTimestamp(item.startedAt ?? item.endedAt))
+    .filter((stamp): stamp is Date => Boolean(stamp))
+  const endedAtValues = telemetry
+    .map((item) => parseTimestamp(item.endedAt ?? item.startedAt))
+    .filter((stamp): stamp is Date => Boolean(stamp))
+
+  if (startedAtValues.length > 0 && endedAtValues.length > 0) {
+    const startedAtMs = Math.min(...startedAtValues.map((stamp) => stamp.getTime()))
+    const endedAtMs = Math.max(...endedAtValues.map((stamp) => stamp.getTime()))
+    const measuredMs = Math.max(0, endedAtMs - startedAtMs)
+
+    if (measuredMs > 0 && measuredMs <= 10 * 60_000) {
+      return {
+        durationMs: measuredMs,
+        source: 'telemetry-window',
+      }
+    }
+  }
+
+  const summedDurationMs = lifecycle.reduce((total, phase) => {
+    const durationMs = phase.band.durationMs
+    if (!durationMs || durationMs <= 0 || durationMs > 5 * 60_000) {
+      return total
+    }
+    return total + durationMs
+  }, 0)
+
+  if (summedDurationMs > 0 && summedDurationMs <= 10 * 60_000) {
+    return {
+      durationMs: summedDurationMs,
+      source: 'phase-sum',
+    }
+  }
+
+  const timelineStamps = timeline
+    .map((step) => parseTimestamp(step.stamp))
+    .filter((stamp): stamp is Date => Boolean(stamp))
+
+  if (timelineStamps.length > 1) {
+    const startedAtMs = Math.min(...timelineStamps.map((stamp) => stamp.getTime()))
+    const endedAtMs = Math.max(...timelineStamps.map((stamp) => stamp.getTime()))
+    const measuredMs = Math.max(0, endedAtMs - startedAtMs)
+
+    if (measuredMs > 0 && measuredMs <= 10 * 60_000) {
+      return {
+        durationMs: measuredMs,
+        source: 'timeline-window',
+      }
+    }
+  }
+
+  const summedTimelineDurationMs = timeline.reduce((total, step) => {
+    const durationMs = step.durationMs
+    if (!durationMs || durationMs <= 0 || durationMs > 5 * 60_000) {
+      return total
+    }
+    return total + durationMs
+  }, 0)
+
+  if (summedTimelineDurationMs > 0 && summedTimelineDurationMs <= 10 * 60_000) {
+    return {
+      durationMs: summedTimelineDurationMs,
+      source: 'timeline-sum',
+    }
+  }
+
+  return {
+    durationMs: null,
+    source: 'demo-clock',
+  }
+}
+
+function projectorRuntimeSourceLabel(
+  source: ProjectorRuntimeSource,
+  locale: 'en' | 'zh',
+) {
+  const mapping: Record<ProjectorRuntimeSource, { en: string; zh: string }> = {
+    'telemetry-window': {
+      en: 'stage telemetry window',
+      zh: '阶段时序窗口',
+    },
+    'phase-sum': {
+      en: 'phase duration sum',
+      zh: '阶段耗时求和',
+    },
+    'timeline-window': {
+      en: 'timeline timestamp window',
+      zh: '时间线时间窗',
+    },
+    'timeline-sum': {
+      en: 'timeline duration sum',
+      zh: '时间线耗时求和',
+    },
+    'demo-clock': {
+      en: 'demo playback clock',
+      zh: '演示回放时钟',
+    },
+  }
+
+  return mapping[source][locale]
+}
+
+function projectorPlaybackStepMs(
+  stations: ProjectorStation[],
+  suggestion: SuggestionRecord,
+) {
+  return stations.map((station) => {
+    switch (station.id) {
+      case 'projector-trigger':
+        return 520
+      case 'projector-aggregate':
+        return suggestion.scope === 'cluster' ? 620 : 520
+      case 'projector-path':
+        return 520
+      case 'projector-device':
+        return 520
+      case 'projector-inference':
+        return suggestion.scope === 'cluster' ? 500 : 600
+      case 'projector-action':
+        return 520
+      default:
+        return PROJECTOR_CLOCK_DURATION_MS / Math.max(stations.length, 1)
+    }
+  })
+}
+
+function projectorStationElapsedMs(
+  stepDurations: number[],
+  index: number,
+  elapsedMs: number,
+) {
+  const stageDuration = stepDurations[index] ?? 0
+  const stageStartMs = stepDurations
+    .slice(0, index)
+    .reduce((total, durationMs) => total + durationMs, 0)
+
+  return Math.min(stageDuration, Math.max(0, elapsedMs - stageStartMs))
+}
+
+function projectorDisplayStepMs(
+  playbackStepDurations: number[],
+  displayDurationMs: number,
+) {
+  const playbackTotalMs = playbackStepDurations.reduce(
+    (total, durationMs) => total + durationMs,
+    0,
+  )
+
+  if (playbackTotalMs <= 0 || displayDurationMs <= 0) {
+    return playbackStepDurations
+  }
+
+  return playbackStepDurations.map(
+    (durationMs) => (durationMs / playbackTotalMs) * displayDurationMs,
+  )
+}
+
+function playbackIndexForElapsed(
+  stepDurations: number[],
+  elapsedMs: number,
+) {
+  let consumedMs = 0
+  for (let index = 0; index < stepDurations.length; index += 1) {
+    consumedMs += stepDurations[index]
+    if (elapsedMs < consumedMs) {
+      return index
+    }
+  }
+  return Math.max(0, stepDurations.length - 1)
 }
 
 function buildGuidedStages(lifecycle: LifecyclePhase[]): GuidedStage[] {
@@ -1184,12 +1627,18 @@ export function LiveFlowConsole({
   onSelectSuggestion,
   transportIssue,
   locale,
-  onOpenEvidence,
-  onOpenRuntimeSheet,
+  heroStageRef,
 }: LiveFlowConsoleProps) {
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null)
+  const [selectedLinkedSuggestionId, setSelectedLinkedSuggestionId] = useState<string | null>(null)
+  const [pinnedEvent, setPinnedEvent] = useState<HistoricalIncidentEvent | null>(null)
+  const [pinnedSuggestion, setPinnedSuggestion] = useState<SuggestionRecord | null>(null)
   const [selectedProjectorId, setSelectedProjectorId] = useState<string | null>(null)
   const [projectorTheme, setProjectorTheme] = useState<'calm' | 'alert'>('calm')
+  const [projectorReplaySeed, setProjectorReplaySeed] = useState(0)
+  const [projectorPlaybackElapsedMs, setProjectorPlaybackElapsedMs] = useState(0)
+  const [projectorPlaybackIndex, setProjectorPlaybackIndex] = useState(0)
+  const [projectorPlaybackRunning, setProjectorPlaybackRunning] = useState(false)
   const [expandedStageSelection, setExpandedStageSelection] = useState<{
     suggestionId: string
     stageId: string | null
@@ -1207,15 +1656,21 @@ export function LiveFlowConsole({
 
   const activeEvent =
     queueEvents.find((event) => event.id === selectedEventId) ??
+    pinnedEvent ??
     queueEvents.find(
       (event) => event.dedupeKey === incidentKeyForSuggestion(selectedSuggestion),
     ) ??
     queueEvents[0]
-  const linkedSuggestion = suggestionForEvent(
-    activeEvent,
-    snapshot.suggestions,
-    selectedSuggestion,
-  )
+  const linkedSuggestion =
+    snapshot.suggestions.find(
+      (suggestion) => suggestion.id === selectedLinkedSuggestionId,
+    ) ??
+    pinnedSuggestion ??
+    suggestionForEvent(
+      activeEvent,
+      snapshot.suggestions,
+      selectedSuggestion,
+    )
   const expandedStageId =
     expandedStageSelection?.suggestionId === linkedSuggestion.id
       ? expandedStageSelection.stageId
@@ -1243,9 +1698,14 @@ export function LiveFlowConsole({
   )
   const incidentTimeline = reconstructedTimeline(linkedSuggestion, snapshot, lifecycle)
   const story = storyCopy(linkedSuggestion, locale)
-  const [scrambledHeadline, setScrambledHeadline] = useState(story.headline)
-  const [scrambledHeadlineAccent, setScrambledHeadlineAccent] = useState(
-    story.headlineAccent,
+  const [scrambledHeadlinePrimary, setScrambledHeadlinePrimary] = useState(
+    story.headlinePrimary,
+  )
+  const [scrambledHeadlineDevice, setScrambledHeadlineDevice] = useState(
+    story.headlineDevice,
+  )
+  const [scrambledHeadlineRoute, setScrambledHeadlineRoute] = useState(
+    story.headlineRoute,
   )
   const hasMountedProjectorRef = useRef(false)
   const relatedTimelineSteps = incidentTimeline.filter(
@@ -1287,26 +1747,110 @@ export function LiveFlowConsole({
   const selectedWindowSummary = activeEvent
     ? `${formatMaybeTimestamp(activeEvent.firstSeenTs, 'time')} - ${formatMaybeTimestamp(activeEvent.lastSeenTs, 'time')}`
     : `${formatMaybeTimestamp(linkedSuggestion.context.clusterFirstAlertTs, 'time')} - ${formatMaybeTimestamp(linkedSuggestion.context.clusterLastAlertTs, 'time')}`
-  const projectorStations = buildProjectorStations(
-    linkedSuggestion,
-    locale,
-    clusterGateValue,
+  const projectorStations = useMemo(
+    () =>
+      buildProjectorStations(
+        linkedSuggestion,
+        locale,
+        clusterGateValue,
+      ),
+    [clusterGateValue, linkedSuggestion.id, locale],
   )
+  const projectorPlaybackStepDurations = useMemo(
+    () => projectorPlaybackStepMs(projectorStations, linkedSuggestion),
+    [linkedSuggestion.scope, projectorStations],
+  )
+  const projectorPlaybackDurationMs = useMemo(
+    () =>
+      projectorPlaybackStepDurations.reduce(
+        (total, durationMs) => total + durationMs,
+        0,
+      ),
+    [projectorPlaybackStepDurations],
+  )
+  const projectorRuntime = useMemo(
+    () =>
+      projectorRuntimeMeasurement(
+        lifecycle,
+        linkedSuggestion,
+        incidentTimeline,
+      ),
+    [incidentTimeline, lifecycle, linkedSuggestion],
+  )
+  const projectorActualDurationMs = projectorRuntime.durationMs
+  const projectorDisplayDurationMs =
+    projectorActualDurationMs ?? projectorPlaybackDurationMs
+  const projectorDisplayStepDurations = useMemo(
+    () =>
+      projectorDisplayStepMs(
+        projectorPlaybackStepDurations,
+        projectorDisplayDurationMs,
+      ),
+    [projectorDisplayDurationMs, projectorPlaybackStepDurations],
+  )
+  const playbackDrivenStation =
+    projectorStations[projectorPlaybackIndex] ?? projectorStations[0]
   const selectedProjector =
-    projectorStations.find((station) => station.id === selectedProjectorId) ??
-    projectorStations.find(
-      (station) => station.guidedStageId === selectedGuidedStage.id,
-    ) ??
-    projectorStations[0]
+    projectorPlaybackRunning
+      ? playbackDrivenStation
+      : projectorStations.find((station) => station.id === selectedProjectorId) ??
+        projectorStations.find(
+          (station) => station.guidedStageId === selectedGuidedStage.id,
+        ) ??
+        projectorStations[0]
   const selectedProjectorIndex = projectorStations.findIndex(
     (station) => station.id === selectedProjector.id,
   )
+  const projectorPlaybackRatio =
+    projectorPlaybackDurationMs > 0
+      ? Math.min(1, projectorPlaybackElapsedMs / projectorPlaybackDurationMs)
+      : 1
+  const projectorDisplayedElapsedMs = projectorPlaybackRunning
+    ? projectorDisplayDurationMs * projectorPlaybackRatio
+    : projectorDisplayDurationMs
+  const projectorRuntimeLabel =
+    projectorActualDurationMs !== null
+      ? locale === 'zh'
+        ? '实测链路时长'
+        : 'measured chain runtime'
+      : locale === 'zh'
+        ? '演示回放时钟'
+        : 'demo playback clock'
+  const projectorRuntimeNote =
+    projectorActualDurationMs !== null
+      ? projectorRuntimeSourceLabel(projectorRuntime.source, locale)
+      : locale === 'zh'
+        ? '未拿到有效阶段时序，当前仅显示前端回放编排'
+        : 'No valid stage timing available; showing the frontend replay clock.'
+
+  useEffect(() => {
+    if (selectedEventId || queueEvents.length === 0) {
+      return
+    }
+
+    const seededEvent =
+      queueEvents.find(
+        (event) => event.dedupeKey === incidentKeyForSuggestion(selectedSuggestion),
+      ) ?? queueEvents[0]
+    const seededSuggestion = suggestionForEvent(
+      seededEvent,
+      snapshot.suggestions,
+      selectedSuggestion,
+    )
+
+    setSelectedEventId(seededEvent.id)
+    setSelectedLinkedSuggestionId(seededSuggestion.id)
+    setPinnedEvent(seededEvent)
+    setPinnedSuggestion(seededSuggestion)
+    setProjectorReplaySeed((currentValue) => currentValue + 1)
+  }, [queueEvents, selectedEventId, selectedSuggestion, snapshot.suggestions])
 
   useEffect(() => {
     if (!hasMountedProjectorRef.current) {
       hasMountedProjectorRef.current = true
-      setScrambledHeadline(story.headline)
-      setScrambledHeadlineAccent(story.headlineAccent)
+      setScrambledHeadlinePrimary(story.headlinePrimary)
+      setScrambledHeadlineDevice(story.headlineDevice)
+      setScrambledHeadlineRoute(story.headlineRoute)
       return
     }
 
@@ -1317,9 +1861,14 @@ export function LiveFlowConsole({
     const scrambleTimer = window.setInterval(() => {
       frame += 1
       const progress = Math.min(frame / totalFrames, 1)
-      setScrambledHeadline(scrambleProjectorText(story.headline, progress))
-      setScrambledHeadlineAccent(
-        scrambleProjectorText(story.headlineAccent, progress),
+      setScrambledHeadlinePrimary(
+        scrambleProjectorText(story.headlinePrimary, progress),
+      )
+      setScrambledHeadlineDevice(
+        scrambleProjectorText(story.headlineDevice, progress),
+      )
+      setScrambledHeadlineRoute(
+        scrambleProjectorText(story.headlineRoute, progress),
       )
 
       if (progress >= 1) {
@@ -1327,17 +1876,81 @@ export function LiveFlowConsole({
       }
     }, 50)
 
-    const themeTimer = window.setTimeout(() => {
-      setProjectorTheme('calm')
-      setScrambledHeadline(story.headline)
-      setScrambledHeadlineAccent(story.headlineAccent)
-    }, 1800)
-
     return () => {
       window.clearInterval(scrambleTimer)
-      window.clearTimeout(themeTimer)
     }
-  }, [linkedSuggestion.id, locale, story.headline, story.headlineAccent])
+  }, [
+    linkedSuggestion.id,
+    locale,
+    story.headlineDevice,
+    story.headlinePrimary,
+    story.headlineRoute,
+  ])
+
+  useEffect(() => {
+    if (projectorReplaySeed === 0) {
+      return
+    }
+
+    setSelectedProjectorId(null)
+    setProjectorPlaybackElapsedMs(0)
+    setProjectorPlaybackIndex(0)
+    setProjectorPlaybackRunning(true)
+    setProjectorTheme('alert')
+    setExpandedStageSelection({
+      suggestionId: linkedSuggestion.id,
+      stageId: projectorStations[0]?.guidedStageId ?? null,
+    })
+
+    let startMs: number | null = null
+    let frameId = 0
+
+    const step = (frameMs: number) => {
+      if (startMs === null) {
+        startMs = frameMs
+      }
+
+      const elapsedMs = frameMs - startMs
+      const clampedElapsedMs = Math.min(elapsedMs, projectorPlaybackDurationMs)
+      const nextIndex = playbackIndexForElapsed(
+        projectorPlaybackStepDurations,
+        clampedElapsedMs,
+      )
+
+      setProjectorPlaybackElapsedMs(clampedElapsedMs)
+      setProjectorPlaybackIndex(nextIndex)
+      setExpandedStageSelection((currentValue) => {
+        const nextStageId = projectorStations[nextIndex]?.guidedStageId ?? null
+        if (
+          currentValue?.suggestionId === linkedSuggestion.id &&
+          currentValue?.stageId === nextStageId
+        ) {
+          return currentValue
+        }
+        return {
+          suggestionId: linkedSuggestion.id,
+          stageId: nextStageId,
+        }
+      })
+
+      if (clampedElapsedMs >= projectorPlaybackDurationMs) {
+        setProjectorPlaybackRunning(false)
+        setProjectorTheme('calm')
+        setProjectorPlaybackElapsedMs(projectorPlaybackDurationMs)
+        setProjectorPlaybackIndex(projectorStations.length - 1)
+        setSelectedProjectorId(
+          projectorStations[projectorStations.length - 1]?.id ?? null,
+        )
+        return
+      }
+
+      frameId = window.requestAnimationFrame(step)
+    }
+
+    frameId = window.requestAnimationFrame(step)
+
+    return () => window.cancelAnimationFrame(frameId)
+  }, [projectorReplaySeed])
 
   useEffect(() => {
     if (!pendingStageRevealRef.current) {
@@ -1358,6 +1971,10 @@ export function LiveFlowConsole({
       selectedSuggestion,
     )
     setSelectedEventId(event.id)
+    setSelectedLinkedSuggestionId(nextSuggestion.id)
+    setPinnedEvent(event)
+    setPinnedSuggestion(nextSuggestion)
+    setProjectorReplaySeed((currentValue) => currentValue + 1)
     setSelectedProjectorId(null)
     setExpandedStageSelection(null)
     if (nextSuggestion.id !== selectedSuggestion.id) {
@@ -1366,6 +1983,11 @@ export function LiveFlowConsole({
   }
 
   const handleSelectProjectorStation = (station: ProjectorStation) => {
+    setProjectorPlaybackRunning(false)
+    setProjectorTheme('calm')
+    setProjectorPlaybackIndex(
+      projectorStations.findIndex((item) => item.id === station.id),
+    )
     setSelectedProjectorId(station.id)
     setExpandedStageSelection({
       suggestionId: linkedSuggestion.id,
@@ -1395,7 +2017,11 @@ export function LiveFlowConsole({
         </section>
       ) : null}
 
-      <section className="section story-stage-shell">
+      <section
+        ref={heroStageRef}
+        id="runtime-main-stage"
+        className="section story-stage-shell"
+      >
         <div className="section-header story-stage-header">
           <div>
             <h2 className="section-title">
@@ -1413,12 +2039,6 @@ export function LiveFlowConsole({
             </span>
             <div className="story-stage-actions">
               <span className={`signal-chip tone-${pulseTone}`}>{pulseTone}</span>
-              <button type="button" className="story-stage-action" onClick={onOpenRuntimeSheet}>
-                {locale === 'zh' ? '运行概览' : 'Runtime Sheet'}
-              </button>
-              <button type="button" className="story-stage-action is-bright" onClick={onOpenEvidence}>
-                {locale === 'zh' ? '当前建议' : 'Current Brief'}
-              </button>
             </div>
           </div>
         </div>
@@ -1525,26 +2145,31 @@ export function LiveFlowConsole({
 
           <section className="incident-projector-shell">
             <div className="incident-projector-head">
-              <div>
+              <div className="incident-projector-copy">
                 <p className="incident-projector-kicker">{story.eyebrow}</p>
                 <h3 className="incident-projector-headline">
-                  <span>{scrambledHeadline}</span>
-                  <span>{scrambledHeadlineAccent}</span>
+                  <span className="headline-primary">{scrambledHeadlinePrimary}</span>
+                  <span className="headline-device">{scrambledHeadlineDevice}</span>
+                  <span className="headline-route">{scrambledHeadlineRoute}</span>
                 </h3>
+                <p className="incident-projector-summary">{story.summary}</p>
               </div>
 
-              <div className="incident-projector-badges">
-                <span className="signal-chip tone-suggestion">
-                  {linkedSuggestion.context.service}
+              <div
+                className={`incident-projector-runtime ${projectorPlaybackRunning ? 'is-running' : 'is-complete'}`}
+              >
+                <span className="incident-projector-runtime-label">
+                  {projectorRuntimeLabel}
                 </span>
-                <span className="signal-chip tone-neutral">
-                  {friendlyDeviceName(linkedSuggestion)}
-                </span>
-                <span className="signal-chip tone-live">
-                  {storyScopeLabel(linkedSuggestion, locale)}
-                </span>
-                <span className="signal-chip tone-alert">
-                  {linkedSuggestion.confidenceLabel}
+                <strong>
+                  {projectorDisplayedElapsedMs !== null
+                    ? `${formatProjectorTimer(projectorDisplayedElapsedMs)}${projectorActualDurationMs === null ? '*' : ''}`
+                    : locale === 'zh'
+                      ? '时序缺失'
+                      : 'timing unavailable'}
+                </strong>
+                <span className="incident-projector-runtime-note">
+                  {projectorRuntimeNote}
                 </span>
               </div>
             </div>
@@ -1554,7 +2179,10 @@ export function LiveFlowConsole({
                 <span
                   className="incident-projector-progress"
                   style={{
-                    width: `${((selectedProjectorIndex + 1) / projectorStations.length) * 100}%`,
+                    width: `${Math.max(
+                      ((selectedProjectorIndex + 1) / projectorStations.length) * 100,
+                      projectorPlaybackRatio * 100,
+                    )}%`,
                   }}
                 />
                 <span className="incident-projector-scan" />
@@ -1565,12 +2193,23 @@ export function LiveFlowConsole({
                   const isActive = station.id === selectedProjector.id
                   const isRaised = index % 2 === 0
                   const isLit = index <= selectedProjectorIndex
+                  const timerTone =
+                    projectorPlaybackRunning && isActive
+                      ? 'is-active'
+                      : isLit
+                        ? 'is-complete'
+                        : 'is-idle'
+                  const stationElapsedMs = projectorStationElapsedMs(
+                    projectorDisplayStepDurations,
+                    index,
+                    projectorDisplayedElapsedMs ?? 0,
+                  )
 
                   return (
                     <button
                       key={station.id}
                       type="button"
-                      className={`incident-projector-node ${isActive ? 'is-active' : ''} ${isLit ? 'is-lit' : ''} ${isRaised ? 'is-raised' : 'is-lowered'}`}
+                      className={`incident-projector-node evidence-${station.evidenceState} ${isActive ? 'is-active' : ''} ${isLit ? 'is-lit' : ''} ${isRaised ? 'is-raised' : 'is-lowered'}`}
                       onClick={() => handleSelectProjectorStation(station)}
                     >
                       <span className="incident-projector-index">
@@ -1578,8 +2217,13 @@ export function LiveFlowConsole({
                       </span>
                       <span className="incident-projector-dot" aria-hidden="true" />
                       <span className="incident-projector-label">
-                        <strong>{station.title}</strong>
-                        <span>{station.token}</span>
+                        <span className="incident-projector-label-head">
+                          <strong>{station.title}</strong>
+                          <span className={`incident-projector-node-timer ${timerTone}`}>
+                            {formatProjectorTimer(stationElapsedMs)}
+                          </span>
+                        </span>
+                        <span className="incident-projector-token">{station.token}</span>
                       </span>
                       <span className="incident-projector-caption">{station.caption}</span>
                       {isActive ? (
@@ -1589,16 +2233,39 @@ export function LiveFlowConsole({
                           <span className="incident-projector-annotation-copy">
                             {station.detail}
                           </span>
-                          <span className="incident-projector-chips">
-                            {station.evidence.slice(0, 3).map((item) => (
-                              <span
-                                key={`${station.id}-${item}`}
-                                className="incident-projector-chip"
+                          <dl className="incident-projector-facts">
+                            {station.facts.map((fact) => (
+                              <div
+                                key={`${station.id}-${fact.label}`}
+                                className="incident-projector-fact"
                               >
-                                {item}
-                              </span>
+                                <dt>{fact.label}</dt>
+                                <dd>{fact.value}</dd>
+                              </div>
                             ))}
-                          </span>
+                          </dl>
+                          {station.sources.length > 0 ? (
+                            <div className="incident-projector-sources">
+                              <strong>
+                                {locale === 'zh' ? '依据源' : 'basis sources'}
+                              </strong>
+                              <div className="incident-projector-source-list">
+                                {station.sources.map((source) => (
+                                  <article
+                                    key={`${station.id}-${source.section}-${source.field}-${source.label}`}
+                                    className="incident-projector-source"
+                                  >
+                                    <span className="incident-projector-source-head">
+                                      <em>{source.label}</em>
+                                      <code>{source.section}.{source.field}</code>
+                                    </span>
+                                    <strong>{source.value}</strong>
+                                    <p>{source.reason}</p>
+                                  </article>
+                                ))}
+                              </div>
+                            </div>
+                          ) : null}
                         </span>
                       ) : null}
                     </button>
@@ -1614,27 +2281,11 @@ export function LiveFlowConsole({
                   <strong>{selectedProjector.title}</strong>
                   <span>{selectedProjector.token}</span>
                 </div>
-                <div className="incident-projector-actions">
-                  <button
-                    type="button"
-                    className="story-stage-action is-bright"
-                    onClick={onOpenEvidence}
-                  >
-                    {locale === 'zh' ? '当前建议' : 'Current Brief'}
-                  </button>
-                  <button
-                    type="button"
-                    className="story-stage-action"
-                    onClick={() =>
-                      stageDetailRef.current?.scrollIntoView({
-                        behavior: 'smooth',
-                        block: 'start',
-                      })
-                    }
-                  >
-                    {locale === 'zh' ? '阶段拆解' : 'Stage Breakdown'}
-                  </button>
-                </div>
+                <p className="incident-projector-guidance">
+                  {locale === 'zh'
+                    ? `分析：${selectedInference} 建议：${selectedRecommendation}`
+                    : `Analysis: ${selectedInference} Recommendation: ${selectedRecommendation}`}
+                </p>
               </div>
             </div>
           </section>
@@ -1713,7 +2364,7 @@ export function LiveFlowConsole({
                   <span className="section-kicker">
                     {locale === 'zh' ? '横向流程图' : 'horizontal pipeline'}
                   </span>
-                  <h3>{activeEvent?.title ?? story.headline}</h3>
+                  <h3>{activeEvent?.title ?? story.headlinePrimary}</h3>
                 </div>
                 <div className="story-badges">
                   <span className="signal-chip tone-suggestion">

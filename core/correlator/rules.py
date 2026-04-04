@@ -157,14 +157,37 @@ def _make_alert(
         "dimensions": dimensions,
         "metrics": metrics,
         "event_excerpt": {
+            "event_id": event.get("event_id"),
             "event_ts": event.get("event_ts"),
             "type": event.get("type"),
             "subtype": event.get("subtype"),
             "action": event.get("action"),
+            "policyid": event.get("policyid"),
+            "policytype": event.get("policytype"),
+            "sessionid": event.get("sessionid"),
+            "proto": event.get("proto"),
             "srcip": event.get("srcip"),
+            "srcport": event.get("srcport"),
+            "srcintf": event.get("srcintf"),
+            "srcintfrole": event.get("srcintfrole"),
             "dstip": event.get("dstip"),
+            "dstport": event.get("dstport"),
+            "dstintf": event.get("dstintf"),
+            "dstintfrole": event.get("dstintfrole"),
             "service": event.get("service"),
             "src_device_key": event.get("src_device_key"),
+            "srcmac": event.get("srcmac") or event.get("mastersrcmac"),
+            "devname": event.get("devname"),
+            "srcname": event.get("srcname"),
+            "devtype": event.get("devtype"),
+            "vendor": event.get("srchwvendor"),
+            "family": event.get("srcfamily"),
+            "version": event.get("srchwversion"),
+            "appcat": event.get("appcat"),
+            "bytes_total": event.get("bytes_total"),
+            "pkts_total": event.get("pkts_total"),
+            "source_path": (event.get("source") or {}).get("path") if isinstance(event.get("source"), dict) else "",
+            "source_inode": (event.get("source") or {}).get("inode") if isinstance(event.get("source"), dict) else None,
         },
         "topology_context": _build_topology_context(event),
         "device_profile": _build_device_profile(event),
@@ -185,8 +208,15 @@ def _build_topology_context(event: dict[str, Any]) -> dict[str, Any]:
     topology["dstip"] = str(topology.get("dstip") or event.get("dstip") or "")
     topology["srcintf"] = str(topology.get("srcintf") or event.get("srcintf") or "")
     topology["dstintf"] = str(topology.get("dstintf") or event.get("dstintf") or "")
+    topology["srcintfrole"] = str(topology.get("srcintfrole") or event.get("srcintfrole") or "")
+    topology["dstintfrole"] = str(topology.get("dstintfrole") or event.get("dstintfrole") or "")
     topology["site"] = str(topology.get("site") or event.get("site") or "")
     topology["zone"] = str(topology.get("zone") or event.get("srcintfrole") or event.get("dstintfrole") or "")
+    topology["path_signature"] = (
+        f"{topology['srcintf'] or 'unknown'}->{topology['dstintf'] or 'unknown'}"
+    )
+    topology["policyid"] = str(topology.get("policyid") or event.get("policyid") or "")
+    topology["policytype"] = str(topology.get("policytype") or event.get("policytype") or "")
     topology["neighbor_refs"] = [str(item).strip() for item in neighbor_refs if str(item).strip()]
     return topology
 
