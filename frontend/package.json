@@ -9,6 +9,7 @@
     "serve:gateway": "PYTHONPATH=/data/.local/netops-console-py:$PYTHONPATH python3 -m uvicorn gateway.app.main:app --app-dir . --host 0.0.0.0 --port 8026",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
+    "test": "vitest run",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -35,6 +36,7 @@
     "playwright": "^1.58.2",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.57.0",
-    "vite": "^8.0.1"
+    "vite": "^8.0.1",
+    "vitest": "^4.1.2"
   }
 }

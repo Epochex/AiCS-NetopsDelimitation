@@ -72,6 +72,56 @@ export interface ProjectionBasisEntry {
   reason: string
 }
 
+export interface HypothesisItem {
+  hypothesisId: string
+  rank: number
+  statement: string
+  confidenceScore: number
+  confidenceLabel: string
+  supportEvidenceRefs: string[]
+  contradictEvidenceRefs: string[]
+  missingEvidenceRefs: string[]
+  nextBestAction: string
+  reviewState: string
+}
+
+export interface HypothesisSet {
+  setId: string
+  primaryHypothesisId: string
+  suggestionScope: 'alert' | 'cluster'
+  items: HypothesisItem[]
+  summary: {
+    totalHypotheses: number
+    directRefCount: number
+    supportingRefCount: number
+    contradictoryRefCount: number
+    missingRefCount: number
+  }
+}
+
+export interface ReviewCheck {
+  status: string
+  detail: string
+}
+
+export interface ReviewVerdict {
+  verdictId: string
+  suggestionScope: 'alert' | 'cluster'
+  verdictStatus: string
+  recommendedDisposition: string
+  approvalRequired: boolean
+  blockingIssues: string[]
+  checks: {
+    evidenceSufficiency: ReviewCheck
+    temporalFreshness: ReviewCheck
+    topologyConsistency: ReviewCheck
+    overreachRisk: ReviewCheck
+    remediationExecutability: ReviewCheck
+    rollbackReadiness: ReviewCheck
+  }
+  reviewSummary: string
+}
+
 export interface SuggestionRecord {
   id: string
   alertId: string
@@ -99,7 +149,9 @@ export interface SuggestionRecord {
     historical: Record<string, string | number | string[]>
   }
   hypotheses: string[]
+  hypothesisSet: HypothesisSet
   recommendedActions: string[]
+  reviewVerdict: ReviewVerdict
   confidence: number
   confidenceLabel: string
   confidenceReason: string

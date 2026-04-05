@@ -13,6 +13,9 @@ def test_load_runtime_snapshot_emits_timeline_and_stage_telemetry_for_suggestion
   first = suggestions[0]
   assert first.get('timeline')
   assert first.get('stageTelemetry')
+  assert first.get('hypothesisSet')
+  assert first.get('reviewVerdict')
+  assert first['reviewVerdict']['checks']['overreachRisk']['status']
 
   stage_ids = [item['stageId'] for item in first['stageTelemetry']]
   assert 'correlator' in stage_ids

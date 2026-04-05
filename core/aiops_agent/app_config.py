@@ -30,6 +30,8 @@ class AgentConfig:
     provider_api_key: str
     provider_model: str
     provider_timeout_sec: int
+    provider_compute_target: str
+    provider_max_parallelism: int
 
     @property
     def min_severity_rank(self) -> int:
@@ -47,6 +49,16 @@ def load_config() -> AgentConfig:
     min_severity = env_str("AIOPS_MIN_SEVERITY", "warning").lower()
     if min_severity not in SEVERITY_RANK:
         min_severity = "warning"
+
+    provider = env_str("AIOPS_PROVIDER", "template").lower()
+    if provider not in {"template", "http", "gpu_http", "external_model_service"}:
+        provider = "template"
+
+    provider_compute_target = env_str("AIOPS_PROVIDER_COMPUTE_TARGET", "").lower().strip()
+    if not provider_compute_target:
+        provider_compute_target = "external_gpu_service" if provider in {"http", "gpu_http", "external_model_service"} else "local_cpu"
+    if provider_compute_target not in {"local_cpu", "external_gpu_service"}:
+        provider_compute_target = "local_cpu"
 
     return AgentConfig(
         bootstrap_servers=env_str("KAFKA_BOOTSTRAP_SERVERS", "netops-kafka.netops-core.svc.cluster.local:9092"),
@@ -67,9 +79,11 @@ def load_config() -> AgentConfig:
         cluster_window_sec=max(10, env_int("AIOPS_CLUSTER_WINDOW_SEC", 600)),
         cluster_min_alerts=max(2, env_int("AIOPS_CLUSTER_MIN_ALERTS", 3)),
         cluster_cooldown_sec=max(10, env_int("AIOPS_CLUSTER_COOLDOWN_SEC", 300)),
-        provider=env_str("AIOPS_PROVIDER", "template"),
+        provider=provider,
         provider_endpoint_url=env_str("AIOPS_PROVIDER_ENDPOINT_URL", ""),
         provider_api_key=env_str("AIOPS_PROVIDER_API_KEY", ""),
         provider_model=env_str("AIOPS_PROVIDER_MODEL", "generic-aiops"),
         provider_timeout_sec=max(5, env_int("AIOPS_PROVIDER_TIMEOUT_SEC", 30)),
+        provider_compute_target=provider_compute_target,
+        provider_max_parallelism=max(1, env_int("AIOPS_PROVIDER_MAX_PARALLELISM", 1)),
     )

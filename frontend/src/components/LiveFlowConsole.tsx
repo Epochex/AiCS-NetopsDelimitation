@@ -25,6 +25,8 @@ import {
   parseTimestamp,
   timestampTooltip,
 } from '../utils/time'
+import { buildIncidentConvergenceModel } from './liveFlowConsoleEventField'
+import { buildNodeInspectorSurfaceModel } from './liveFlowConsoleNodeInspector'
 
 const TopologyCanvas = lazy(() =>
   import('./TopologyCanvas').then((module) => ({
@@ -77,7 +79,6 @@ interface HistoricalIncidentEvent extends FeedEvent {
   mergedSuggestionCount: number
   firstSeenTs: string
   lastSeenTs: string
-  problem: string
   inference: string
   recommendation: string
   scopeMeaning: string
@@ -514,20 +515,6 @@ function incidentKeyForSuggestion(suggestion: SuggestionRecord) {
   ].join('::')
 }
 
-function incidentProblemSummary(
-  suggestion: SuggestionRecord,
-  locale: 'en' | 'zh',
-) {
-  const ruleLabel = prettyRuleName(suggestion.ruleId)
-  const deviceLabel = friendlyDeviceName(suggestion)
-
-  if (locale === 'zh') {
-    return `${deviceLabel} 的 ${suggestion.context.service} 命中了 ${ruleLabel}，这条路径需要优先确认。`
-  }
-
-  return `${deviceLabel} crossed ${ruleLabel} on ${suggestion.context.service}, so this path is now the priority review.`
-}
-
 function incidentInferenceSummary(
   suggestion: SuggestionRecord,
   locale: 'en' | 'zh',
@@ -626,7 +613,6 @@ function historicalIncidentQueue(
       mergedSuggestionCount: bucket.length,
       firstSeenTs: earliestSuggestion.suggestionTs,
       lastSeenTs: latestSuggestion.suggestionTs,
-      problem: incidentProblemSummary(latestSuggestion, locale),
       inference: incidentInferenceSummary(latestSuggestion, locale),
       recommendation: primaryRecommendation(latestSuggestion),
       scopeMeaning: incidentScopeMeaning(latestSuggestion, locale),
@@ -1067,6 +1053,38 @@ function storyCopy(
   }
 }
 
+function primaryHypothesisEntry(suggestion: SuggestionRecord) {
+  const items = suggestion.hypothesisSet?.items ?? []
+  return (
+    items.find((item) => item.hypothesisId === suggestion.hypothesisSet.primaryHypothesisId) ??
+    items[0] ??
+    null
+  )
+}
+
+function reviewDispositionLabel(
+  suggestion: SuggestionRecord,
+  locale: 'en' | 'zh',
+) {
+  const disposition = suggestion.reviewVerdict?.recommendedDisposition ?? ''
+  const mapping: Record<string, { en: string; zh: string }> = {
+    return_to_evidence_gather: {
+      en: 'return to evidence gather',
+      zh: '回到补证阶段',
+    },
+    project_with_operator_boundary: {
+      en: 'project with operator boundary',
+      zh: '投影到人工边界',
+    },
+    ready_for_projection: {
+      en: 'ready for projection',
+      zh: '可进入建议投影',
+    },
+  }
+
+  return mapping[disposition]?.[locale] ?? (locale === 'zh' ? '审查已附带' : 'review attached')
+}
+
 function evidenceKinds(suggestion: SuggestionRecord) {
   return [
     Object.keys(suggestion.evidenceBundle.topology).length > 0 ? 'topology' : null,
@@ -1134,9 +1152,12 @@ function buildProjectorStations(
   const device = suggestion.evidenceBundle.device
   const change = suggestion.evidenceBundle.change
   const projectionBasis = suggestion.projectionBasis ?? {}
+  const primaryHypothesis = primaryHypothesisEntry(suggestion)
+  const reviewVerdict = suggestion.reviewVerdict
   const ruleLabel = prettyRuleName(suggestion.ruleId)
   const deviceLabel = friendlyDeviceName(suggestion)
   const hypothesis =
+    primaryHypothesis?.statement ??
     suggestion.hypotheses[0] ??
     (locale === 'zh'
       ? '当前没有单独假设，继续沿着附带证据检查。'
@@ -1211,8 +1232,8 @@ function buildProjectorStations(
       value: suggestion.confidenceLabel,
     },
     {
-      label: locale === 'zh' ? '分析方式' : 'analysis mode',
-      value: analysisModeLabel(suggestion, locale),
+      label: locale === 'zh' ? '假设状态' : 'hypothesis state',
+      value: primaryHypothesis?.reviewState ?? (locale === 'zh' ? '候选' : 'candidate'),
     },
   ]
   const actionFacts = [
@@ -1225,8 +1246,23 @@ function buildProjectorStations(
       value: suggestion.context.service,
     },
     {
+      label: locale === 'zh' ? '审查结论' : 'review verdict',
+      value: reviewVerdict?.verdictStatus ?? (locale === 'zh' ? '人工审查' : 'operator review'),
+    },
+    {
+      label: locale === 'zh' ? '审批要求' : 'approval',
+      value:
+        reviewVerdict?.approvalRequired
+          ? locale === 'zh'
+            ? '需要'
+            : 'required'
+          : locale === 'zh'
+            ? '无需'
+            : 'not required',
+    },
+    {
       label: locale === 'zh' ? '动作类型' : 'action type',
-      value: locale === 'zh' ? '人工确认后执行' : 'operator-reviewed next move',
+      value: reviewDispositionLabel(suggestion, locale),
     },
   ]
 
@@ -1307,8 +1343,8 @@ function buildProjectorStations(
       token: suggestion.confidenceLabel,
       caption:
         locale === 'zh'
-          ? '当前最值得先验证的判断'
-          : 'best current reading',
+          ? '当前主假设'
+          : 'primary hypothesis',
       detail: hypothesis,
       facts: inferenceFacts,
       sources: projectionBasis['projector-inference'] ?? [],
@@ -1321,9 +1357,12 @@ function buildProjectorStations(
       token: compactEvidenceValue(suggestion.context.provider, locale),
       caption:
         locale === 'zh'
-          ? '下一步建议'
-          : 'recommended next move',
-      detail: primaryRecommendation(suggestion),
+          ? '审查后落点'
+          : 'review disposition',
+      detail:
+        reviewVerdict?.blockingIssues?.[0] ??
+        reviewVerdict?.reviewSummary ??
+        primaryRecommendation(suggestion),
       facts: actionFacts,
       sources: projectionBasis['projector-action'] ?? [],
       guidedStageId: 'guided-operator',
@@ -1619,6 +1658,116 @@ function localizedStageTitle(stageId: string, locale: 'en' | 'zh') {
   return mapping[stageId]?.[locale] ?? stageId
 }
 
+function runtimeMetricValue(snapshot: RuntimeSnapshot, metricId: string) {
+  return snapshot.overviewMetrics.find((metric) => metric.id === metricId)?.value ?? 'n/a'
+}
+
+function projectorInspectorRole(
+  stationId: ProjectorStation['id'],
+  locale: 'en' | 'zh',
+) {
+  const roles: Record<ProjectorStation['id'], { en: string; zh: string }> = {
+    'projector-trigger': {
+      en: 'raw event lock',
+      zh: '原始事件锁定',
+    },
+    'projector-aggregate': {
+      en: 'repeat-pattern gate',
+      zh: '重复模式门控',
+    },
+    'projector-path': {
+      en: 'path concentration read',
+      zh: '路径集中读取',
+    },
+    'projector-device': {
+      en: 'identity + change check',
+      zh: '身份与变更校验',
+    },
+    'projector-inference': {
+      en: 'current reading',
+      zh: '当前判断',
+    },
+    'projector-action': {
+      en: 'operator next move',
+      zh: '下一步动作',
+    },
+  }
+
+  return roles[stationId][locale]
+}
+
+function projectorInspectorState(
+  stationIndex: number,
+  playbackIndex: number,
+  playbackRunning: boolean,
+  locale: 'en' | 'zh',
+) {
+  if (!playbackRunning) {
+    return locale === 'zh' ? '已锁定检视' : 'focused review'
+  }
+
+  if (stationIndex < playbackIndex) {
+    return locale === 'zh' ? '已通过' : 'completed'
+  }
+
+  if (stationIndex === playbackIndex) {
+    return locale === 'zh' ? '当前节点' : 'active node'
+  }
+
+  return locale === 'zh' ? '后续节点' : 'upcoming node'
+}
+
+function projectorTransitionCopy(
+  station: ProjectorStation,
+  nextStation: ProjectorStation | undefined,
+  locale: 'en' | 'zh',
+) {
+  if (!nextStation) {
+    return locale === 'zh'
+      ? '当前节点已经位于链路末端，后续进入人工确认与执行边界。'
+      : 'This node sits at the end of the visible chain, so the next step is the operator boundary.'
+  }
+
+  const mapping: Record<ProjectorStation['id'], { en: string; zh: string }> = {
+    'projector-trigger': {
+      en: `The locked tuple is handed to ${nextStation.title.toLowerCase()} for repeat and spread checking.`,
+      zh: `已锁定的触发元组会继续交给 ${nextStation.title} 节点判断是否形成重复或扩散。`,
+    },
+    'projector-aggregate': {
+      en: `The current gate result is then projected into ${nextStation.title.toLowerCase()} to keep the route focus narrow.`,
+      zh: `当前门控结果会继续投到 ${nextStation.title} 节点，用来收窄真正需要看的路径。`,
+    },
+    'projector-path': {
+      en: `The route lock is then passed into ${nextStation.title.toLowerCase()} so identity and change clues can be attached.`,
+      zh: `路径锁定结果会继续传到 ${nextStation.title} 节点，把设备身份和变更线索接上来。`,
+    },
+    'projector-device': {
+      en: `Identity and change markers feed ${nextStation.title.toLowerCase()} so the reading can stay attached to evidence.`,
+      zh: `设备身份和变更标记会继续送到 ${nextStation.title} 节点，让判断保持贴合证据。`,
+    },
+    'projector-inference': {
+      en: `The current reading is then condensed into ${nextStation.title.toLowerCase()} for the next operator move.`,
+      zh: `当前判断会继续收束到 ${nextStation.title} 节点，形成下一步动作。`,
+    },
+    'projector-action': {
+      en: 'The current recommendation is ready for operator review.',
+      zh: '当前建议已经进入人工确认边界。',
+    },
+  }
+
+  return mapping[station.id][locale]
+}
+
+function projectorInspectorFields(
+  station: ProjectorStation,
+  locale: 'en' | 'zh',
+) {
+  return station.facts.map((fact) => ({
+    label: fact.label,
+    value: compactEvidenceValue(fact.value, locale),
+  }))
+}
+
 export function LiveFlowConsole({
   connectionState,
   snapshot,
@@ -1644,16 +1793,8 @@ export function LiveFlowConsole({
     stageId: string | null
   } | null>(null)
   const [isIncidentGraphExpanded, setIsIncidentGraphExpanded] = useState(false)
-  const stageDetailRef = useRef<HTMLElement | null>(null)
-  const pendingStageRevealRef = useRef(false)
 
   const queueEvents = historicalIncidentQueue(snapshot.suggestions, locale)
-  const compactMetrics = snapshot.overviewMetrics.filter((metric) =>
-    ['raw-freshness', 'alert-latest', 'suggestion-latest', 'closure'].includes(
-      metric.id,
-    ),
-  )
-
   const activeEvent =
     queueEvents.find((event) => event.id === selectedEventId) ??
     pinnedEvent ??
@@ -1686,11 +1827,6 @@ export function LiveFlowConsole({
       (stage) => stage.id === (expandedStageId ?? activeGuidedStageId),
     ) ?? guidedStages[0]
   const selectedStagePhases = phasesForGuidedStage(lifecycle, selectedGuidedStage)
-  const selectedStageGraph = buildStageProcessGraph(
-    snapshot,
-    selectedStagePhases,
-    locale,
-  )
   const incidentProcessGraph = buildStageProcessGraph(
     snapshot,
     lifecycle,
@@ -1732,8 +1868,6 @@ export function LiveFlowConsole({
       : locale === 'zh'
         ? '未达到自然聚合门槛'
         : 'cluster gate not naturally met yet')
-  const selectedProblem =
-    activeEvent?.problem ?? incidentProblemSummary(linkedSuggestion, locale)
   const selectedInference =
     activeEvent?.inference ?? incidentInferenceSummary(linkedSuggestion, locale)
   const selectedRecommendation =
@@ -1747,6 +1881,18 @@ export function LiveFlowConsole({
   const selectedWindowSummary = activeEvent
     ? `${formatMaybeTimestamp(activeEvent.firstSeenTs, 'time')} - ${formatMaybeTimestamp(activeEvent.lastSeenTs, 'time')}`
     : `${formatMaybeTimestamp(linkedSuggestion.context.clusterFirstAlertTs, 'time')} - ${formatMaybeTimestamp(linkedSuggestion.context.clusterLastAlertTs, 'time')}`
+  const incidentConvergenceModel = buildIncidentConvergenceModel({
+    locale,
+    queueEvents,
+    activeEvent,
+    linkedSuggestion,
+    clusterGateValue,
+    selectedInference,
+    selectedRecommendation,
+    selectedWindowSummary,
+    selectedScopeMeaning,
+    selectedRefreshSummary,
+  })
   const projectorStations = useMemo(
     () =>
       buildProjectorStations(
@@ -1801,6 +1947,10 @@ export function LiveFlowConsole({
   const selectedProjectorIndex = projectorStations.findIndex(
     (station) => station.id === selectedProjector.id,
   )
+  const nextProjector =
+    selectedProjectorIndex >= 0
+      ? projectorStations[selectedProjectorIndex + 1]
+      : undefined
   const projectorPlaybackRatio =
     projectorPlaybackDurationMs > 0
       ? Math.min(1, projectorPlaybackElapsedMs / projectorPlaybackDurationMs)
@@ -1822,6 +1972,57 @@ export function LiveFlowConsole({
       : locale === 'zh'
         ? '未拿到有效阶段时序，当前仅显示前端回放编排'
         : 'No valid stage timing available; showing the frontend replay clock.'
+  const inspectorState = projectorInspectorState(
+    selectedProjectorIndex,
+    projectorPlaybackIndex,
+    projectorPlaybackRunning,
+    locale,
+  )
+  const inspectorRole = projectorInspectorRole(selectedProjector.id, locale)
+  const inspectorTransition = projectorTransitionCopy(
+    selectedProjector,
+    nextProjector,
+    locale,
+  )
+  const inspectorFields = projectorInspectorFields(selectedProjector, locale)
+  const nodeInspectorSurface = buildNodeInspectorSurfaceModel({
+    title: selectedProjector.title,
+    role: inspectorRole,
+    state: inspectorState,
+    token: selectedProjector.token,
+    caption: selectedProjector.caption,
+    facts: inspectorFields,
+    detail: selectedProjector.detail,
+    transition: inspectorTransition,
+    nextTitle: nextProjector?.title,
+    sources: selectedProjector.sources,
+  })
+  const runtimeStripItems = [
+    {
+      id: 'raw',
+      label: 'RAW',
+      value: runtimeMetricValue(snapshot, 'raw-freshness'),
+    },
+    {
+      id: 'alert',
+      label: 'ALERT',
+      value: formatMaybeTimestamp(snapshot.runtime.latestAlertTs, 'time'),
+    },
+    {
+      id: 'sgst',
+      label: 'SGST',
+      value: formatMaybeTimestamp(snapshot.runtime.latestSuggestionTs, 'time'),
+    },
+    {
+      id: 'loop',
+      label: 'LOOP',
+      value: runtimeMetricValue(snapshot, 'closure'),
+    },
+  ]
+  const currentIncidentKey = incidentKeyForSuggestion(selectedSuggestion)
+  const currentChainEvent =
+    queueEvents.find((event) => event.dedupeKey === currentIncidentKey) ?? null
+  const isViewingCurrentChain = activeEvent?.dedupeKey === currentIncidentKey
 
   useEffect(() => {
     if (selectedEventId || queueEvents.length === 0) {
@@ -1952,18 +2153,6 @@ export function LiveFlowConsole({
     return () => window.cancelAnimationFrame(frameId)
   }, [projectorReplaySeed])
 
-  useEffect(() => {
-    if (!pendingStageRevealRef.current) {
-      return
-    }
-
-    stageDetailRef.current?.scrollIntoView({
-      behavior: 'smooth',
-      block: 'start',
-    })
-    pendingStageRevealRef.current = false
-  }, [linkedSuggestion.id, selectedGuidedStage.id])
-
   const selectIncident = (event: HistoricalIncidentEvent) => {
     const nextSuggestion = suggestionForEvent(
       event,
@@ -1993,6 +2182,21 @@ export function LiveFlowConsole({
       suggestionId: linkedSuggestion.id,
       stageId: station.guidedStageId,
     })
+  }
+
+  const focusCurrentChain = () => {
+    const liveEvent =
+      currentChainEvent ??
+      queueEvents.find(
+        (event) => event.relatedSuggestionId === selectedSuggestion.id,
+      ) ??
+      queueEvents[0]
+
+    if (!liveEvent) {
+      return
+    }
+
+    selectIncident(liveEvent)
   }
 
   return (
@@ -2057,14 +2261,25 @@ export function LiveFlowConsole({
             <div className="story-stage-queue-head">
               <span className="section-kicker">
                 {locale === 'zh'
-                  ? '触发簇 / 历史事件主控'
-                  : 'trigger clusters / incident controller'}
+                  ? '历史序列 / 当前链路'
+                  : 'history sequence / live chain'}
               </span>
-              <p>
-                {locale === 'zh'
-                  ? '这里每一行就是一个历史事件，不再把同一问题刷成多条。'
-                  : 'Each row is one grouped incident instead of a flood of duplicate suggestions.'}
-              </p>
+              <button
+                type="button"
+                className={`story-stage-focus-switch ${isViewingCurrentChain ? 'is-active' : ''}`}
+                onClick={focusCurrentChain}
+              >
+                <span>
+                  {locale === 'zh'
+                    ? '跳出历史序列，转到当前事件链路'
+                    : 'leave history and focus the current incident chain'}
+                </span>
+                <strong>
+                  {locale === 'zh'
+                    ? currentChainEvent?.title ?? '当前链路'
+                    : currentChainEvent?.title ?? 'current incident chain'}
+                </strong>
+              </button>
             </div>
 
             <div className="story-stage-queue">
@@ -2107,40 +2322,123 @@ export function LiveFlowConsole({
               })}
             </div>
 
-            <article className="story-stage-abstract">
-              <div className="story-stage-abstract-row">
-                <span>{locale === 'zh' ? '问题' : 'problem'}</span>
-                <strong>{activeEvent?.title ?? story.whatHappened}</strong>
-              </div>
-              <div className="story-stage-abstract-row">
-                <span>{locale === 'zh' ? '推断' : 'inference'}</span>
-                <strong>{selectedInference}</strong>
-              </div>
-              <div className="story-stage-abstract-row">
-                <span>{locale === 'zh' ? '动作' : 'action'}</span>
-                <strong>{selectedRecommendation}</strong>
+            <article className="story-stage-node-slab">
+              <div className="story-stage-node-shell">
+                <div className="story-stage-node-head">
+                  <span className="section-kicker">
+                    {locale === 'zh' ? '节点检视板' : 'node inspector'}
+                  </span>
+                  <div className="story-stage-node-headline">
+                    <span className="story-stage-node-index">
+                      {(selectedProjectorIndex + 1).toString().padStart(2, '0')}
+                    </span>
+                    <div className="story-stage-node-titleblock">
+                      <strong>{nodeInspectorSurface.title}</strong>
+                      <em>{nodeInspectorSurface.role}</em>
+                    </div>
+                    <div className="story-stage-node-statebar">
+                      <span>
+                        {locale === 'zh' ? '当前状态' : 'current state'}
+                      </span>
+                      <strong>{nodeInspectorSurface.state}</strong>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="story-stage-node-baseline">
+                  <div className="story-stage-node-tokenrail">
+                    <span className="story-stage-node-token">{nodeInspectorSurface.token}</span>
+                    <span className="story-stage-node-caption">{nodeInspectorSurface.caption}</span>
+                  </div>
+                  <div className="story-stage-node-guideline" aria-hidden="true" />
+                </div>
+
+                <div className="story-stage-node-core">
+                  <section className="story-stage-node-band is-evidence">
+                    <span className="story-stage-node-label">
+                      {locale === 'zh' ? '局部证据' : 'local evidence'}
+                    </span>
+                    <dl className="story-stage-node-facts">
+                      {nodeInspectorSurface.localEvidence.map((field) => (
+                        <div
+                          key={`${selectedProjector.id}-${field.label}`}
+                          className="story-stage-node-fact"
+                        >
+                          <dt>{field.label}</dt>
+                          <dd>{field.value}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </section>
+
+                  <section className="story-stage-node-band is-transition">
+                    <span className="story-stage-node-label">
+                      {locale === 'zh' ? '后续依赖' : 'next dependency'}
+                    </span>
+                    <strong>{nodeInspectorSurface.caption}</strong>
+                    <p>{nodeInspectorSurface.transitionNote}</p>
+                  </section>
+                </div>
+
+                <div className="story-stage-node-annotation-rail">
+                  <section className="story-stage-node-annotation">
+                    <div className="story-stage-node-annotation-head">
+                      <span className="story-stage-node-label">
+                        {locale === 'zh' ? '局部读取' : 'local reading'}
+                      </span>
+                      <strong>{nodeInspectorSurface.nextDependency}</strong>
+                    </div>
+                    <p>{nodeInspectorSurface.readingLine}</p>
+                  </section>
+
+                  <section className="story-stage-node-annotation">
+                    <span className="story-stage-node-label">
+                      {locale === 'zh' ? 'basis markers' : 'basis markers'}
+                    </span>
+                    {nodeInspectorSurface.basisMarkers.length > 0 ? (
+                      <div className="story-stage-node-marker-strip">
+                        {nodeInspectorSurface.basisMarkers.map((marker) => (
+                          <article
+                            key={`${selectedProjector.id}-${marker.ref}-${marker.label}`}
+                            className="story-stage-node-marker"
+                          >
+                            <span>{marker.label}</span>
+                            <strong>{marker.value}</strong>
+                            <em>{marker.ref}</em>
+                          </article>
+                        ))}
+                      </div>
+                    ) : (
+                      <p>
+                        {locale === 'zh'
+                          ? '当前节点没有单独 basis marker。'
+                          : 'No standalone basis marker for the current node.'}
+                      </p>
+                    )}
+                  </section>
+                </div>
+
+                {softIntegrityIssues.length > 0 ? (
+                  <div className="story-stage-node-note">
+                    <span>{locale === 'zh' ? '运行提示' : 'runtime note'}</span>
+                    <strong>
+                      {locale === 'zh'
+                        ? '当前快照仍有轻微时间窗偏差。'
+                        : 'The current snapshot still carries mild timing skew.'}
+                    </strong>
+                  </div>
+                ) : null}
+
+                <div className="story-stage-node-telemetry-strip">
+                  {runtimeStripItems.map((item) => (
+                    <div key={item.id} className="story-stage-node-telemetry-item">
+                      <span>{item.label}</span>
+                      <strong>{item.value}</strong>
+                    </div>
+                  ))}
+                </div>
               </div>
             </article>
-
-            {softIntegrityIssues.length > 0 ? (
-              <article className="story-stage-note-slim">
-                <span>{locale === 'zh' ? '运行提示' : 'runtime note'}</span>
-                <strong>
-                  {locale === 'zh'
-                    ? '快照存在轻微时间窗偏差。'
-                    : 'The current snapshot still carries mild timing skew.'}
-                </strong>
-              </article>
-            ) : null}
-
-            <div className="story-stage-mini-metrics">
-              {compactMetrics.map((metric) => (
-                <article key={metric.id} className={`story-mini-card state-${metric.state}`}>
-                  <span>{metric.label}</span>
-                  <strong>{metric.value}</strong>
-                </article>
-              ))}
-            </div>
           </aside>
 
           <section className="incident-projector-shell">
@@ -2292,274 +2590,235 @@ export function LiveFlowConsole({
         </div>
       </section>
 
-      <section className="section incident-pipeline-shell">
-        <div className="section-header incident-pipeline-header">
+      <section className="section incident-convergence-shell">
+        <div className="section-header incident-convergence-header">
           <div>
             <h2 className="section-title">
-              {locale === 'zh' ? '历史事件流程图' : 'Historical Incident Pipeline'}
+              {locale === 'zh' ? '事件收束面' : 'Incident Convergence Field'}
             </h2>
             <span className="section-subtitle">
               {locale === 'zh'
-                ? '以触发簇作为历史事件中心，把所有模块、主题、关卡和人工边界还原成一张可展开的横向流程图。'
-                : 'Treat the trigger cluster as one historical incident and restore the full module, topic, gate, and operator path as an expandable horizontal pipeline.'}
+                ? '保留离散事件的原始分布，再把当前上下文、归并依据、假设收束和 runbook 草案放到同一块工作面里。'
+                : 'Keep the raw event spread visible, then show context assembly, incident grouping, hypothesis convergence, and the runbook draft on one working surface.'}
             </span>
           </div>
-          <div className="incident-pipeline-actions">
+          <div className="incident-convergence-actions">
             <span className="section-kicker">
-              {locale === 'zh' ? '全屏展开 / 事件中心' : 'expand full screen / incident-centric'}
+              {locale === 'zh' ? 'flow map / 全屏工作面' : 'flow map / fullscreen workspace'}
             </span>
             <button
               type="button"
               className="story-stage-action is-bright"
               onClick={() => setIsIncidentGraphExpanded(true)}
             >
-              {locale === 'zh' ? '全屏展开流程图' : 'Expand Pipeline'}
+              {locale === 'zh' ? '打开 Flow Map' : 'Open Flow Map'}
             </button>
           </div>
         </div>
 
-        <div className="incident-pipeline-layout">
-          <aside className="incident-pipeline-sidebar">
-            <article className="incident-pipeline-card">
-              <span>{locale === 'zh' ? '当前历史事件' : 'selected incident'}</span>
-              <strong>{activeEvent?.title ?? linkedSuggestion.summary}</strong>
-              <p>{selectedProblem}</p>
-            </article>
-
-            <article className="incident-pipeline-card">
-              <span>{locale === 'zh' ? '系统推断' : 'system inference'}</span>
-              <strong>{selectedInference}</strong>
-              <p>{linkedSuggestion.confidenceReason}</p>
-            </article>
-
-            <article className="incident-pipeline-card">
-              <span>{locale === 'zh' ? '建议动作' : 'recommended action'}</span>
-              <strong>{selectedRecommendation}</strong>
-              <p>
-                {locale === 'zh'
-                  ? `证据 ${evidenceKinds(linkedSuggestion).join(' + ')} 已附带，可直接打开证据抽屉继续看。`
-                  : `Evidence ${evidenceKinds(linkedSuggestion).join(' + ')} is already attached, so you can open the evidence drawer and continue immediately.`}
-              </p>
-            </article>
-
-            <article className="incident-pipeline-card">
-              <span>{locale === 'zh' ? '事件窗口与含义' : 'event window and meaning'}</span>
-              <strong>{selectedWindowSummary}</strong>
-              <p>{selectedScopeMeaning}</p>
-              <ul className="incident-pipeline-list">
-                <li>{selectedRefreshSummary}</li>
-                <li>
-                  {locale === 'zh'
-                    ? `聚合门槛 ${clusterGateValue}`
-                    : `cluster gate ${clusterGateValue}`}
-                </li>
-              </ul>
-            </article>
-          </aside>
-
-          <div className="incident-pipeline-main">
-            <section className="incident-pipeline-graph-shell">
-              <div className="incident-pipeline-graph-head">
-                <div>
-                  <span className="section-kicker">
-                    {locale === 'zh' ? '横向流程图' : 'horizontal pipeline'}
-                  </span>
-                  <h3>{activeEvent?.title ?? story.headlinePrimary}</h3>
-                </div>
-                <div className="story-badges">
-                  <span className="signal-chip tone-suggestion">
-                    {linkedSuggestion.context.service}
-                  </span>
-                  <span className="signal-chip tone-neutral">
-                    {friendlyDeviceName(linkedSuggestion)}
-                  </span>
-                  <span className="signal-chip tone-alert">
-                    {clusterGateValue}
-                  </span>
-                  <span className="signal-chip tone-live">
-                    {selectedRefreshSummary}
-                  </span>
-                </div>
-              </div>
-
-              <Suspense
-                fallback={
-                  <div className="flow-frame">
-                    <div className="flow-surface chart-fallback">
-                      {locale === 'zh'
-                        ? '正在载入历史事件流程图...'
-                        : 'loading historical incident pipeline...'}
-                    </div>
-                  </div>
-                }
-              >
-                <TopologyCanvas
-                  nodes={incidentProcessGraph.nodes}
-                  links={incidentProcessGraph.links}
-                />
-              </Suspense>
-            </section>
-
-            <section ref={stageDetailRef} className="stage-process-shell incident-stage-detail-shell">
-              <div className="stage-process-headline">
-                <div>
-                  <span className="section-kicker">
-                    {locale === 'zh' ? '阶段拆解' : 'stage breakdown'}
-                  </span>
-                  <h4>
-                    {locale === 'zh'
-                      ? '点击上方事件主画面里唯一可点击的 01-05 后，这里会自动跳到对应阶段，并展开动作链与证据读取。'
-                      : 'Click the only clickable 01-05 strip in the Incident Main Stage above and this area will jump to the matching stage, action chain, and evidence read.'}
-                  </h4>
-                </div>
-                <span className={`signal-chip tone-${selectedGuidedStage.tone}`}>
-                  {localizedStageTitle(selectedGuidedStage.id, locale)}
+        <div className="incident-convergence-layout">
+          <section className="incident-convergence-field">
+            <div className="incident-convergence-field-head">
+              <div>
+                <span className="section-kicker">
+                  {locale === 'zh' ? '离散事件 / 上下文收束' : 'distributed events / context convergence'}
                 </span>
+                <strong>{activeEvent?.title ?? linkedSuggestion.summary}</strong>
               </div>
+              <div className="incident-convergence-field-meta">
+                <span>{selectedRefreshSummary}</span>
+                <span>{clusterGateValue}</span>
+                <span>{localizedStageTitle(selectedGuidedStage.id, locale)}</span>
+              </div>
+            </div>
 
-              {selectedStageGraph.nodes.length > 0 ? (
-                <section className="stage-process-graph-shell">
-                  <div className="stage-process-graph-copy">
-                    <span className="section-kicker">
-                      {locale === 'zh' ? '选中阶段图' : 'selected stage graph'}
-                    </span>
-                    <p>
-                      {locale === 'zh'
-                        ? '这里只展开当前选中阶段涉及到的模块、主题与控制边界。'
-                        : 'This graph narrows the incident pipeline down to the modules, topics, and boundaries touched by the currently selected stage.'}
-                    </p>
-                  </div>
-                  <Suspense
-                    fallback={
-                      <div className="flow-frame compact">
-                        <div className="flow-surface chart-fallback">
-                          {locale === 'zh'
-                            ? '正在载入阶段链路图...'
-                            : 'loading stage pipeline map...'}
-                        </div>
-                      </div>
-                    }
+            <div className="incident-convergence-surface">
+              <svg
+                className="incident-convergence-links"
+                viewBox="0 0 100 100"
+                preserveAspectRatio="none"
+                aria-hidden="true"
+              >
+                {incidentConvergenceModel.links.map((link) => {
+                  const sourceAnchor =
+                    link.sourceKind === 'anchor'
+                      ? incidentConvergenceModel.anchors.find(
+                          (anchor) => anchor.id === link.sourceId,
+                        )
+                      : null
+                  const sourcePoint =
+                    link.sourceKind === 'point'
+                      ? incidentConvergenceModel.points.find(
+                          (point) => point.eventId === link.sourceId,
+                        )
+                      : null
+                  const targetAnchor = incidentConvergenceModel.anchors.find(
+                    (anchor) => anchor.id === link.targetId,
+                  )
+
+                  if (!targetAnchor || (!sourceAnchor && !sourcePoint)) {
+                    return null
+                  }
+
+                  const fromX = sourceAnchor?.x ?? sourcePoint?.x ?? 0
+                  const fromY = sourceAnchor?.y ?? sourcePoint?.y ?? 0
+                  const toX = targetAnchor.x
+                  const toY = targetAnchor.y
+
+                  return (
+                    <g
+                      key={link.id}
+                      className={`incident-convergence-link weight-${link.weight}`}
+                    >
+                      <line x1={fromX} y1={fromY} x2={toX} y2={toY} />
+                    </g>
+                  )
+                })}
+              </svg>
+
+              {incidentConvergenceModel.anchors.map((anchor) => (
+                <article
+                  key={anchor.id}
+                  className={`incident-convergence-anchor tone-${anchor.tone}`}
+                  style={{ left: `${anchor.x}%`, top: `${anchor.y}%` }}
+                >
+                  <span>{anchor.label}</span>
+                  <strong>{anchor.headline}</strong>
+                  <p>{anchor.detail}</p>
+                </article>
+              ))}
+
+              {incidentConvergenceModel.points.map((point) => {
+                const event = queueEvents.find((item) => item.id === point.eventId)
+
+                return (
+                  <button
+                    key={point.eventId}
+                    type="button"
+                    className={`incident-convergence-point size-${point.size}`}
+                    style={{ left: `${point.x}%`, top: `${point.y}%` }}
+                    onClick={() => {
+                      if (event) {
+                        selectIncident(event)
+                      }
+                    }}
+                    title={`${point.title} · ${point.reason}`}
                   >
-                    <TopologyCanvas
-                      compact
-                      nodes={selectedStageGraph.nodes}
-                      links={selectedStageGraph.links}
-                    />
-                  </Suspense>
-                </section>
-              ) : null}
+                    <span className="incident-convergence-dot" />
+                    <span className="incident-convergence-point-copy">
+                      <strong>{point.title}</strong>
+                      <em>{formatMaybeTimestamp(point.stamp, 'time')}</em>
+                      <span>{point.reason}</span>
+                    </span>
+                  </button>
+                )
+              })}
 
-              <div className="stage-process-flow">
-                {selectedStagePhases.length > 0 ? (
-                  selectedStagePhases.map((phase, phaseIndex) => (
-                    <div key={`${selectedGuidedStage.id}-${phase.id}`} className="stage-process-segment">
-                      <article className={`stage-process-card state-${phase.status}`}>
-                        <span className="stage-process-index">
-                          {(phaseIndex + 1).toString().padStart(2, '0')}
-                        </span>
-                        <strong>{phase.title}</strong>
-                        <p>{phase.purpose}</p>
-                        <p className="stage-process-note">{phase.band.detail}</p>
-                        <div className="stage-process-meta">
-                          <span>{phase.systems}</span>
-                          <span>{phase.band.value}</span>
-                        </div>
+              <div className="incident-convergence-footer">
+                <article className="incident-convergence-reading">
+                  <span className="story-stage-node-label">
+                    {locale === 'zh' ? '当前判断' : 'current reading'}
+                  </span>
+                  <strong>{selectedInference}</strong>
+                  <p>{selectedScopeMeaning}</p>
+                </article>
 
-                        <div className="stage-process-node-strip">
-                          {phase.stageIds.map((stageId) => (
-                            <article
-                              key={`${phase.id}-${stageId}`}
-                              className="stage-node-pill"
-                            >
-                              <strong>{stageNodeTitle(snapshot, stageId, locale)}</strong>
-                              <span>{stageNodeSubtitle(snapshot, stageId, locale)}</span>
-                              <ul className="stage-node-pill-metrics">
-                                {stageNodeMetrics(snapshot, stageId, locale, phase).map(
-                                  (metric) => (
-                                    <li key={`${phase.id}-${stageId}-${metric.label}`}>
-                                      <span>{metric.label}</span>
-                                      <strong>{metric.value}</strong>
-                                    </li>
-                                  ),
-                                )}
-                              </ul>
-                            </article>
-                          ))}
-                        </div>
-
-                        <ul className="guided-stage-facts">
-                          {phase.facts.map((fact) => (
-                            <li key={`${phase.id}-${fact}`}>{fact}</li>
-                          ))}
-                        </ul>
-                      </article>
-                      {phaseIndex < selectedStagePhases.length - 1 ? (
-                        <div className="stage-process-connector" aria-hidden="true">
-                          <span />
-                        </div>
-                      ) : null}
-                    </div>
-                  ))
-                ) : (
-                  <article className="story-empty-panel story-empty-panel-inline">
-                    <strong>
-                      {locale === 'zh'
-                        ? '当前阶段还没有独立动作链'
-                        : 'No dedicated action chain for this stage yet'}
-                    </strong>
-                    <p>
-                      {locale === 'zh'
-                        ? '请继续切换其他阶段或直接展开全屏流程图。'
-                        : 'Switch to another stage or open the fullscreen pipeline for the broader incident path.'}
-                    </p>
-                  </article>
-                )}
+                <div className="incident-convergence-phase-strip">
+                  {selectedStagePhases.map((phase, index) => (
+                    <article
+                      key={`${selectedGuidedStage.id}-${phase.id}`}
+                      className={`incident-convergence-phase state-${phase.status}`}
+                    >
+                      <span>{(index + 1).toString().padStart(2, '0')}</span>
+                      <strong>{phase.title}</strong>
+                      <p>{phase.band.detail}</p>
+                    </article>
+                  ))}
+                </div>
               </div>
+            </div>
+          </section>
 
-              <div className="stage-process-detail-grid">
-                <article className="focus-card">
-                  <strong>{locale === 'zh' ? '本阶段关键事实' : 'stage facts'}</strong>
-                  <ul className="focus-list">
-                    {selectedGuidedStage.facts.map((fact) => (
-                      <li key={`${selectedGuidedStage.id}-${fact}`}>{fact}</li>
-                    ))}
-                  </ul>
-                </article>
+          <aside className="incident-runbook-surface">
+            <div className="incident-runbook-head">
+              <span className="section-kicker">
+                {locale === 'zh' ? 'operator handoff / runbook' : 'operator handoff / runbook'}
+              </span>
+              <strong>{incidentConvergenceModel.runbook.title}</strong>
+              <em>{incidentConvergenceModel.runbook.scopeLabel}</em>
+              <span>{incidentConvergenceModel.runbook.applicability}</span>
+            </div>
 
-                <article className="focus-card">
-                  <strong>{locale === 'zh' ? '相关时间点' : 'related timeline steps'}</strong>
-                  {relatedTimelineSteps.length > 0 ? (
-                    <ul className="focus-list">
-                      {relatedTimelineSteps.map((step) => (
-                        <li key={`${selectedGuidedStage.id}-${step.id}`}>
-                          {formatMaybeTimestamp(step.stamp, 'time')} · {step.title}
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <ul className="focus-list">
-                      <li>
-                        {locale === 'zh'
-                          ? '当前阶段没有独立时间点，使用上方动作链描述。'
-                          : 'No standalone timeline record for this stage; use the action chain above.'}
-                      </li>
-                    </ul>
-                  )}
-                </article>
-
-                <article className="focus-card">
-                  <strong>{locale === 'zh' ? '本阶段读取 / 输出' : 'read / output'}</strong>
-                  <ul className="focus-list">
-                    {selectedStagePhases.map((phase) => (
-                      <li key={`${selectedGuidedStage.id}-${phase.id}-systems`}>
-                        {phase.title}: {phase.systems}
-                      </li>
-                    ))}
-                  </ul>
-                </article>
-              </div>
+            <section className="incident-runbook-section">
+              <span>{locale === 'zh' ? '预检查' : 'prechecks'}</span>
+              <ul>
+                {incidentConvergenceModel.runbook.prechecks.map((item) => (
+                  <li key={`precheck-${item}`}>{item}</li>
+                ))}
+              </ul>
             </section>
-          </div>
+
+            <section className="incident-runbook-section">
+              <span>{locale === 'zh' ? '动作草案' : 'operator actions'}</span>
+              <ul>
+                {incidentConvergenceModel.runbook.operatorActions.map((item) => (
+                  <li key={`action-${item}`}>{item}</li>
+                ))}
+              </ul>
+            </section>
+
+            <section className="incident-runbook-section">
+              <span>{locale === 'zh' ? '依据源' : 'basis sources'}</span>
+              {selectedProjector.sources.length > 0 ? (
+                <ul>
+                  {selectedProjector.sources.slice(0, 4).map((source) => (
+                    <li key={`${source.section}-${source.field}-${source.label}`}>
+                      {source.label}: {source.value}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <ul>
+                  <li>
+                    {locale === 'zh'
+                      ? '当前节点没有额外 basis source。'
+                      : 'No additional basis source is attached for the current node.'}
+                  </li>
+                </ul>
+              )}
+            </section>
+
+            <section className="incident-runbook-section">
+              <span>{locale === 'zh' ? '审批边界' : 'governance boundary'}</span>
+              <ul>
+                {incidentConvergenceModel.runbook.boundaries.map((item) => (
+                  <li key={`boundary-${item}`}>{item}</li>
+                ))}
+              </ul>
+            </section>
+
+            <section className="incident-runbook-section">
+              <span>{locale === 'zh' ? '回退说明' : 'rollback posture'}</span>
+              <ul>
+                {incidentConvergenceModel.runbook.rollback.map((item) => (
+                  <li key={`rollback-${item}`}>{item}</li>
+                ))}
+              </ul>
+            </section>
+
+            {relatedTimelineSteps.length > 0 ? (
+              <section className="incident-runbook-section is-timeline">
+                <span>{locale === 'zh' ? '相关时间点' : 'related timeline steps'}</span>
+                <ul>
+                  {relatedTimelineSteps.map((step) => (
+                    <li key={`${selectedGuidedStage.id}-${step.id}`}>
+                      {formatMaybeTimestamp(step.stamp, 'time')} · {step.title}
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            ) : null}
+          </aside>
         </div>
       </section>
 

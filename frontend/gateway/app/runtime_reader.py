@@ -971,6 +971,15 @@ def _build_suggestion_records(
         rule_id=_get_text(suggestion, 'rule_id') or 'unknown',
         provider=_get_text(context, 'provider') or 'template',
       )
+    hypothesis_set = _normalize_hypothesis_set(
+      suggestion.get('hypothesis_set'),
+      suggestion=suggestion,
+    )
+    review_verdict = _normalize_review_verdict(
+      suggestion.get('review_verdict'),
+      suggestion=suggestion,
+      hypothesis_set=hypothesis_set,
+    )
     records.append(
       {
         'id': _get_text(suggestion, 'suggestion_id') or _get_text(suggestion, 'alert_id') or 'unknown',
@@ -999,7 +1008,9 @@ def _build_suggestion_records(
           'historical': _normalize_mapping(evidence_bundle.get('historical_context')),
         },
         'hypotheses': _string_list(suggestion.get('hypotheses')),
+        'hypothesisSet': hypothesis_set,
         'recommendedActions': _string_list(suggestion.get('recommended_actions')),
+        'reviewVerdict': review_verdict,
         'confidence': round(confidence, 2),
         'confidenceLabel': _get_text(suggestion, 'confidence_label') or _confidence_label(confidence),
         'confidenceReason': _get_text(suggestion, 'confidence_reason')
@@ -1010,6 +1021,142 @@ def _build_suggestion_records(
       },
     )
   return records
+
+
+def _normalize_hypothesis_set(
+  value: Any,
+  *,
+  suggestion: dict[str, Any],
+) -> dict[str, Any]:
+  if isinstance(value, dict):
+    items = []
+    for raw_item in value.get('items', []):
+      if not isinstance(raw_item, dict):
+        continue
+      items.append(
+        {
+          'hypothesisId': _get_text(raw_item, 'hypothesis_id') or 'unknown',
+          'rank': _safe_int(raw_item.get('rank'), len(items) + 1),
+          'statement': _get_text(raw_item, 'statement') or 'n/a',
+          'confidenceScore': float(raw_item.get('confidence_score', 0) or 0),
+          'confidenceLabel': _get_text(raw_item, 'confidence_label') or 'low',
+          'supportEvidenceRefs': _string_list(raw_item.get('support_evidence_refs')),
+          'contradictEvidenceRefs': _string_list(raw_item.get('contradict_evidence_refs')),
+          'missingEvidenceRefs': _string_list(raw_item.get('missing_evidence_refs')),
+          'nextBestAction': _get_text(raw_item, 'next_best_action') or '',
+          'reviewState': _get_text(raw_item, 'review_state') or 'candidate',
+        },
+      )
+    if items:
+      summary = value.get('summary', {}) if isinstance(value.get('summary'), dict) else {}
+      return {
+        'setId': _get_text(value, 'set_id') or 'unknown',
+        'primaryHypothesisId': _get_text(value, 'primary_hypothesis_id') or items[0]['hypothesisId'],
+        'suggestionScope': 'cluster' if _get_text(value, 'suggestion_scope') == 'cluster' else 'alert',
+        'items': items,
+        'summary': {
+          'totalHypotheses': _safe_int(summary.get('total_hypotheses'), len(items)),
+          'directRefCount': _safe_int(summary.get('direct_ref_count'), 0),
+          'supportingRefCount': _safe_int(summary.get('supporting_ref_count'), 0),
+          'contradictoryRefCount': _safe_int(summary.get('contradictory_ref_count'), 0),
+          'missingRefCount': _safe_int(summary.get('missing_ref_count'), 0),
+        },
+      }
+
+  hypotheses = _string_list(suggestion.get('hypotheses'))
+  recommended_actions = _string_list(suggestion.get('recommended_actions'))
+  confidence = float(suggestion.get('confidence', 0) or 0)
+  items = []
+  for index, statement in enumerate(hypotheses[:3]):
+    items.append(
+      {
+        'hypothesisId': f"fallback-h-{index + 1}",
+        'rank': index + 1,
+        'statement': statement,
+        'confidenceScore': round(max(0.35, confidence - (index * 0.08)), 2),
+        'confidenceLabel': _get_text(suggestion, 'confidence_label') or _confidence_label(confidence),
+        'supportEvidenceRefs': [],
+        'contradictEvidenceRefs': [],
+        'missingEvidenceRefs': [],
+        'nextBestAction': recommended_actions[index] if index < len(recommended_actions) else (recommended_actions[0] if recommended_actions else ''),
+        'reviewState': 'candidate',
+      },
+    )
+  return {
+    'setId': 'fallback-hypothesis-set',
+    'primaryHypothesisId': items[0]['hypothesisId'] if items else '',
+    'suggestionScope': 'cluster' if _get_text(suggestion, 'suggestion_scope') == 'cluster' else 'alert',
+    'items': items,
+    'summary': {
+      'totalHypotheses': len(items),
+      'directRefCount': 0,
+      'supportingRefCount': 0,
+      'contradictoryRefCount': 0,
+      'missingRefCount': 0,
+    },
+  }
+
+
+def _normalize_review_verdict(
+  value: Any,
+  *,
+  suggestion: dict[str, Any],
+  hypothesis_set: dict[str, Any],
+) -> dict[str, Any]:
+  if isinstance(value, dict) and isinstance(value.get('checks'), dict):
+    checks = value.get('checks', {})
+    return {
+      'verdictId': _get_text(value, 'verdict_id') or 'unknown',
+      'suggestionScope': 'cluster' if _get_text(value, 'suggestion_scope') == 'cluster' else 'alert',
+      'verdictStatus': _get_text(value, 'verdict_status') or 'operator_review',
+      'recommendedDisposition': _get_text(value, 'recommended_disposition') or 'project_with_operator_boundary',
+      'approvalRequired': _get_bool(value, 'approval_required') is not False,
+      'blockingIssues': _string_list(value.get('blocking_issues')),
+      'checks': {
+        'evidenceSufficiency': _normalize_review_check(checks.get('evidence_sufficiency')),
+        'temporalFreshness': _normalize_review_check(checks.get('temporal_freshness')),
+        'topologyConsistency': _normalize_review_check(checks.get('topology_consistency')),
+        'overreachRisk': _normalize_review_check(checks.get('overreach_risk')),
+        'remediationExecutability': _normalize_review_check(checks.get('remediation_executability')),
+        'rollbackReadiness': _normalize_review_check(checks.get('rollback_readiness')),
+      },
+      'reviewSummary': _get_text(value, 'review_summary') or 'review verdict attached',
+    }
+
+  return {
+    'verdictId': 'fallback-review-verdict',
+    'suggestionScope': 'cluster' if _get_text(suggestion, 'suggestion_scope') == 'cluster' else 'alert',
+    'verdictStatus': 'operator_review',
+    'recommendedDisposition': 'project_with_operator_boundary',
+    'approvalRequired': True,
+    'blockingIssues': [],
+    'checks': {
+      'evidenceSufficiency': _normalize_review_check(
+        {
+          'status': 'bounded',
+          'detail': f"hypotheses={len(hypothesis_set.get('items') or [])}",
+        },
+      ),
+      'temporalFreshness': _normalize_review_check({'status': 'fresh', 'detail': 'runtime snapshot attached'}),
+      'topologyConsistency': _normalize_review_check({'status': 'partial', 'detail': 'topology summary attached'}),
+      'overreachRisk': _normalize_review_check({'status': 'guarded', 'detail': 'operator boundary retained'}),
+      'remediationExecutability': _normalize_review_check({'status': 'draft_only', 'detail': 'template suggestion path'}),
+      'rollbackReadiness': _normalize_review_check({'status': 'pending', 'detail': 'no structured rollback verdict in legacy suggestion'}),
+    },
+    'reviewSummary': _get_text(suggestion, 'confidence_reason') or 'legacy suggestion fallback review',
+  }
+
+
+def _normalize_review_check(value: Any) -> dict[str, str]:
+  if isinstance(value, dict):
+    return {
+      'status': _get_text(value, 'status') or 'unknown',
+      'detail': _get_text(value, 'detail') or 'n/a',
+    }
+  return {
+    'status': 'unknown',
+    'detail': 'n/a',
+  }
 
 
 def _build_feed(

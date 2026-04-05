@@ -26,6 +26,8 @@ def test_should_process_severity_respects_min_rank() -> None:
         provider_api_key="",
         provider_model="generic-aiops",
         provider_timeout_sec=30,
+        provider_compute_target="local_cpu",
+        provider_max_parallelism=1,
     )
     assert cfg.should_process_severity("warning") is False
     assert cfg.should_process_severity("critical") is True
@@ -34,11 +36,14 @@ def test_should_process_severity_respects_min_rank() -> None:
 def test_load_config_fallbacks_invalid_values(monkeypatch) -> None:
     monkeypatch.setenv("KAFKA_AUTO_OFFSET_RESET", "bad-value")
     monkeypatch.setenv("AIOPS_MIN_SEVERITY", "notice")
+    monkeypatch.setenv("AIOPS_PROVIDER", "gpu_http")
     cfg = load_config()
     assert cfg.auto_offset_reset == "latest"
     assert cfg.min_severity == "warning"
     assert cfg.cluster_window_sec >= 10
     assert cfg.cluster_min_alerts >= 2
     assert cfg.cluster_cooldown_sec >= 10
-    assert cfg.provider == "template"
+    assert cfg.provider == "gpu_http"
     assert cfg.provider_timeout_sec >= 5
+    assert cfg.provider_compute_target == "external_gpu_service"
+    assert cfg.provider_max_parallelism >= 1

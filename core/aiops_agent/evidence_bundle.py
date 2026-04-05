@@ -2,7 +2,12 @@ import hashlib
 from datetime import datetime, timezone
 from typing import Any
 
+from core.aiops_agent.alert_reasoning_runtime import (
+    build_alert_runtime_seed,
+    build_cluster_runtime_seed,
+)
 from core.aiops_agent.cluster_aggregator import ClusterTrigger
+from core.aiops_agent.evidence_pack_v2 import build_evidence_pack_v2
 
 
 def build_alert_evidence_bundle(
@@ -26,8 +31,13 @@ def build_alert_evidence_bundle(
 
     seed = f"{alert_id}|{rule_id}|{service}|{src_device_key}|alert"
     bundle_id = hashlib.sha1(seed.encode("utf-8"), usedforsecurity=False).hexdigest()
+    reasoning_runtime_seed = build_alert_runtime_seed(
+        alert=alert,
+        recent_similar_1h=max(0, int(recent_similar_1h)),
+        history_support=history_support,
+    )
 
-    return {
+    bundle = {
         "schema_version": 1,
         "bundle_id": bundle_id,
         "bundle_ts": now.isoformat(),
@@ -74,7 +84,10 @@ def build_alert_evidence_bundle(
         },
         "device_context": _device_context(device_profile, src_device_key),
         "change_context": _change_context(change_context),
+        "reasoning_runtime_seed": reasoning_runtime_seed,
     }
+    bundle["evidence_pack_v2"] = build_evidence_pack_v2(bundle)
+    return bundle
 
 
 def build_cluster_evidence_bundle(
@@ -97,8 +110,14 @@ def build_cluster_evidence_bundle(
         f"{trigger.key.src_device_key}|{trigger.last_alert_ts}"
     )
     bundle_id = hashlib.sha1(seed.encode("utf-8"), usedforsecurity=False).hexdigest()
+    reasoning_runtime_seed = build_cluster_runtime_seed(
+        alert=alert,
+        trigger=trigger,
+        recent_similar_1h=max(0, int(recent_similar_1h)),
+        history_support=history_support,
+    )
 
-    return {
+    bundle = {
         "schema_version": 1,
         "bundle_id": bundle_id,
         "bundle_ts": now.isoformat(),
@@ -151,7 +170,10 @@ def build_cluster_evidence_bundle(
         },
         "device_context": _device_context(device_profile, trigger.key.src_device_key),
         "change_context": _change_context(change_context),
+        "reasoning_runtime_seed": reasoning_runtime_seed,
     }
+    bundle["evidence_pack_v2"] = build_evidence_pack_v2(bundle)
+    return bundle
 
 
 def _topology_context(
