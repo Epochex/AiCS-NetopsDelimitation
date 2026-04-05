@@ -408,6 +408,47 @@ export const runtimeSnapshot: RuntimeSnapshot = {
         },
         reviewSummary: 'review kept the operator boundary and accepted the current evidence coverage',
       },
+      runbookDraft: {
+        planId: 'rb-udp-10004',
+        planScope: 'alert',
+        planStatus: 'draft_ready',
+        title: 'Runbook draft for udp/10004 on LEON-PC',
+        applicability: {
+          ruleId: 'deny_burst_v1',
+          service: 'udp/10004',
+          pathSignature: 'lan->lan',
+        },
+        hypothesisRef: 'hs-udp-10004-1',
+        hypothesisStatement:
+          'The repeated deny pattern is concentrated on one local broadcast tuple, so the first check should stay on the udp/10004 path instead of widening to the whole device.',
+        prechecks: [
+          'Confirm the triggering tuple, rule, service, and interface path from deterministic evidence.',
+          'Check whether the alert aligns with recent changes before choosing any remediation path.',
+        ],
+        operatorActions: [
+          'Review related evidence and select the most plausible hypothesis before touching any control surface.',
+          'Review the last 15 minutes in ClickHouse with rule_id=deny_burst_v1, service=udp/10004, src_device_key=20:7b:d2:ac:75:4e, and srcip=192.168.16.152 to confirm the same broadcast tuple keeps repeating.',
+        ],
+        boundaries: [
+          'guidance only; no device write path is opened',
+          'approval required before any execution-facing step',
+          'review accepted projection under operator boundary',
+        ],
+        rollbackGuidance: [
+          'Document the current policy/path state before any proposed change.',
+          'Ensure blast-radius estimation and rollback steps are attached before execution approval is requested.',
+        ],
+        approvalBoundary: {
+          approvalRequired: true,
+          executionMode: 'human_gated',
+          writePathAllowed: false,
+        },
+        evidenceRefs: ['alert_ref.rule_id', 'topology_context.service'],
+        changeSummary: {
+          suspectedChange: false,
+          changeRefs: [],
+        },
+      },
       confidence: 0.66,
       confidenceLabel: 'medium',
       confidenceReason:
@@ -709,6 +750,47 @@ export const runtimeSnapshot: RuntimeSnapshot = {
         },
         reviewSummary: 'review retained manual approval and kept the multicast path scoped',
       },
+      runbookDraft: {
+        planId: 'rb-udp-1900',
+        planScope: 'alert',
+        planStatus: 'draft_ready',
+        title: 'Runbook draft for udp/1900 on fe80::19f6:8fb1:57ea:abd',
+        applicability: {
+          ruleId: 'deny_burst_v1',
+          service: 'udp/1900',
+          pathSignature: 'lan->lan',
+        },
+        hypothesisRef: 'hs-udp-1900-1',
+        hypothesisStatement:
+          'The deny is concentrated on the SSDP multicast tuple, so the first review should stay on that path instead of widening to generic device anomaly.',
+        prechecks: [
+          'Confirm the triggering tuple, rule, service, and interface path from deterministic evidence.',
+          'Check whether the alert aligns with recent changes before choosing any remediation path.',
+        ],
+        operatorActions: [
+          'Review related evidence and select the most plausible hypothesis before touching any control surface.',
+          'Query ClickHouse for rule_id=deny_burst_v1, service=udp/1900, and srcip=fe80::19f6:8fb1:57ea:abd over the last 15 minutes to confirm whether the same multicast tuple dominates the deny history.',
+        ],
+        boundaries: [
+          'guidance only; no device write path is opened',
+          'approval required before any execution-facing step',
+          'review accepted projection under operator boundary',
+        ],
+        rollbackGuidance: [
+          'Document the current policy/path state before any proposed change.',
+          'Ensure blast-radius estimation and rollback steps are attached before execution approval is requested.',
+        ],
+        approvalBoundary: {
+          approvalRequired: true,
+          executionMode: 'human_gated',
+          writePathAllowed: false,
+        },
+        evidenceRefs: ['alert_ref.rule_id', 'topology_context.service'],
+        changeSummary: {
+          suspectedChange: false,
+          changeRefs: [],
+        },
+      },
       confidence: 0.66,
       confidenceLabel: 'medium',
       confidenceReason:
@@ -984,6 +1066,47 @@ export const runtimeSnapshot: RuntimeSnapshot = {
           rollbackReadiness: { status: 'ready', detail: 'rollback_steps=2' },
         },
         reviewSummary: 'review retained manual approval and kept the multicast path scoped',
+      },
+      runbookDraft: {
+        planId: 'rb-udp-5353',
+        planScope: 'alert',
+        planStatus: 'draft_ready',
+        title: 'Runbook draft for udp/5353 on 20:7b:d2:ac:75:4e',
+        applicability: {
+          ruleId: 'deny_burst_v1',
+          service: 'udp/5353',
+          pathSignature: 'lan->lan',
+        },
+        hypothesisRef: 'hs-udp-5353-1',
+        hypothesisStatement:
+          'The current deny burst stays on the mDNS multicast path, so the first review should stay on one local tuple rather than treating it as a broad device anomaly.',
+        prechecks: [
+          'Confirm the triggering tuple, rule, service, and interface path from deterministic evidence.',
+          'Check whether the alert aligns with recent changes before choosing any remediation path.',
+        ],
+        operatorActions: [
+          'Review related evidence and select the most plausible hypothesis before touching any control surface.',
+          'Query ClickHouse for rule_id=deny_burst_v1, service=udp/5353, and src_device_key=20:7b:d2:ac:75:4e over the last 15 minutes to confirm whether the same mDNS multicast tuple dominates.',
+        ],
+        boundaries: [
+          'guidance only; no device write path is opened',
+          'approval required before any execution-facing step',
+          'review accepted projection under operator boundary',
+        ],
+        rollbackGuidance: [
+          'Document the current policy/path state before any proposed change.',
+          'Ensure blast-radius estimation and rollback steps are attached before execution approval is requested.',
+        ],
+        approvalBoundary: {
+          approvalRequired: true,
+          executionMode: 'human_gated',
+          writePathAllowed: false,
+        },
+        evidenceRefs: ['alert_ref.rule_id', 'topology_context.service'],
+        changeSummary: {
+          suspectedChange: false,
+          changeRefs: [],
+        },
       },
       confidence: 0.66,
       confidenceLabel: 'medium',

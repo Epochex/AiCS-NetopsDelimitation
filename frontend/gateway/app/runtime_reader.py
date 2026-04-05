@@ -975,6 +975,10 @@ def _build_suggestion_records(
       suggestion.get('hypothesis_set'),
       suggestion=suggestion,
     )
+    runbook_draft = _normalize_runbook_draft(
+      suggestion.get('runbook_draft'),
+      suggestion=suggestion,
+    )
     review_verdict = _normalize_review_verdict(
       suggestion.get('review_verdict'),
       suggestion=suggestion,
@@ -1010,6 +1014,7 @@ def _build_suggestion_records(
         'hypotheses': _string_list(suggestion.get('hypotheses')),
         'hypothesisSet': hypothesis_set,
         'recommendedActions': _string_list(suggestion.get('recommended_actions')),
+        'runbookDraft': runbook_draft,
         'reviewVerdict': review_verdict,
         'confidence': round(confidence, 2),
         'confidenceLabel': _get_text(suggestion, 'confidence_label') or _confidence_label(confidence),
@@ -1144,6 +1149,73 @@ def _normalize_review_verdict(
       'rollbackReadiness': _normalize_review_check({'status': 'pending', 'detail': 'no structured rollback verdict in legacy suggestion'}),
     },
     'reviewSummary': _get_text(suggestion, 'confidence_reason') or 'legacy suggestion fallback review',
+  }
+
+
+def _normalize_runbook_draft(
+  value: Any,
+  *,
+  suggestion: dict[str, Any],
+) -> dict[str, Any]:
+  if isinstance(value, dict):
+    applicability = value.get('applicability', {}) if isinstance(value.get('applicability'), dict) else {}
+    approval_boundary = value.get('approval_boundary', {}) if isinstance(value.get('approval_boundary'), dict) else {}
+    change_summary = value.get('change_summary', {}) if isinstance(value.get('change_summary'), dict) else {}
+    return {
+      'planId': _get_text(value, 'plan_id') or 'unknown',
+      'planScope': 'cluster' if _get_text(value, 'plan_scope') == 'cluster' else 'alert',
+      'planStatus': _get_text(value, 'plan_status') or 'draft_ready',
+      'title': _get_text(value, 'title') or 'Runbook draft',
+      'applicability': {
+        'ruleId': _get_text(applicability, 'rule_id') or 'unknown',
+        'service': _get_text(applicability, 'service') or 'unknown',
+        'pathSignature': _get_text(applicability, 'path_signature') or '',
+      },
+      'hypothesisRef': _get_text(value, 'hypothesis_ref') or '',
+      'hypothesisStatement': _get_text(value, 'hypothesis_statement') or '',
+      'prechecks': _string_list(value.get('prechecks')),
+      'operatorActions': _string_list(value.get('operator_actions')),
+      'boundaries': _string_list(value.get('boundaries')),
+      'rollbackGuidance': _string_list(value.get('rollback_guidance')),
+      'approvalBoundary': {
+        'approvalRequired': _get_bool(approval_boundary, 'approval_required') is True,
+        'executionMode': _get_text(approval_boundary, 'execution_mode') or 'human_gated',
+        'writePathAllowed': _get_bool(approval_boundary, 'write_path_allowed') is True,
+      },
+      'evidenceRefs': _string_list(value.get('evidence_refs')),
+      'changeSummary': {
+        'suspectedChange': _get_bool(change_summary, 'suspected_change') is True,
+        'changeRefs': _string_list(change_summary.get('change_refs')),
+      },
+    }
+
+  context = suggestion.get('context', {}) if isinstance(suggestion.get('context'), dict) else {}
+  return {
+    'planId': 'fallback-runbook-draft',
+    'planScope': 'cluster' if _get_text(suggestion, 'suggestion_scope') == 'cluster' else 'alert',
+    'planStatus': 'draft_ready',
+    'title': 'Runbook draft',
+    'applicability': {
+      'ruleId': _get_text(suggestion, 'rule_id') or 'unknown',
+      'service': _get_text(context, 'service') or 'unknown',
+      'pathSignature': '',
+    },
+    'hypothesisRef': '',
+    'hypothesisStatement': '',
+    'prechecks': [],
+    'operatorActions': _string_list(suggestion.get('recommended_actions')),
+    'boundaries': ['guidance only'],
+    'rollbackGuidance': [],
+    'approvalBoundary': {
+      'approvalRequired': True,
+      'executionMode': 'human_gated',
+      'writePathAllowed': False,
+    },
+    'evidenceRefs': [],
+    'changeSummary': {
+      'suspectedChange': False,
+      'changeRefs': [],
+    },
   }
 
 

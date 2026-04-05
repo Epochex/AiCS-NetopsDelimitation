@@ -122,6 +122,34 @@ export interface ReviewVerdict {
   reviewSummary: string
 }
 
+export interface RunbookDraft {
+  planId: string
+  planScope: 'alert' | 'cluster'
+  planStatus: string
+  title: string
+  applicability: {
+    ruleId: string
+    service: string
+    pathSignature: string
+  }
+  hypothesisRef: string
+  hypothesisStatement: string
+  prechecks: string[]
+  operatorActions: string[]
+  boundaries: string[]
+  rollbackGuidance: string[]
+  approvalBoundary: {
+    approvalRequired: boolean
+    executionMode: string
+    writePathAllowed: boolean
+  }
+  evidenceRefs: string[]
+  changeSummary: {
+    suspectedChange: boolean
+    changeRefs: string[]
+  }
+}
+
 export interface SuggestionRecord {
   id: string
   alertId: string
@@ -151,6 +179,7 @@ export interface SuggestionRecord {
   hypotheses: string[]
   hypothesisSet: HypothesisSet
   recommendedActions: string[]
+  runbookDraft: RunbookDraft
   reviewVerdict: ReviewVerdict
   confidence: number
   confidenceLabel: string

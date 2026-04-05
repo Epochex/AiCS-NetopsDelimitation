@@ -265,10 +265,14 @@ def test_template_provider_worker_builds_alert_scope_suggestion() -> None:
     assert suggestion["context"]["investigation_session_id"]
     assert suggestion["context"]["hypothesis_set_id"]
     assert suggestion["context"]["review_verdict_id"]
+    assert suggestion["context"]["runbook_draft_id"]
     assert suggestion["hypothesis_set"]["primary_hypothesis_id"]
     assert suggestion["hypothesis_set"]["items"]
     assert suggestion["hypothesis_set"]["items"][0]["support_evidence_refs"]
     assert suggestion["runbook_plan_outline"]["approval_boundary"]["approval_required"] is True
+    assert suggestion["runbook_draft"]["plan_id"]
+    assert suggestion["runbook_draft"]["operator_actions"]
+    assert suggestion["runbook_draft"]["approval_boundary"]["approval_required"] is True
     assert suggestion["review_verdict"]["approval_required"] is True
     assert suggestion["review_verdict"]["verdict_status"] in {"operator_review", "needs_evidence"}
     assert suggestion["review_verdict"]["checks"]["overreach_risk"]["status"] == "guarded"
@@ -369,6 +373,7 @@ def test_review_verdict_returns_needs_evidence_when_support_is_too_thin() -> Non
     assert suggestion["review_verdict"]["verdict_status"] == "needs_evidence"
     assert suggestion["review_verdict"]["recommended_disposition"] == "return_to_evidence_gather"
     assert suggestion["review_verdict"]["blocking_issues"]
+    assert suggestion["runbook_draft"]["plan_status"] == "needs_evidence"
 
 
 def test_build_provider_accepts_external_gpu_alias() -> None:

@@ -93,6 +93,34 @@ function makeSuggestion(): SuggestionRecord {
       },
       reviewSummary: 'operator review retained for this suggestion',
     },
+    runbookDraft: {
+      planId: 'rb-1',
+      planScope: 'alert',
+      planStatus: 'draft_ready',
+      title: 'Runbook draft for udp/10004 on LEON-PC',
+      applicability: {
+        ruleId: 'deny_burst_v1',
+        service: 'udp/10004',
+        pathSignature: 'lan->lan',
+      },
+      hypothesisRef: 'h-1',
+      hypothesisStatement:
+        'The repeated deny pattern is concentrated on one local broadcast tuple.',
+      prechecks: ['event window 18:00:00 - 18:03:18', 'cluster gate 1/3 in 600s'],
+      operatorActions: ['Review the last 15 minutes in ClickHouse for the same tuple.'],
+      boundaries: ['guidance only'],
+      rollbackGuidance: ['rerun the tuple check if the path widens beyond the current slice'],
+      approvalBoundary: {
+        approvalRequired: true,
+        executionMode: 'human_gated',
+        writePathAllowed: false,
+      },
+      evidenceRefs: ['topology_context.service'],
+      changeSummary: {
+        suspectedChange: false,
+        changeRefs: [],
+      },
+    },
     confidence: 0.82,
     confidenceLabel: 'medium',
     confidenceReason: 'threshold hit plus single-path concentration',
@@ -200,8 +228,8 @@ describe('buildIncidentConvergenceModel', () => {
       selectedRefreshSummary: 'merged 2 suggestion refreshes',
     })
 
-    expect(model.runbook.title).toBe('Runbook draft')
-    expect(model.runbook.prechecks).toContain('cluster gate 1/3 in 600s')
+    expect(model.runbook.title).toBe('Runbook draft for udp/10004 on LEON-PC')
+    expect(model.runbook.prechecks[0]).toContain('event window 18:00:00 - 18:03:18')
     expect(model.runbook.operatorActions[0]).toContain('ClickHouse')
     expect(model.runbook.boundaries[0]).toContain('guidance only')
     expect(model.runbook.evidenceLabels).toEqual(

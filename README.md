@@ -29,7 +29,7 @@ flowchart LR
 
 The repository runs three planes. The edge ingestion plane owns rotated file discovery, checkpoint progression, replay semantics, and fact normalization. The core streaming plane owns Kafka transport, deterministic alert confirmation, audit persistence, ClickHouse lookup, alert clustering, and suggestion generation. The runtime projection plane owns snapshot assembly, stream deltas, strategy controls, and the operator-facing console.
 
-`core/aiops_agent` currently supports `alert` and `cluster` scopes. The default provider path is `template`. The downstream reasoning path already carries deterministic runtime seeds and structured reasoning contracts. `reasoning_runtime_seed` contains `candidate_event_graph`, `investigation_session`, `reasoning_trace_seed`, and `runbook_plan_outline`. `evidence_pack_v2` is attached to every evidence bundle and is the stable input object for downstream reasoning. `hypothesis_set` and `review_verdict` are now emitted as first-class suggestion fields. The frontend projector and node inspector can read those structured objects directly.
+`core/aiops_agent` currently supports `alert` and `cluster` scopes. The default provider path is `template`. The downstream reasoning path already carries deterministic runtime seeds and structured reasoning contracts. `reasoning_runtime_seed` contains `candidate_event_graph`, `investigation_session`, `reasoning_trace_seed`, and `runbook_plan_outline`. `evidence_pack_v2` is attached to every evidence bundle and is the stable input object for downstream reasoning. `hypothesis_set`, `review_verdict`, and `runbook_draft` are now emitted as first-class suggestion fields. The frontend projector, convergence field, and node inspector can read those structured objects directly.
 
 `core/aiops_agent/alert_reasoning_runtime` is a code package. It does not hold live runtime data. Runtime artifacts stay under `/data/netops-runtime`. The package currently contains deterministic seed builders, session objects, phase routing, runbook outline generation, and trace scaffolding for the downstream reasoning path.
 
@@ -41,7 +41,7 @@ This traffic shape is low QPS. It is enough to validate deterministic correlatio
 
 ## Reasoning Objects
 
-The current downstream reasoning contract is built around four objects.
+The current downstream reasoning contract is built around five objects.
 
 `Evidence Pack V2` is attached at `evidence_bundle["evidence_pack_v2"]`. It fixes `direct_evidence`, `supporting_evidence`, `contradictory_evidence`, `missing_evidence`, `freshness`, `source_reliability`, `lineage`, and `summary`. Each evidence entry carries `evidence_id`, `kind`, `status`, `label`, `value`, `source_section`, `source_field`, `source_ref`, and `rationale`.
 
@@ -49,7 +49,9 @@ The current downstream reasoning contract is built around four objects.
 
 `ReviewVerdict` is built from `Evidence Pack V2`, `HypothesisSet`, and `runbook_plan_outline`. It fixes `verdict_id`, `verdict_status`, `recommended_disposition`, `approval_required`, `blocking_issues`, `checks`, and `review_summary`. `checks` currently cover `evidence_sufficiency`, `temporal_freshness`, `topology_consistency`, `overreach_risk`, `remediation_executability`, and `rollback_readiness`.
 
-`RunbookPlanOutline` is the current structured planning surface. It keeps `prechecks`, `operator_actions`, `approval_boundary`, and `rollback_guidance` attached to the suggestion path without opening any write path.
+`RunbookPlanOutline` is the current deterministic planning seed. It keeps `prechecks`, `operator_actions`, `approval_boundary`, and `rollback_guidance` attached to the suggestion path without opening any write path.
+
+`RunbookDraft` is the current structured planning output. It fixes `plan_id`, `plan_scope`, `plan_status`, `title`, `applicability`, `hypothesis_ref`, `hypothesis_statement`, `prechecks`, `operator_actions`, `boundaries`, `rollback_guidance`, `approval_boundary`, `evidence_refs`, and `change_summary`. The frontend convergence field now prefers this object over local prose assembly.
 
 Phase routing already exists. `hypothesis_generate` reads direct/supporting/contradictory/missing evidence. `hypothesis_critique` reads direct/supporting/contradictory. `runbook_retrieve` and `runbook_draft` reads direct/supporting/missing. `runbook_review` reads direct/contradictory/missing.
 
@@ -73,9 +75,11 @@ The first LLM-oriented enhancement is object normalization. `evidence_bundle` no
 
 The second enhancement is structured reasoning output. `HypothesisSet` turns free-form hypothesis strings into ranked hypothesis items with evidence references, confidence labels, missing evidence references, next-best action pointers, and review state. `ReviewVerdict` turns a free-form suggestion into a bounded review result with explicit checks for evidence sufficiency, temporal freshness, topology consistency, overreach risk, remediation executability, and rollback readiness. These objects are now emitted into the suggestion payload and projected through the gateway into the frontend. The frontend inspector slab and projector no longer need to infer all reasoning state from prose alone.
 
-The third enhancement is stage-aware context control. `phase_context_router.py` now slices `Evidence Pack V2` by stage. Hypothesis generation sees direct, supporting, contradictory, and missing evidence. Critique sees direct, supporting, and contradictory evidence. Runbook retrieval and draft see direct, supporting, and missing evidence. Runbook review sees direct, contradictory, and missing evidence. This keeps each stage bounded to the fields it should use.
+The third enhancement is structured planning output. `runbook_draft.py` now combines `HypothesisSet`, `ReviewVerdict`, `runbook_plan_outline`, and bounded recommended actions into a typed runbook draft. That output keeps plan state, approval boundary, evidence references, and change summary attached to the suggestion payload instead of leaving the planning surface inside free text.
 
-The fourth enhancement is future model routing. `provider_routing.py` already emits `compute_target`, `max_parallelism`, `request_kind`, `suggestion_scope`, `candidate_event_graph_id`, `investigation_session_id`, and `runbook_plan_id`. The core node can therefore route selected downstream requests to an external GPU service without changing the deterministic baseline path. If the model path is unavailable, the template provider remains the fallback.
+The fourth enhancement is stage-aware context control. `phase_context_router.py` now slices `Evidence Pack V2` by stage. Hypothesis generation sees direct, supporting, contradictory, and missing evidence. Critique sees direct, supporting, and contradictory evidence. Runbook retrieval and draft see direct, supporting, and missing evidence. Runbook review sees direct, contradictory, and missing evidence. This keeps each stage bounded to the fields it should use.
+
+The fifth enhancement is future model routing. `provider_routing.py` already emits `compute_target`, `max_parallelism`, `request_kind`, `suggestion_scope`, `candidate_event_graph_id`, `investigation_session_id`, and `runbook_plan_id`. The core node can therefore route selected downstream requests to an external GPU service without changing the deterministic baseline path. If the model path is unavailable, the template provider remains the fallback.
 
 ## Baseline vs LLM Comparison Points
 
@@ -87,7 +91,7 @@ Baseline vs LLM hypothesis layer compares raw `hypotheses: string[]` against `Hy
 
 Baseline vs LLM review layer compares confidence-only suggestion output against `ReviewVerdict`. The measurement target is whether review checks are explicit, whether blocking issues are surfaced, whether approval is attached as data, and whether the final action surface distinguishes accepted projection from operator-gated projection and return-to-evidence paths.
 
-Baseline vs LLM planning layer compares plain recommended actions against `runbook_plan_outline` and the future structured runbook plan. The measurement target is whether prechecks, approval boundary, rollback guidance, and operator actions are attached as stable fields rather than buried in text.
+Baseline vs LLM planning layer compares plain recommended actions against `runbook_plan_outline` and `runbook_draft`. The measurement target is whether prechecks, approval boundary, rollback guidance, operator actions, evidence references, and change summary are attached as stable fields rather than buried in text.
 
 Baseline vs LLM runtime layer compares one-shot deterministic suggestion generation against a staged downstream reasoning path. The measurement target is whether the system can preserve deterministic alert confirmation while adding typed evidence, typed hypotheses, typed review, and future model-backed planning without changing the upstream alert contract.
 

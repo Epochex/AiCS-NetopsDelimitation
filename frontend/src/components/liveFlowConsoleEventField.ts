@@ -193,55 +193,85 @@ function buildRunbookDraft(
       : linkedSuggestion.context.srcDeviceKey
   const labels = evidenceLabels(linkedSuggestion, locale)
   const actions =
-    linkedSuggestion.recommendedActions.length > 0
-      ? linkedSuggestion.recommendedActions.slice(0, 3)
+    linkedSuggestion.runbookDraft.operatorActions.length > 0
+      ? linkedSuggestion.runbookDraft.operatorActions.slice(0, 4)
+      : linkedSuggestion.recommendedActions.length > 0
+        ? linkedSuggestion.recommendedActions.slice(0, 3)
       : [selectedRecommendation]
+  const rollback =
+    linkedSuggestion.runbookDraft.rollbackGuidance.length > 0
+      ? linkedSuggestion.runbookDraft.rollbackGuidance
+      : locale === 'zh'
+        ? [
+            '当前没有下发动作，因此不生成设备侧回滚命令',
+            '如果路径扩宽，重新回看相同 tuple 的历史窗口',
+          ]
+        : [
+            'no device-side rollback command is emitted in the current path',
+            'rerun the tuple check if the path widens beyond the current slice',
+          ]
+  const boundaries =
+    linkedSuggestion.runbookDraft.boundaries.length > 0
+      ? linkedSuggestion.runbookDraft.boundaries
+      : locale === 'zh'
+        ? [
+            '当前页面只输出建议，不执行设备写回',
+            '高风险动作保留给人工审批面',
+            selectedScopeMeaning,
+          ]
+        : [
+            'this page emits guidance only and does not write back to devices',
+            'high-risk steps stay behind the human approval surface',
+            selectedScopeMeaning,
+          ]
 
   if (locale === 'zh') {
     return {
-      title: 'Runbook 草案',
+      title: linkedSuggestion.runbookDraft.title || 'Runbook 草案',
       scopeLabel: `${service} / ${device}`,
-      applicability: `${linkedSuggestion.scope}-scope · ${linkedSuggestion.context.provider}`,
+      applicability:
+        linkedSuggestion.runbookDraft.applicability.pathSignature.trim().length > 0
+          ? `${linkedSuggestion.runbookDraft.applicability.service} · ${linkedSuggestion.runbookDraft.applicability.pathSignature}`
+          : `${linkedSuggestion.scope}-scope · ${linkedSuggestion.context.provider}`,
       prechecks: [
-        `事件窗口 ${selectedWindowSummary}`,
-        `聚合门槛 ${clusterGateValue}`,
-        `刷新情况 ${selectedRefreshSummary}`,
-        `证据附带 ${labels.join(' / ') || '未附带'}`,
+        ...linkedSuggestion.runbookDraft.prechecks.slice(0, 4),
+        ...(linkedSuggestion.runbookDraft.prechecks.length > 0
+          ? []
+          : [
+              `事件窗口 ${selectedWindowSummary}`,
+              `聚合门槛 ${clusterGateValue}`,
+              `刷新情况 ${selectedRefreshSummary}`,
+              `证据附带 ${labels.join(' / ') || '未附带'}`,
+            ]),
       ],
       operatorActions: actions,
-      boundaries: [
-        '当前页面只输出建议，不执行设备写回',
-        '高风险动作保留给人工审批面',
-        selectedScopeMeaning,
-      ],
-      rollback: [
-        '当前没有下发动作，因此不生成设备侧回滚命令',
-        '如果路径扩宽，重新回看相同 tuple 的历史窗口',
-      ],
+      boundaries,
+      rollback,
       evidenceLabels: labels,
     }
   }
 
   return {
-    title: 'Runbook draft',
+    title: linkedSuggestion.runbookDraft.title || 'Runbook draft',
     scopeLabel: `${service} / ${device}`,
-    applicability: `${linkedSuggestion.scope}-scope · ${linkedSuggestion.context.provider}`,
+    applicability:
+      linkedSuggestion.runbookDraft.applicability.pathSignature.trim().length > 0
+        ? `${linkedSuggestion.runbookDraft.applicability.service} · ${linkedSuggestion.runbookDraft.applicability.pathSignature}`
+        : `${linkedSuggestion.scope}-scope · ${linkedSuggestion.context.provider}`,
     prechecks: [
-      `event window ${selectedWindowSummary}`,
-      `cluster gate ${clusterGateValue}`,
-      `refresh state ${selectedRefreshSummary}`,
-      `attached evidence ${labels.join(' / ') || 'none'}`,
+      ...linkedSuggestion.runbookDraft.prechecks.slice(0, 4),
+      ...(linkedSuggestion.runbookDraft.prechecks.length > 0
+        ? []
+        : [
+            `event window ${selectedWindowSummary}`,
+            `cluster gate ${clusterGateValue}`,
+            `refresh state ${selectedRefreshSummary}`,
+            `attached evidence ${labels.join(' / ') || 'none'}`,
+          ]),
     ],
     operatorActions: actions,
-    boundaries: [
-      'this page emits guidance only and does not write back to devices',
-      'high-risk steps stay behind the human approval surface',
-      selectedScopeMeaning,
-    ],
-    rollback: [
-      'no device-side rollback command is emitted in the current path',
-      'rerun the tuple check if the path widens beyond the current slice',
-    ],
+    boundaries,
+    rollback,
     evidenceLabels: labels,
   }
 }

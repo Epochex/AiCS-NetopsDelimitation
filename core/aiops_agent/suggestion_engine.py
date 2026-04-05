@@ -6,6 +6,7 @@ from core.aiops_agent.cluster_aggregator import ClusterTrigger
 from core.aiops_agent.hypothesis_set import build_hypothesis_set
 from core.aiops_agent.inference_schema import InferenceRequest, InferenceResult
 from core.aiops_agent.review_verdict import build_review_verdict
+from core.aiops_agent.runbook_draft import build_runbook_draft
 
 
 def _priority_for_severity(severity: str) -> str:
@@ -110,6 +111,14 @@ def _build_pipeline_suggestion_payload(
         hypothesis_set=hypothesis_set,
         runbook_plan_outline=runbook_plan_outline,
     )
+    runbook_draft = build_runbook_draft(
+        inference_request=inference_request,
+        evidence_bundle=evidence_bundle,
+        hypothesis_set=hypothesis_set,
+        review_verdict=review_verdict,
+        runbook_plan_outline=runbook_plan_outline,
+        recommended_actions=inference_result.recommended_actions,
+    )
 
     return {
         "schema_version": 2,
@@ -138,6 +147,7 @@ def _build_pipeline_suggestion_payload(
             "reasoning_trace_id": reasoning_trace_seed.get("trace_id") or "",
             "hypothesis_set_id": hypothesis_set.get("set_id") or "",
             "review_verdict_id": review_verdict.get("verdict_id") or "",
+            "runbook_draft_id": runbook_draft.get("plan_id") or "",
         },
         "evidence_bundle": evidence_bundle,
         "reasoning_runtime_seed": reasoning_runtime_seed,
@@ -147,6 +157,7 @@ def _build_pipeline_suggestion_payload(
         "hypothesis_set": hypothesis_set,
         "recommended_actions": inference_result.recommended_actions,
         "runbook_plan_outline": runbook_plan_outline,
+        "runbook_draft": runbook_draft,
         "review_verdict": review_verdict,
         "confidence": inference_result.confidence_score,
         "confidence_label": inference_result.confidence_label,
