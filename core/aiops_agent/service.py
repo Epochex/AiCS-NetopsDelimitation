@@ -12,6 +12,7 @@ from core.aiops_agent.inference_schema import build_alert_inference_request, bui
 from core.aiops_agent.inference_worker import InferenceWorker
 from core.aiops_agent.output_sink import append_jsonl_line, hourly_file_path
 from core.aiops_agent.providers import build_provider
+from core.aiops_agent.reasoning_stage_requests import build_reasoning_stage_requests
 from core.aiops_agent.suggestion_engine import build_alert_pipeline_suggestion, build_pipeline_suggestion
 
 LOGGER = logging.getLogger(__name__)
@@ -107,6 +108,7 @@ def run_agent_loop(config: AgentConfig, consumer: Any, producer: Any, clickhouse
             alert_evidence = build_alert_evidence_bundle(alert, recent_similar_1h, history_support)
             alert_request = build_alert_inference_request(alert, alert_evidence, provider.name)
             should_commit = _run_inference_and_emit(
+                config=config,
                 queue=queue,
                 worker=worker,
                 producer=producer,
@@ -133,6 +135,7 @@ def run_agent_loop(config: AgentConfig, consumer: Any, producer: Any, clickhouse
                 )
                 cluster_request = build_cluster_inference_request(alert, trigger, cluster_evidence, provider.name)
                 cluster_ok = _run_inference_and_emit(
+                    config=config,
                     queue=queue,
                     worker=worker,
                     producer=producer,
@@ -156,6 +159,7 @@ def run_agent_loop(config: AgentConfig, consumer: Any, producer: Any, clickhouse
 
 
 def _run_inference_and_emit(
+    config: AgentConfig,
     queue: InMemoryInferenceQueue,
     worker: InferenceWorker,
     producer: Any,
@@ -181,6 +185,11 @@ def _run_inference_and_emit(
 
     stats["inference_completed"] += 1
     suggestion = build_suggestion_fn(inference_result)
+    suggestion["reasoning_stage_requests"] = build_reasoning_stage_requests(
+        config=config,
+        inference_request=inference_request,
+        suggestion_payload=suggestion,
+    )
     payload = json.dumps(suggestion, ensure_ascii=True, separators=(",", ":"))
 
     if not _publish_suggestion(producer, topic, payload, suggestion["suggestion_id"], stats):

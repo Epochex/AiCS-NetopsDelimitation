@@ -9,6 +9,7 @@ from core.aiops_agent.inference_queue import InMemoryInferenceQueue
 from core.aiops_agent.inference_schema import build_alert_inference_request, build_cluster_inference_request
 from core.aiops_agent.inference_worker import InferenceWorker
 from core.aiops_agent.providers import TemplateProvider, build_provider
+from core.aiops_agent.reasoning_stage_requests import build_reasoning_stage_requests
 from core.aiops_agent.service import commit_if_needed, run_agent_loop
 from core.aiops_agent.suggestion_engine import (
     build_alert_pipeline_suggestion,
@@ -276,6 +277,18 @@ def test_template_provider_worker_builds_alert_scope_suggestion() -> None:
     assert suggestion["review_verdict"]["approval_required"] is True
     assert suggestion["review_verdict"]["verdict_status"] in {"operator_review", "needs_evidence"}
     assert suggestion["review_verdict"]["checks"]["overreach_risk"]["status"] == "guarded"
+    stage_requests = build_reasoning_stage_requests(_config("/tmp"), req, suggestion)
+    assert stage_requests["hypothesis_critique"]["routing_hint"]["request_kind"] == "hypothesis_critique"
+    assert stage_requests["hypothesis_critique"]["input_contract"]["reasoning_objects"]["hypothesis_set"][
+        "primary_hypothesis_id"
+    ] == suggestion["hypothesis_set"]["primary_hypothesis_id"]
+    assert stage_requests["runbook_draft"]["routing_hint"]["request_kind"] == "runbook_draft"
+    assert stage_requests["runbook_draft"]["input_contract"]["reasoning_objects"]["review_verdict"][
+        "verdict_status"
+    ] == suggestion["review_verdict"]["verdict_status"]
+    assert stage_requests["runbook_draft"]["input_contract"]["reasoning_objects"]["deterministic_runbook_seed"][
+        "plan_id"
+    ] == suggestion["runbook_draft"]["plan_id"]
     assert suggestion["inference"]["provider_name"] == "template"
     assert suggestion["confidence_label"] in {"medium", "high"}
 
@@ -430,6 +443,8 @@ def test_run_agent_loop_emits_alert_scope_suggestion_for_single_alert(tmp_path) 
     assert consumer.committed == 1
     assert len(producer.sent) == 1
     assert producer.sent[0]["payload"]["suggestion_scope"] == "alert"
+    assert producer.sent[0]["payload"]["reasoning_stage_requests"]["hypothesis_critique"]["stage"] == "hypothesis_critique"
+    assert producer.sent[0]["payload"]["reasoning_stage_requests"]["runbook_draft"]["routing_hint"]["stage"] == "runbook_draft"
 
 
 def test_run_agent_loop_emits_alert_and_cluster_suggestions_when_cluster_triggers(tmp_path) -> None:
@@ -457,6 +472,7 @@ def test_run_agent_loop_emits_alert_and_cluster_suggestions_when_cluster_trigger
     assert scopes.count("cluster") == 1
     cluster_payload = [item["payload"] for item in producer.sent if item["payload"]["suggestion_scope"] == "cluster"][0]
     assert cluster_payload["context"]["cluster_size"] == 3
+    assert cluster_payload["reasoning_stage_requests"]["runbook_draft"]["suggestion_scope"] == "cluster"
 
 
 def test_commit_if_needed_success_and_failure_paths() -> None:

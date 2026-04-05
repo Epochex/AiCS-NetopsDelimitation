@@ -29,7 +29,9 @@ flowchart LR
 
 The repository runs three planes. The edge ingestion plane owns rotated file discovery, checkpoint progression, replay semantics, and fact normalization. The core streaming plane owns Kafka transport, deterministic alert confirmation, audit persistence, ClickHouse lookup, alert clustering, and suggestion generation. The runtime projection plane owns snapshot assembly, stream deltas, strategy controls, and the operator-facing console.
 
-`core/aiops_agent` currently supports `alert` and `cluster` scopes. The default provider path is `template`. The downstream reasoning path already carries deterministic runtime seeds and structured reasoning contracts. `reasoning_runtime_seed` contains `candidate_event_graph`, `investigation_session`, `reasoning_trace_seed`, and `runbook_plan_outline`. `evidence_pack_v2` is attached to every evidence bundle and is the stable input object for downstream reasoning. `hypothesis_set`, `review_verdict`, and `runbook_draft` are now emitted as first-class suggestion fields. The frontend projector, convergence field, and node inspector can read those structured objects directly.
+`core/aiops_agent` currently supports `alert` and `cluster` scopes. The default provider path is `template`. The downstream reasoning path already carries deterministic runtime seeds and structured reasoning contracts. `reasoning_runtime_seed` contains `candidate_event_graph`, `investigation_session`, `reasoning_trace_seed`, and `runbook_plan_outline`. `evidence_pack_v2` is attached to every evidence bundle and is the stable input object for downstream reasoning. `hypothesis_set`, `review_verdict`, `runbook_draft`, and `reasoning_stage_requests` are now emitted as first-class suggestion fields or attached payload contracts. The frontend projector, convergence field, and node inspector can read the structured reasoning objects directly.
+
+Completed downstream modules on the current branch are: `candidate_event_graph`, `investigation_session`, `reasoning_trace_seed`, `runbook_plan_outline`, `evidence_pack_v2`, `phase_context_router`, `hypothesis_set`, `review_verdict`, `runbook_draft`, `provider_routing`, and `reasoning_stage_requests`. The next unfinished step is the real remote model path for `hypothesis_critique` and `runbook_draft`.
 
 `core/aiops_agent/alert_reasoning_runtime` is a code package. It does not hold live runtime data. Runtime artifacts stay under `/data/netops-runtime`. The package currently contains deterministic seed builders, session objects, phase routing, runbook outline generation, and trace scaffolding for the downstream reasoning path.
 
@@ -41,7 +43,7 @@ This traffic shape is low QPS. It is enough to validate deterministic correlatio
 
 ## Reasoning Objects
 
-The current downstream reasoning contract is built around five objects.
+The current downstream reasoning contract is built around five objects and one stage-request layer.
 
 `Evidence Pack V2` is attached at `evidence_bundle["evidence_pack_v2"]`. It fixes `direct_evidence`, `supporting_evidence`, `contradictory_evidence`, `missing_evidence`, `freshness`, `source_reliability`, `lineage`, and `summary`. Each evidence entry carries `evidence_id`, `kind`, `status`, `label`, `value`, `source_section`, `source_field`, `source_ref`, and `rationale`.
 
@@ -52,6 +54,8 @@ The current downstream reasoning contract is built around five objects.
 `RunbookPlanOutline` is the current deterministic planning seed. It keeps `prechecks`, `operator_actions`, `approval_boundary`, and `rollback_guidance` attached to the suggestion path without opening any write path.
 
 `RunbookDraft` is the current structured planning output. It fixes `plan_id`, `plan_scope`, `plan_status`, `title`, `applicability`, `hypothesis_ref`, `hypothesis_statement`, `prechecks`, `operator_actions`, `boundaries`, `rollback_guidance`, `approval_boundary`, `evidence_refs`, and `change_summary`. The frontend convergence field now prefers this object over local prose assembly.
+
+`ReasoningStageRequests` is the last local-only layer before real model-backed reasoning. It materializes `hypothesis_critique` and `runbook_draft` as structured request contracts with stage-specific phase context, routing hints, attached reasoning objects, and expected response schemas. These request objects are now attached to each suggestion payload for audit and replay preparation. They are not executed yet.
 
 Phase routing already exists. `hypothesis_generate` reads direct/supporting/contradictory/missing evidence. `hypothesis_critique` reads direct/supporting/contradictory. `runbook_retrieve` and `runbook_draft` reads direct/supporting/missing. `runbook_review` reads direct/contradictory/missing.
 
@@ -79,7 +83,7 @@ The third enhancement is structured planning output. `runbook_draft.py` now comb
 
 The fourth enhancement is stage-aware context control. `phase_context_router.py` now slices `Evidence Pack V2` by stage. Hypothesis generation sees direct, supporting, contradictory, and missing evidence. Critique sees direct, supporting, and contradictory evidence. Runbook retrieval and draft see direct, supporting, and missing evidence. Runbook review sees direct, contradictory, and missing evidence. This keeps each stage bounded to the fields it should use.
 
-The fifth enhancement is future model routing. `provider_routing.py` already emits `compute_target`, `max_parallelism`, `request_kind`, `suggestion_scope`, `candidate_event_graph_id`, `investigation_session_id`, and `runbook_plan_id`. The core node can therefore route selected downstream requests to an external GPU service without changing the deterministic baseline path. If the model path is unavailable, the template provider remains the fallback.
+The fifth enhancement is future model routing. `provider_routing.py` already emits `compute_target`, `max_parallelism`, `request_kind`, `suggestion_scope`, `candidate_event_graph_id`, `investigation_session_id`, and `runbook_plan_id`. `reasoning_stage_requests` now packages those routing hints with stage-local context for `hypothesis_critique` and `runbook_draft`. The core node can therefore route selected downstream requests to an external GPU service without changing the deterministic baseline path. If the model path is unavailable, the template provider remains the fallback.
 
 ## Baseline vs LLM Comparison Points
 
@@ -94,6 +98,8 @@ Baseline vs LLM review layer compares confidence-only suggestion output against 
 Baseline vs LLM planning layer compares plain recommended actions against `runbook_plan_outline` and `runbook_draft`. The measurement target is whether prechecks, approval boundary, rollback guidance, operator actions, evidence references, and change summary are attached as stable fields rather than buried in text.
 
 Baseline vs LLM runtime layer compares one-shot deterministic suggestion generation against a staged downstream reasoning path. The measurement target is whether the system can preserve deterministic alert confirmation while adding typed evidence, typed hypotheses, typed review, and future model-backed planning without changing the upstream alert contract.
+
+Baseline vs LLM orchestration layer compares one-shot provider inference against stage-scoped request contracts. The measurement target is whether critique and planning requests are reproducible, bounded by phase context, and ready for remote execution without changing the upstream ingest, correlator, or audit surfaces.
 
 ## Deployment Boundary
 

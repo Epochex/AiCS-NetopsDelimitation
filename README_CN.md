@@ -29,7 +29,9 @@ flowchart LR
 
 仓库当前运行三个平面。边缘采集平面负责轮转文件发现、checkpoint 推进、回放语义和 fact 规范化。核心流式平面负责 Kafka 传输、确定性告警确认、审计持久化、ClickHouse 查询、告警聚簇和 suggestion 生成。运行时投影平面负责 snapshot 组装、流式 delta、策略参数展示和前端控制台。
 
-`core/aiops_agent` 当前支持 `alert` 和 `cluster` 两种 scope。默认 provider 路径是 `template`。下游推理链已经携带结构化 seed 和结构化 reasoning contract。`reasoning_runtime_seed` 当前包含 `candidate_event_graph`、`investigation_session`、`reasoning_trace_seed` 和 `runbook_plan_outline`。`evidence_pack_v2` 已经挂在每个 evidence bundle 上，并作为下游 reasoning 的稳定输入对象。`hypothesis_set`、`review_verdict` 和 `runbook_draft` 已经作为正式字段写入 suggestion。前端 projector、convergence field 和 node inspector 现在可以直接读取这些结构化对象。
+`core/aiops_agent` 当前支持 `alert` 和 `cluster` 两种 scope。默认 provider 路径是 `template`。下游推理链已经携带结构化 seed 和结构化 reasoning contract。`reasoning_runtime_seed` 当前包含 `candidate_event_graph`、`investigation_session`、`reasoning_trace_seed` 和 `runbook_plan_outline`。`evidence_pack_v2` 已经挂在每个 evidence bundle 上，并作为下游 reasoning 的稳定输入对象。`hypothesis_set`、`review_verdict`、`runbook_draft` 和 `reasoning_stage_requests` 已经作为正式字段或附属契约进入 suggestion payload。前端 projector、convergence field 和 node inspector 现在可以直接读取这些结构化对象。
+
+当前分支已经完成的 downstream 模块包括 `candidate_event_graph`、`investigation_session`、`reasoning_trace_seed`、`runbook_plan_outline`、`evidence_pack_v2`、`phase_context_router`、`hypothesis_set`、`review_verdict`、`runbook_draft`、`provider_routing` 和 `reasoning_stage_requests`。下一步唯一缺失的是 `hypothesis_critique` 和 `runbook_draft` 的真实远端模型执行路径。
 
 `core/aiops_agent/alert_reasoning_runtime` 是代码包，不存放运行中的数据。runtime 产物仍然落在 `/data/netops-runtime`。这个包当前保存下游推理路径的 deterministic seed builder、session object、phase router、runbook outline 和 trace scaffold。
 
@@ -41,7 +43,7 @@ flowchart LR
 
 ## 推理对象
 
-当前下游推理 contract 围绕五个对象组织。
+当前下游推理 contract 围绕五个对象和一层 stage-request 组织。
 
 `Evidence Pack V2` 挂在 `evidence_bundle["evidence_pack_v2"]`。它固定 `direct_evidence`、`supporting_evidence`、`contradictory_evidence`、`missing_evidence`、`freshness`、`source_reliability`、`lineage` 和 `summary`。每条 evidence entry 当前带有 `evidence_id`、`kind`、`status`、`label`、`value`、`source_section`、`source_field`、`source_ref` 和 `rationale`。
 
@@ -52,6 +54,8 @@ flowchart LR
 `RunbookPlanOutline` 是当前 deterministic planning seed。它保留 `prechecks`、`operator_actions`、`approval_boundary` 和 `rollback_guidance`，但不打开任何写路径。
 
 `RunbookDraft` 是当前结构化 planning output。它固定 `plan_id`、`plan_scope`、`plan_status`、`title`、`applicability`、`hypothesis_ref`、`hypothesis_statement`、`prechecks`、`operator_actions`、`boundaries`、`rollback_guidance`、`approval_boundary`、`evidence_refs` 和 `change_summary`。前端 convergence field 现在优先读取这个对象，而不是继续在前端拼接 prose。
+
+`ReasoningStageRequests` 是当前进入真实模型推理之前的最后一层本地契约。它把 `hypothesis_critique` 和 `runbook_draft` 固定成带阶段上下文、routing hint、attached reasoning object 和 expected response schema 的结构化请求对象。当前 suggestion payload 已经附带这些请求对象。当前分支还不会执行它们。
 
 阶段路由已经存在。`hypothesis_generate` 读取 direct/supporting/contradictory/missing evidence。`hypothesis_critique` 读取 direct/supporting/contradictory。`runbook_retrieve` 和 `runbook_draft` 读取 direct/supporting/missing。`runbook_review` 读取 direct/contradictory/missing。
 
@@ -79,7 +83,7 @@ LLM 路径当前严格放在 alert downstream。输入是已成立 alert contrac
 
 第四层增强是阶段感知上下文控制。`phase_context_router.py` 现在会按阶段裁剪 `Evidence Pack V2`。hypothesis generation 阶段读取 direct、supporting、contradictory 和 missing evidence。critique 阶段读取 direct、supporting 和 contradictory evidence。runbook retrieval 和 draft 阶段读取 direct、supporting 和 missing evidence。runbook review 阶段读取 direct、contradictory 和 missing evidence。这一步保证每个阶段只看到它应当看到的字段。
 
-第五层增强是未来模型路由。`provider_routing.py` 已经输出 `compute_target`、`max_parallelism`、`request_kind`、`suggestion_scope`、`candidate_event_graph_id`、`investigation_session_id` 和 `runbook_plan_id`。核心节点后续可以把选中的 downstream request 路由到外部 GPU 服务，而不用改动 baseline 主链。如果模型路径不可用，`template provider` 继续作为 fallback。
+第五层增强是未来模型路由。`provider_routing.py` 已经输出 `compute_target`、`max_parallelism`、`request_kind`、`suggestion_scope`、`candidate_event_graph_id`、`investigation_session_id` 和 `runbook_plan_id`。`reasoning_stage_requests` 现在会把这些 routing hint 和 `hypothesis_critique`、`runbook_draft` 的阶段上下文打包在一起。核心节点后续可以把选中的 downstream request 路由到外部 GPU 服务，而不用改动 baseline 主链。如果模型路径不可用，`template provider` 继续作为 fallback。
 
 ## Baseline 与 LLM 对比点
 
@@ -94,6 +98,8 @@ Baseline 与 LLM 的 review layer 对比，比较对象是只有 confidence 的 
 Baseline 与 LLM 的 planning layer 对比，比较对象是 plain recommended actions 和 `runbook_plan_outline`、`runbook_draft`。观察点是 prechecks、approval boundary、rollback guidance、operator actions、evidence refs 和 change summary 是否作为稳定字段存在，而不是埋在自由文本里。
 
 Baseline 与 LLM 的 runtime layer 对比，比较对象是 one-shot deterministic suggestion generation 和 staged downstream reasoning path。观察点是系统能否在不改 alert contract 的前提下，增加 typed evidence、typed hypotheses、typed review 和未来 model-backed planning。
+
+Baseline 与 LLM 的 orchestration layer 对比，比较对象是 one-shot provider inference 和 stage-scoped request contract。观察点是 critique 与 planning request 是否可复现、是否受 phase context 限制、是否已经准备好远端执行而不改动上游 ingest、correlator 和 audit surface。
 
 ## 部署边界
 
