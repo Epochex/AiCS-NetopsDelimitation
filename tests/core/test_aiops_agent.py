@@ -2,12 +2,14 @@ import json
 
 from core.aiops_agent.app_config import AgentConfig
 from core.aiops_agent.cluster_aggregator import ClusterKey, ClusterTrigger
+from core.aiops_agent.alert_reasoning_runtime.phase_context_router import build_phase_context_payload
 from core.aiops_agent.context_lookup import recent_similar_count
 from core.aiops_agent.evidence_bundle import build_alert_evidence_bundle, build_cluster_evidence_bundle
 from core.aiops_agent.inference_queue import InMemoryInferenceQueue
 from core.aiops_agent.inference_schema import build_alert_inference_request, build_cluster_inference_request
 from core.aiops_agent.inference_worker import InferenceWorker
-from core.aiops_agent.providers import TemplateProvider
+from core.aiops_agent.providers import TemplateProvider, build_provider
+from core.aiops_agent.reasoning_stage_requests import build_reasoning_stage_requests
 from core.aiops_agent.service import commit_if_needed, run_agent_loop
 from core.aiops_agent.suggestion_engine import (
     build_alert_pipeline_suggestion,
@@ -111,6 +113,8 @@ def _config(output_dir: str, cluster_min_alerts: int = 3) -> AgentConfig:
         provider_api_key="",
         provider_model="generic-aiops",
         provider_timeout_sec=30,
+        provider_compute_target="local_cpu",
+        provider_max_parallelism=1,
     )
 
 
@@ -189,6 +193,18 @@ def test_alert_evidence_bundle_and_inference_request_capture_alert_scope_context
     assert evidence["historical_context"]["recent_similar_1h"] == 7
     assert evidence["device_context"]["vendor"] == "dahua"
     assert evidence["change_context"]["score"] == 30
+    assert evidence["evidence_pack_v2"]["schema_version"] == 2
+    assert evidence["evidence_pack_v2"]["group_order"] == [
+        "direct_evidence",
+        "supporting_evidence",
+        "contradictory_evidence",
+        "missing_evidence",
+    ]
+    assert "source_ref" in evidence["evidence_pack_v2"]["entry_fields"]
+    assert evidence["evidence_pack_v2"]["summary"]["direct_count"] >= 5
+    assert evidence["evidence_pack_v2"]["summary"]["supporting_count"] >= 1
+    assert evidence["reasoning_runtime_seed"]["candidate_event_graph"]["graph_scope"] == "alert"
+    assert evidence["reasoning_runtime_seed"]["investigation_session"]["session_scope"] == "alert"
     assert req.request_kind == "alert_triage"
     assert req.suggestion_scope == "alert"
 
@@ -246,8 +262,165 @@ def test_template_provider_worker_builds_alert_scope_suggestion() -> None:
     assert suggestion["suggestion_scope"] == "alert"
     assert suggestion["context"]["service"] == "Dahua SDK"
     assert suggestion["context"]["recent_similar_1h"] == 12
+    assert suggestion["context"]["candidate_event_graph_id"]
+    assert suggestion["context"]["investigation_session_id"]
+    assert suggestion["context"]["hypothesis_set_id"]
+    assert suggestion["context"]["review_verdict_id"]
+    assert suggestion["context"]["runbook_draft_id"]
+    assert suggestion["hypothesis_set"]["primary_hypothesis_id"]
+    assert suggestion["hypothesis_set"]["items"]
+    assert suggestion["hypothesis_set"]["items"][0]["support_evidence_refs"]
+    assert suggestion["runbook_plan_outline"]["approval_boundary"]["approval_required"] is True
+    assert suggestion["runbook_draft"]["plan_id"]
+    assert suggestion["runbook_draft"]["operator_actions"]
+    assert suggestion["runbook_draft"]["approval_boundary"]["approval_required"] is True
+    assert suggestion["review_verdict"]["approval_required"] is True
+    assert suggestion["review_verdict"]["verdict_status"] in {"operator_review", "needs_evidence"}
+    assert suggestion["review_verdict"]["checks"]["overreach_risk"]["status"] == "guarded"
+    stage_requests = build_reasoning_stage_requests(_config("/tmp"), req, suggestion)
+    assert stage_requests["hypothesis_critique"]["routing_hint"]["request_kind"] == "hypothesis_critique"
+    assert stage_requests["hypothesis_critique"]["input_contract"]["reasoning_objects"]["hypothesis_set"][
+        "primary_hypothesis_id"
+    ] == suggestion["hypothesis_set"]["primary_hypothesis_id"]
+    assert stage_requests["runbook_draft"]["routing_hint"]["request_kind"] == "runbook_draft"
+    assert stage_requests["runbook_draft"]["input_contract"]["reasoning_objects"]["review_verdict"][
+        "verdict_status"
+    ] == suggestion["review_verdict"]["verdict_status"]
+    assert stage_requests["runbook_draft"]["input_contract"]["reasoning_objects"]["deterministic_runbook_seed"][
+        "plan_id"
+    ] == suggestion["runbook_draft"]["plan_id"]
     assert suggestion["inference"]["provider_name"] == "template"
     assert suggestion["confidence_label"] in {"medium", "high"}
+
+
+def test_phase_context_router_keeps_stage_specific_payloads() -> None:
+    alert = {
+        "alert_id": "a-ctx",
+        "rule_id": "deny_burst_v1",
+        "severity": "warning",
+        "alert_ts": "2026-03-09T00:00:59+00:00",
+        "event_excerpt": {
+            "service": "Dahua SDK",
+            "src_device_key": "d4:43:0e:1a:c5:88",
+        },
+        "topology_context": {"site": "lab-a", "zone": "edge", "service": "Dahua SDK"},
+        "device_profile": {"srcmac": "d4:43:0e:1a:c5:88", "device_role": "camera"},
+        "change_context": {"suspected_change": True, "change_refs": ["crscore:30"]},
+    }
+    evidence = build_alert_evidence_bundle(alert, recent_similar_1h=12)
+    hypothesis_context = build_phase_context_payload("hypothesis_generate", evidence)
+    runbook_context = build_phase_context_payload("runbook_review", evidence)
+    assert hypothesis_context["evidence_pack_v2"]["summary"]["direct_count"] >= 1
+    assert hypothesis_context["evidence_pack_v2"]["contradictory_evidence"]
+    assert hypothesis_context["context"]["device_context"]["device_role"] == "camera"
+    assert "runbook_plan_outline" not in hypothesis_context["context"]
+    assert runbook_context["context"]["runbook_plan_outline"]["approval_boundary"]["approval_required"] is True
+    assert runbook_context["evidence_pack_v2"]["missing_evidence"]
+    assert "supporting_evidence" not in runbook_context["evidence_pack_v2"]
+    assert runbook_context["investigation_session"]["session_scope"] == "alert"
+
+
+def test_evidence_pack_v2_marks_missing_and_contradictory_inputs_explicitly() -> None:
+    alert = {
+        "alert_id": "a-v2",
+        "rule_id": "deny_burst_v1",
+        "severity": "warning",
+        "alert_ts": "2026-03-09T00:00:59+00:00",
+        "event_excerpt": {
+            "service": "udp/3702",
+            "src_device_key": "dev-1",
+        },
+        "topology_context": {"service": "udp/3702"},
+        "device_profile": {},
+        "change_context": {"suspected_change": False},
+    }
+    evidence = build_alert_evidence_bundle(alert, recent_similar_1h=0)
+    pack = evidence["evidence_pack_v2"]
+    contradictory_labels = {item["label"] for item in pack["contradictory_evidence"]}
+    missing_labels = {item["label"] for item in pack["missing_evidence"]}
+    reliability_sections = {
+        item["source_section"] for item in pack["source_reliability"]["sections"]
+    }
+    lineage_sections = {item["source_section"] for item in pack["lineage"]}
+    status_values = {
+        item["status"] for item in pack["contradictory_evidence"] + pack["missing_evidence"]
+    }
+
+    assert "history.no_recent_recurrence" in contradictory_labels
+    assert "history.cluster_gate_not_reached" in contradictory_labels
+    assert "change.no_change_signal" in contradictory_labels
+    assert "device.device_name" in missing_labels
+    assert "change.change_refs" in missing_labels
+    assert {"alert_ref", "rule_context", "historical_context"}.issubset(
+        reliability_sections
+    )
+    assert {"alert_ref", "historical_context", "device_context"}.issubset(
+        lineage_sections
+    )
+    assert status_values == {"missing", "observed"}
+    assert all("." in item["source_ref"] for item in pack["direct_evidence"])
+
+
+def test_review_verdict_returns_needs_evidence_when_support_is_too_thin() -> None:
+    alert = {
+        "alert_id": "a-thin",
+        "rule_id": "deny_burst_v1",
+        "severity": "warning",
+        "alert_ts": "2026-03-09T00:00:59+00:00",
+        "event_excerpt": {
+            "service": "udp/3702",
+            "src_device_key": "dev-1",
+        },
+        "topology_context": {"service": "udp/3702"},
+        "device_profile": {},
+        "change_context": {"suspected_change": False},
+    }
+    evidence = build_alert_evidence_bundle(alert, recent_similar_1h=0)
+    req = build_alert_inference_request(alert, evidence, provider="template")
+    queue = InMemoryInferenceQueue()
+    queue.enqueue(req)
+    result = InferenceWorker(TemplateProvider()).run_once(queue)
+    assert result is not None
+    suggestion = build_alert_pipeline_suggestion(alert, evidence, req, result)
+
+    assert suggestion["review_verdict"]["verdict_status"] == "needs_evidence"
+    assert suggestion["review_verdict"]["recommended_disposition"] == "return_to_evidence_gather"
+    assert suggestion["review_verdict"]["blocking_issues"]
+    assert suggestion["runbook_draft"]["plan_status"] == "needs_evidence"
+
+
+def test_build_provider_accepts_external_gpu_alias() -> None:
+    config = _config("/tmp")
+    config = AgentConfig(
+        bootstrap_servers=config.bootstrap_servers,
+        topic_alerts=config.topic_alerts,
+        topic_suggestions=config.topic_suggestions,
+        consumer_group=config.consumer_group,
+        auto_offset_reset=config.auto_offset_reset,
+        min_severity=config.min_severity,
+        output_dir=config.output_dir,
+        log_interval_sec=config.log_interval_sec,
+        clickhouse_enabled=config.clickhouse_enabled,
+        clickhouse_host=config.clickhouse_host,
+        clickhouse_http_port=config.clickhouse_http_port,
+        clickhouse_user=config.clickhouse_user,
+        clickhouse_password=config.clickhouse_password,
+        clickhouse_db=config.clickhouse_db,
+        clickhouse_alerts_table=config.clickhouse_alerts_table,
+        cluster_window_sec=config.cluster_window_sec,
+        cluster_min_alerts=config.cluster_min_alerts,
+        cluster_cooldown_sec=config.cluster_cooldown_sec,
+        provider="gpu_http",
+        provider_endpoint_url="http://gpu.example/v1/infer",
+        provider_api_key="secret",
+        provider_model="generic-aiops-gpu",
+        provider_timeout_sec=45,
+        provider_compute_target="external_gpu_service",
+        provider_max_parallelism=1,
+    )
+    provider = build_provider(config)
+    assert provider.name == "gpu_http"
+    assert provider.kind == "external_model_service"
 
 
 def test_run_agent_loop_emits_alert_scope_suggestion_for_single_alert(tmp_path) -> None:
@@ -270,6 +443,8 @@ def test_run_agent_loop_emits_alert_scope_suggestion_for_single_alert(tmp_path) 
     assert consumer.committed == 1
     assert len(producer.sent) == 1
     assert producer.sent[0]["payload"]["suggestion_scope"] == "alert"
+    assert producer.sent[0]["payload"]["reasoning_stage_requests"]["hypothesis_critique"]["stage"] == "hypothesis_critique"
+    assert producer.sent[0]["payload"]["reasoning_stage_requests"]["runbook_draft"]["routing_hint"]["stage"] == "runbook_draft"
 
 
 def test_run_agent_loop_emits_alert_and_cluster_suggestions_when_cluster_triggers(tmp_path) -> None:
@@ -297,6 +472,7 @@ def test_run_agent_loop_emits_alert_and_cluster_suggestions_when_cluster_trigger
     assert scopes.count("cluster") == 1
     cluster_payload = [item["payload"] for item in producer.sent if item["payload"]["suggestion_scope"] == "cluster"][0]
     assert cluster_payload["context"]["cluster_size"] == 3
+    assert cluster_payload["reasoning_stage_requests"]["runbook_draft"]["suggestion_scope"] == "cluster"
 
 
 def test_commit_if_needed_success_and_failure_paths() -> None:

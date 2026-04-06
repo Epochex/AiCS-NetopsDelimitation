@@ -5,6 +5,8 @@ from urllib import error, request
 
 from core.aiops_agent.app_config import AgentConfig
 from core.aiops_agent.inference_schema import InferenceRequest, InferenceResult, inference_result_from_payload
+from core.aiops_agent.provider_routing import build_provider_routing_hint
+from core.aiops_agent.provider_routing import build_provider_routing_hint
 
 
 class AIOpsProvider(Protocol):
@@ -719,18 +721,23 @@ class TemplateProvider:
 
 @dataclass(frozen=True)
 class HTTPInferenceProvider:
+    routing_config: AgentConfig
     endpoint_url: str
     api_key: str
     model: str
     timeout_sec: int
+    compute_target: str
+    max_parallelism: int
     name: str = "http"
-    kind: str = "external_api"
+    kind: str = "external_model_service"
 
     def infer(self, inference_request: InferenceRequest) -> InferenceResult:
+        routing_hint = build_provider_routing_hint(self.routing_config, inference_request)
         body = json.dumps(
             {
                 "model": self.model,
                 "input": inference_request.to_payload(),
+                "routing": routing_hint,
             },
             ensure_ascii=True,
             separators=(",", ":"),
@@ -757,11 +764,15 @@ class HTTPInferenceProvider:
 
 def build_provider(config: AgentConfig) -> AIOpsProvider:
     provider = config.provider.lower()
-    if provider == "http":
+    if provider in {"http", "gpu_http", "external_model_service"}:
         return HTTPInferenceProvider(
+            routing_config=config,
             endpoint_url=config.provider_endpoint_url,
             api_key=config.provider_api_key,
             model=config.provider_model,
             timeout_sec=config.provider_timeout_sec,
+            compute_target=config.provider_compute_target,
+            max_parallelism=config.provider_max_parallelism,
+            name=provider,
         )
     return TemplateProvider()

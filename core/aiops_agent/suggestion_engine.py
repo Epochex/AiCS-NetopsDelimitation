@@ -3,7 +3,10 @@ from datetime import datetime, timezone
 from typing import Any
 
 from core.aiops_agent.cluster_aggregator import ClusterTrigger
+from core.aiops_agent.hypothesis_set import build_hypothesis_set
 from core.aiops_agent.inference_schema import InferenceRequest, InferenceResult
+from core.aiops_agent.review_verdict import build_review_verdict
+from core.aiops_agent.runbook_draft import build_runbook_draft
 
 
 def _priority_for_severity(severity: str) -> str:
@@ -91,6 +94,31 @@ def _build_pipeline_suggestion_payload(
     alert_id = str(alert.get("alert_id") or "")
     seed = f"{inference_request.request_id}|{inference_result.provider_name}|{now.isoformat()}"
     suggestion_id = hashlib.sha1(seed.encode("utf-8"), usedforsecurity=False).hexdigest()
+    reasoning_runtime_seed = evidence_bundle.get("reasoning_runtime_seed") or {}
+    candidate_event_graph = reasoning_runtime_seed.get("candidate_event_graph") or {}
+    investigation_session = reasoning_runtime_seed.get("investigation_session") or {}
+    reasoning_trace_seed = reasoning_runtime_seed.get("reasoning_trace_seed") or {}
+    runbook_plan_outline = reasoning_runtime_seed.get("runbook_plan_outline") or {}
+    hypothesis_set = build_hypothesis_set(
+        inference_request=inference_request,
+        evidence_bundle=evidence_bundle,
+        inference_result=inference_result,
+    )
+    review_verdict = build_review_verdict(
+        inference_request=inference_request,
+        evidence_bundle=evidence_bundle,
+        inference_result=inference_result,
+        hypothesis_set=hypothesis_set,
+        runbook_plan_outline=runbook_plan_outline,
+    )
+    runbook_draft = build_runbook_draft(
+        inference_request=inference_request,
+        evidence_bundle=evidence_bundle,
+        hypothesis_set=hypothesis_set,
+        review_verdict=review_verdict,
+        runbook_plan_outline=runbook_plan_outline,
+        recommended_actions=inference_result.recommended_actions,
+    )
 
     return {
         "schema_version": 2,
@@ -114,12 +142,23 @@ def _build_pipeline_suggestion_payload(
             "evidence_bundle_id": evidence_bundle.get("bundle_id"),
             "inference_request_id": inference_request.request_id,
             "provider": inference_result.provider_name,
+            "candidate_event_graph_id": candidate_event_graph.get("graph_id") or "",
+            "investigation_session_id": investigation_session.get("session_id") or "",
+            "reasoning_trace_id": reasoning_trace_seed.get("trace_id") or "",
+            "hypothesis_set_id": hypothesis_set.get("set_id") or "",
+            "review_verdict_id": review_verdict.get("verdict_id") or "",
+            "runbook_draft_id": runbook_draft.get("plan_id") or "",
         },
         "evidence_bundle": evidence_bundle,
+        "reasoning_runtime_seed": reasoning_runtime_seed,
         "projection_basis": inference_result.raw_response.get("projection_basis", {}),
         "inference": inference_result.to_payload(),
         "hypotheses": inference_result.hypotheses,
+        "hypothesis_set": hypothesis_set,
         "recommended_actions": inference_result.recommended_actions,
+        "runbook_plan_outline": runbook_plan_outline,
+        "runbook_draft": runbook_draft,
+        "review_verdict": review_verdict,
         "confidence": inference_result.confidence_score,
         "confidence_label": inference_result.confidence_label,
         "confidence_reason": inference_result.confidence_reason,

@@ -344,11 +344,111 @@ export const runtimeSnapshot: RuntimeSnapshot = {
         'The repeated deny pattern is concentrated on one local broadcast tuple, so the first check should stay on the udp/10004 path instead of widening to the whole device.',
         'Because udp/10004 is already listed in the device profile, this looks more like policy intent or path-specific mismatch than a brand-new service class.',
       ],
+      hypothesisSet: {
+        setId: 'hs-udp-10004',
+        primaryHypothesisId: 'hs-udp-10004-1',
+        suggestionScope: 'alert',
+        items: [
+          {
+            hypothesisId: 'hs-udp-10004-1',
+            rank: 1,
+            statement:
+              'The repeated deny pattern is concentrated on one local broadcast tuple, so the first check should stay on the udp/10004 path instead of widening to the whole device.',
+            confidenceScore: 0.66,
+            confidenceLabel: 'medium',
+            supportEvidenceRefs: ['alert_ref.rule_id', 'topology_context.service'],
+            contradictEvidenceRefs: ['historical_context.recent_similar_1h'],
+            missingEvidenceRefs: [],
+            nextBestAction:
+              'Review the last 15 minutes in ClickHouse with rule_id=deny_burst_v1, service=udp/10004, src_device_key=20:7b:d2:ac:75:4e, and srcip=192.168.16.152 to confirm the same broadcast tuple keeps repeating.',
+            reviewState: 'pending_review',
+          },
+          {
+            hypothesisId: 'hs-udp-10004-2',
+            rank: 2,
+            statement:
+              'Because udp/10004 is already listed in the device profile, this looks more like policy intent or path-specific mismatch than a brand-new service class.',
+            confidenceScore: 0.58,
+            confidenceLabel: 'low',
+            supportEvidenceRefs: ['device_context.known_services'],
+            contradictEvidenceRefs: [],
+            missingEvidenceRefs: [],
+            nextBestAction:
+              'Confirm whether udp/10004 broadcast traffic is expected for LEON-PC on this path before changing any threshold; if it is expected, the first fix is policy/path review rather than correlator tuning.',
+            reviewState: 'candidate',
+          },
+        ],
+        summary: {
+          totalHypotheses: 2,
+          directRefCount: 2,
+          supportingRefCount: 1,
+          contradictoryRefCount: 1,
+          missingRefCount: 0,
+        },
+      },
       recommendedActions: [
         'Review the last 15 minutes in ClickHouse with rule_id=deny_burst_v1, service=udp/10004, src_device_key=20:7b:d2:ac:75:4e, and srcip=192.168.16.152 to confirm the same broadcast tuple keeps repeating.',
         'Confirm whether udp/10004 broadcast traffic is expected for LEON-PC on this path before changing any threshold; if it is expected, the first fix is policy/path review rather than correlator tuning.',
         'Replay the latest deny samples first and verify whether they stay on the same source and destination pair before escalating to cluster-level review.',
       ],
+      reviewVerdict: {
+        verdictId: 'rv-udp-10004',
+        suggestionScope: 'alert',
+        verdictStatus: 'operator_review',
+        recommendedDisposition: 'project_with_operator_boundary',
+        approvalRequired: true,
+        blockingIssues: [],
+        checks: {
+          evidenceSufficiency: { status: 'sufficient', detail: 'direct=5, supporting=1, missing=0' },
+          temporalFreshness: { status: 'fresh', detail: 'freshness_sections=4' },
+          topologyConsistency: { status: 'consistent', detail: 'topology_refs=3' },
+          overreachRisk: { status: 'guarded', detail: 'approval_required=true' },
+          remediationExecutability: { status: 'bounded', detail: 'actions=3' },
+          rollbackReadiness: { status: 'ready', detail: 'rollback_steps=2' },
+        },
+        reviewSummary: 'review kept the operator boundary and accepted the current evidence coverage',
+      },
+      runbookDraft: {
+        planId: 'rb-udp-10004',
+        planScope: 'alert',
+        planStatus: 'draft_ready',
+        title: 'Runbook draft for udp/10004 on LEON-PC',
+        applicability: {
+          ruleId: 'deny_burst_v1',
+          service: 'udp/10004',
+          pathSignature: 'lan->lan',
+        },
+        hypothesisRef: 'hs-udp-10004-1',
+        hypothesisStatement:
+          'The repeated deny pattern is concentrated on one local broadcast tuple, so the first check should stay on the udp/10004 path instead of widening to the whole device.',
+        prechecks: [
+          'Confirm the triggering tuple, rule, service, and interface path from deterministic evidence.',
+          'Check whether the alert aligns with recent changes before choosing any remediation path.',
+        ],
+        operatorActions: [
+          'Review related evidence and select the most plausible hypothesis before touching any control surface.',
+          'Review the last 15 minutes in ClickHouse with rule_id=deny_burst_v1, service=udp/10004, src_device_key=20:7b:d2:ac:75:4e, and srcip=192.168.16.152 to confirm the same broadcast tuple keeps repeating.',
+        ],
+        boundaries: [
+          'guidance only; no device write path is opened',
+          'approval required before any execution-facing step',
+          'review accepted projection under operator boundary',
+        ],
+        rollbackGuidance: [
+          'Document the current policy/path state before any proposed change.',
+          'Ensure blast-radius estimation and rollback steps are attached before execution approval is requested.',
+        ],
+        approvalBoundary: {
+          approvalRequired: true,
+          executionMode: 'human_gated',
+          writePathAllowed: false,
+        },
+        evidenceRefs: ['alert_ref.rule_id', 'topology_context.service'],
+        changeSummary: {
+          suspectedChange: false,
+          changeRefs: [],
+        },
+      },
       confidence: 0.66,
       confidenceLabel: 'medium',
       confidenceReason:
@@ -600,11 +700,97 @@ export const runtimeSnapshot: RuntimeSnapshot = {
         'The deny is concentrated on the SSDP multicast tuple, so the first review should stay on that path instead of widening to generic device anomaly.',
         'Because the service already matches udp/1900, the more likely question is whether this multicast deny is intentional on the current path.',
       ],
+      hypothesisSet: {
+        setId: 'hs-udp-1900',
+        primaryHypothesisId: 'hs-udp-1900-1',
+        suggestionScope: 'alert',
+        items: [
+          {
+            hypothesisId: 'hs-udp-1900-1',
+            rank: 1,
+            statement:
+              'The deny is concentrated on the SSDP multicast tuple, so the first review should stay on that path instead of widening to generic device anomaly.',
+            confidenceScore: 0.66,
+            confidenceLabel: 'medium',
+            supportEvidenceRefs: ['topology_context.service', 'path_context.path_signature'],
+            contradictEvidenceRefs: ['historical_context.recent_similar_1h'],
+            missingEvidenceRefs: [],
+            nextBestAction:
+              'Query ClickHouse for rule_id=deny_burst_v1, service=udp/1900, and srcip=fe80::19f6:8fb1:57ea:abd over the last 15 minutes to confirm whether the same multicast tuple dominates the deny history.',
+            reviewState: 'pending_review',
+          },
+        ],
+        summary: {
+          totalHypotheses: 1,
+          directRefCount: 2,
+          supportingRefCount: 1,
+          contradictoryRefCount: 1,
+          missingRefCount: 0,
+        },
+      },
       recommendedActions: [
         'Query ClickHouse for rule_id=deny_burst_v1, service=udp/1900, and srcip=fe80::19f6:8fb1:57ea:abd over the last 15 minutes to confirm whether the same multicast tuple dominates the deny history.',
         'Confirm whether SSDP multicast should be denied on this path before changing thresholds; if the deny is intentional, keep the rule and document the posture.',
         'If the same tuple keeps reappearing across replays, compare policy intent and path scope before widening to cluster tuning.',
       ],
+      reviewVerdict: {
+        verdictId: 'rv-udp-1900',
+        suggestionScope: 'alert',
+        verdictStatus: 'operator_review',
+        recommendedDisposition: 'project_with_operator_boundary',
+        approvalRequired: true,
+        blockingIssues: [],
+        checks: {
+          evidenceSufficiency: { status: 'sufficient', detail: 'direct=5, supporting=1, missing=0' },
+          temporalFreshness: { status: 'fresh', detail: 'freshness_sections=4' },
+          topologyConsistency: { status: 'consistent', detail: 'topology_refs=3' },
+          overreachRisk: { status: 'guarded', detail: 'approval_required=true' },
+          remediationExecutability: { status: 'bounded', detail: 'actions=3' },
+          rollbackReadiness: { status: 'ready', detail: 'rollback_steps=2' },
+        },
+        reviewSummary: 'review retained manual approval and kept the multicast path scoped',
+      },
+      runbookDraft: {
+        planId: 'rb-udp-1900',
+        planScope: 'alert',
+        planStatus: 'draft_ready',
+        title: 'Runbook draft for udp/1900 on fe80::19f6:8fb1:57ea:abd',
+        applicability: {
+          ruleId: 'deny_burst_v1',
+          service: 'udp/1900',
+          pathSignature: 'lan->lan',
+        },
+        hypothesisRef: 'hs-udp-1900-1',
+        hypothesisStatement:
+          'The deny is concentrated on the SSDP multicast tuple, so the first review should stay on that path instead of widening to generic device anomaly.',
+        prechecks: [
+          'Confirm the triggering tuple, rule, service, and interface path from deterministic evidence.',
+          'Check whether the alert aligns with recent changes before choosing any remediation path.',
+        ],
+        operatorActions: [
+          'Review related evidence and select the most plausible hypothesis before touching any control surface.',
+          'Query ClickHouse for rule_id=deny_burst_v1, service=udp/1900, and srcip=fe80::19f6:8fb1:57ea:abd over the last 15 minutes to confirm whether the same multicast tuple dominates the deny history.',
+        ],
+        boundaries: [
+          'guidance only; no device write path is opened',
+          'approval required before any execution-facing step',
+          'review accepted projection under operator boundary',
+        ],
+        rollbackGuidance: [
+          'Document the current policy/path state before any proposed change.',
+          'Ensure blast-radius estimation and rollback steps are attached before execution approval is requested.',
+        ],
+        approvalBoundary: {
+          approvalRequired: true,
+          executionMode: 'human_gated',
+          writePathAllowed: false,
+        },
+        evidenceRefs: ['alert_ref.rule_id', 'topology_context.service'],
+        changeSummary: {
+          suspectedChange: false,
+          changeRefs: [],
+        },
+      },
       confidence: 0.66,
       confidenceLabel: 'medium',
       confidenceReason:
@@ -831,11 +1017,97 @@ export const runtimeSnapshot: RuntimeSnapshot = {
         'The current deny burst stays on the mDNS multicast path, so the first review should stay on one local tuple rather than treating it as a broad device anomaly.',
         'Because udp/5353 already matches the current Windows device profile, the next question is whether this multicast deny is intended on this path.',
       ],
+      hypothesisSet: {
+        setId: 'hs-udp-5353',
+        primaryHypothesisId: 'hs-udp-5353-1',
+        suggestionScope: 'alert',
+        items: [
+          {
+            hypothesisId: 'hs-udp-5353-1',
+            rank: 1,
+            statement:
+              'The current deny burst stays on the mDNS multicast path, so the first review should stay on one local tuple rather than treating it as a broad device anomaly.',
+            confidenceScore: 0.66,
+            confidenceLabel: 'medium',
+            supportEvidenceRefs: ['topology_context.service', 'device_context.osname'],
+            contradictEvidenceRefs: ['historical_context.recent_similar_1h'],
+            missingEvidenceRefs: [],
+            nextBestAction:
+              'Query ClickHouse for rule_id=deny_burst_v1, service=udp/5353, and src_device_key=20:7b:d2:ac:75:4e over the last 15 minutes to confirm whether the same mDNS multicast tuple dominates.',
+            reviewState: 'pending_review',
+          },
+        ],
+        summary: {
+          totalHypotheses: 1,
+          directRefCount: 2,
+          supportingRefCount: 1,
+          contradictoryRefCount: 1,
+          missingRefCount: 0,
+        },
+      },
       recommendedActions: [
         'Query ClickHouse for rule_id=deny_burst_v1, service=udp/5353, and src_device_key=20:7b:d2:ac:75:4e over the last 15 minutes to confirm whether the same mDNS multicast tuple dominates.',
         'Check whether local mDNS deny is the intended posture on this path before changing thresholds; if the deny is expected, keep the rule and document it.',
         'If replays keep landing on the same tuple, compare policy intent and interface scope before escalating to cluster tuning.',
       ],
+      reviewVerdict: {
+        verdictId: 'rv-udp-5353',
+        suggestionScope: 'alert',
+        verdictStatus: 'operator_review',
+        recommendedDisposition: 'project_with_operator_boundary',
+        approvalRequired: true,
+        blockingIssues: [],
+        checks: {
+          evidenceSufficiency: { status: 'sufficient', detail: 'direct=5, supporting=1, missing=0' },
+          temporalFreshness: { status: 'fresh', detail: 'freshness_sections=4' },
+          topologyConsistency: { status: 'consistent', detail: 'topology_refs=3' },
+          overreachRisk: { status: 'guarded', detail: 'approval_required=true' },
+          remediationExecutability: { status: 'bounded', detail: 'actions=3' },
+          rollbackReadiness: { status: 'ready', detail: 'rollback_steps=2' },
+        },
+        reviewSummary: 'review retained manual approval and kept the multicast path scoped',
+      },
+      runbookDraft: {
+        planId: 'rb-udp-5353',
+        planScope: 'alert',
+        planStatus: 'draft_ready',
+        title: 'Runbook draft for udp/5353 on 20:7b:d2:ac:75:4e',
+        applicability: {
+          ruleId: 'deny_burst_v1',
+          service: 'udp/5353',
+          pathSignature: 'lan->lan',
+        },
+        hypothesisRef: 'hs-udp-5353-1',
+        hypothesisStatement:
+          'The current deny burst stays on the mDNS multicast path, so the first review should stay on one local tuple rather than treating it as a broad device anomaly.',
+        prechecks: [
+          'Confirm the triggering tuple, rule, service, and interface path from deterministic evidence.',
+          'Check whether the alert aligns with recent changes before choosing any remediation path.',
+        ],
+        operatorActions: [
+          'Review related evidence and select the most plausible hypothesis before touching any control surface.',
+          'Query ClickHouse for rule_id=deny_burst_v1, service=udp/5353, and src_device_key=20:7b:d2:ac:75:4e over the last 15 minutes to confirm whether the same mDNS multicast tuple dominates.',
+        ],
+        boundaries: [
+          'guidance only; no device write path is opened',
+          'approval required before any execution-facing step',
+          'review accepted projection under operator boundary',
+        ],
+        rollbackGuidance: [
+          'Document the current policy/path state before any proposed change.',
+          'Ensure blast-radius estimation and rollback steps are attached before execution approval is requested.',
+        ],
+        approvalBoundary: {
+          approvalRequired: true,
+          executionMode: 'human_gated',
+          writePathAllowed: false,
+        },
+        evidenceRefs: ['alert_ref.rule_id', 'topology_context.service'],
+        changeSummary: {
+          suspectedChange: false,
+          changeRefs: [],
+        },
+      },
       confidence: 0.66,
       confidenceLabel: 'medium',
       confidenceReason:

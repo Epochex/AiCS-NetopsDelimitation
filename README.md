@@ -1,16 +1,14 @@
-## Towards NetOps: Hybrid AIOps Platform for Network Awareness and Operator-Guided Remediation
+## NetOps Causality Remediation
 [![English](https://img.shields.io/badge/Language-English-1f6feb)](./README.md) [![简体中文](https://img.shields.io/badge/%E8%AF%AD%E8%A8%80-%E7%AE%80%E4%BD%93%E4%B8%AD%E6%96%87-2ea043)](./README_CN.md)
 
-> Hybrid AIOps Platform: Deterministic Streaming Core + CPU Local LLM (On-Demand) + Multi-Agent Orchestration
+NetOps Causality Remediation is a deterministic NetOps pipeline with a bounded LLM downstream path. The edge plane ingests real FortiGate syslog, normalizes it into fact JSONL, and forwards it to Kafka. The core plane correlates facts into confirmed alerts, persists the same alert stream into JSONL and ClickHouse, and emits structured AIOps suggestions. The frontend plane reads runtime files through a FastAPI gateway and projects them into a live operator console.
 
-This repository implements a full NetOps / AIOps mainline. Real network-device syslog is first normalized into structured facts at the edge, then turned into deterministic alerts, persisted into audit and query surfaces, enriched into bounded AIOps suggestions, and finally projected into a read-only runtime console. The system design follows a fixed engineering order: raw logs become replayable system objects first, the first system-level judgment remains deterministic, persistence is split by operational purpose, model-driven reasoning starts from alert contracts, and the frontend renders evidence, context, and control boundaries within a read-only runtime surface.
-
-## System Overview
+The first decision point remains `core/correlator`. The current LLM path starts after `netops.alerts.v1`. The repository keeps that split explicit in code, tests, and runtime projection.
 
 ```mermaid
 flowchart LR
-  A[FortiGate or network-device syslog] --> B[edge/fortigate-ingest]
-  B --> C[Parsed fact JSONL]
+  A[FortiGate syslog] --> B[edge/fortigate-ingest]
+  B --> C[parsed fact JSONL]
   C --> D[edge/edge_forwarder]
   D --> E[Kafka: netops.facts.raw.v1]
   E --> F[core/correlator]
@@ -20,138 +18,96 @@ flowchart LR
   G --> J[core/aiops_agent]
   I --> K[ClickHouse]
   J --> L[Kafka: netops.aiops.suggestions.v1]
-  J --> M[Suggestion JSONL]
-  H --> N[frontend runtime gateway]
-  M --> N
+  J --> M[suggestion JSONL]
+  H --> N[frontend/gateway]
   K --> N
-  N --> O[Operator console]
-  O -. explicit boundary .-> P[approval / remediation plane]
+  M --> N
+  N --> O[React runtime console]
 ```
 
-The mainline starts with `edge/fortigate-ingest`, which handles file discovery, checkpoint movement, replay recovery, syslog parsing, and JSONL fact emission. At that point each event already has a stable `event_id`, normalized `event_ts`, a device-level grouping key, and file-level provenance. `edge/edge_forwarder` publishes those facts into `netops.facts.raw.v1`, which decouples edge-local file semantics from shared transport and core analytics. `core/correlator` consumes the normalized fact stream, applies quality gates, deterministic rules, and sliding windows, and emits `netops.alerts.v1` as the first system-level incident contract.
+## Current System
 
-The alert stream fans out into three downstream paths. `core/alerts_sink` writes hourly JSONL and preserves exact emitted runtime records for audit and replay. `core/alerts_store` writes the same alerts into ClickHouse and supports recent-history lookup, similar-alert counting, and context retrieval. `core/aiops_agent` starts from alerts, assembles evidence bundles from alert payload, topology, device, and history context, and emits alert-scope or cluster-scope suggestions. `frontend/gateway` reads those runtime artifacts together with deployment controls, assembles a unified `RuntimeSnapshot`, and streams the projected state to the operator console via `SSE`.
+The repository runs three planes. The edge ingestion plane owns rotated file discovery, checkpoint progression, replay semantics, and fact normalization. The core streaming plane owns Kafka transport, deterministic alert confirmation, audit persistence, ClickHouse lookup, alert clustering, and suggestion generation. The runtime projection plane owns snapshot assembly, stream deltas, strategy controls, and the operator-facing console.
 
-## System Design
+`core/aiops_agent` currently supports `alert` and `cluster` scopes. The default provider path is `template`. The downstream reasoning path already carries deterministic runtime seeds and structured reasoning contracts. `reasoning_runtime_seed` contains `candidate_event_graph`, `investigation_session`, `reasoning_trace_seed`, and `runbook_plan_outline`. `evidence_pack_v2` is attached to every evidence bundle and is the stable input object for downstream reasoning. `hypothesis_set`, `review_verdict`, `runbook_draft`, and `reasoning_stage_requests` are now emitted as first-class suggestion fields or attached payload contracts. The frontend projector, convergence field, and node inspector can read the structured reasoning objects directly.
 
-### Design objectives and constraints
+Completed downstream modules on the current branch are: `candidate_event_graph`, `investigation_session`, `reasoning_trace_seed`, `runbook_plan_outline`, `evidence_pack_v2`, `phase_context_router`, `hypothesis_set`, `review_verdict`, `runbook_draft`, `provider_routing`, and `reasoning_stage_requests`. The next unfinished step is the real remote model path for `hypothesis_critique` and `runbook_draft`.
 
-The system is designed to solve a specific problem: convert real runtime network telemetry into a stable operational data plane that supports alert explanation, context retrieval, and bounded guidance. That problem imposes four constraints. Raw inputs come from real FortiGate runtime logs and must remain traceable to source files and parser decisions. The first system-level decision must stay deterministic so that thresholds, windows, and rule hits remain replayable and auditable. Persistence must serve both evidence retention and hot retrieval, which requires separate audit and query surfaces. The operator UI must show the evidence chain and the execution boundary clearly and consistently.
+`core/aiops_agent/alert_reasoning_runtime` is a code package. It does not hold live runtime data. Runtime artifacts stay under `/data/netops-runtime`. The package currently contains deterministic seed builders, session objects, phase routing, runbook outline generation, and trace scaffolding for the downstream reasoning path.
 
-### End-to-end object progression
+## Runtime Facts
 
-| Stage | Runtime object | Producer | Operational role |
-| --- | --- | --- | --- |
-| Source | raw syslog line | device / gateway | original runtime evidence in vendor text form |
-| Edge fact | structured JSONL fact | `edge/fortigate-ingest` | normalized time, identity, provenance, replay semantics |
-| Shared fact | Kafka fact record | `edge/edge_forwarder` | shared transport object for core consumers |
-| Alert | deterministic alert contract | `core/correlator` | first system-level incident judgment |
-| Persistence | JSONL alert record + ClickHouse row | `core/alerts_sink`, `core/alerts_store` | audit retention, replay support, hot retrieval |
-| Suggestion | structured suggestion record | `core/aiops_agent` | bounded operator guidance tied to alerts or alert clusters |
-| Runtime view | `RuntimeSnapshot` | `frontend/gateway` | unified operator-facing state projection |
+The mounted runtime under `/data/netops-runtime` currently contains `691` alert JSONL files and `201003` alert records from `2026-03-04T15:09:11+00:00` to `2026-04-02T16:23:04+00:00`. It contains `603` suggestion JSONL files and `222023` suggestion records from `2026-03-09T05:08:56.549849+00:00` to `2026-04-05T18:03:18.303384+00:00`. The latest 24 alert partitions contain `1452` `deny_burst_v1|warning` alerts and `1` `bytes_spike_v1|critical` alert. The latest 24 suggestion partitions contain `1690` `alert` suggestions and `32` `cluster` suggestions.
 
-Field-level references and large samples remain in:
-[FortiGate input field analysis](./documentation/FORTIGATE_INPUT_FIELD_ANALYSIS.md),
-[FortiGate parsed JSONL output sample](./documentation/FORTIGATE_PARSED_OUTPUT_SAMPLE.md).
+This traffic shape is low QPS. It is enough to validate deterministic correlation, evidence assembly, structured suggestion emission, cluster gating, runtime replay, and bounded post-alert reasoning. It does not justify local large-model hosting on the current core node.
 
-### Edge ingestion and normalization
+## Reasoning Objects
 
-`edge/fortigate-ingest` is the first hard system boundary. Its job covers field extraction, rotated-file handling, checkpoint progression, failure recovery, and replay semantics while producing a stable fact schema. The output facts carry normalized time, device identity, compact original key-value context, and file provenance so that every downstream module can recover where an event came from, when it happened, and how it should be replayed.
+The current downstream reasoning contract is built around five objects and one stage-request layer.
 
-### Shared transport and deterministic correlation
+`Evidence Pack V2` is attached at `evidence_bundle["evidence_pack_v2"]`. It fixes `direct_evidence`, `supporting_evidence`, `contradictory_evidence`, `missing_evidence`, `freshness`, `source_reliability`, `lineage`, and `summary`. Each evidence entry carries `evidence_id`, `kind`, `status`, `label`, `value`, `source_section`, `source_field`, `source_ref`, and `rationale`.
 
-`edge/edge_forwarder` moves parsed facts into `netops.facts.raw.v1`, after which the repository treats events as shared runtime objects. `core/correlator` consumes that stream and performs the first system-level judgment through quality gates, deterministic rule evaluation, and sliding-window aggregation. This choice preserves replayability and auditability under real traffic and keeps the hot path explainable in terms of thresholds and rule profiles.
+`HypothesisSet` is built from `InferenceResult` and `Evidence Pack V2`. It fixes `set_id`, `primary_hypothesis_id`, `items`, and `summary`. Each hypothesis item carries `hypothesis_id`, `rank`, `statement`, `confidence_score`, `confidence_label`, `support_evidence_refs`, `contradict_evidence_refs`, `missing_evidence_refs`, `next_best_action`, and `review_state`.
 
-### Persistence and context retrieval
+`ReviewVerdict` is built from `Evidence Pack V2`, `HypothesisSet`, and `runbook_plan_outline`. It fixes `verdict_id`, `verdict_status`, `recommended_disposition`, `approval_required`, `blocking_issues`, `checks`, and `review_summary`. `checks` currently cover `evidence_sufficiency`, `temporal_freshness`, `topology_consistency`, `overreach_risk`, `remediation_executability`, and `rollback_readiness`.
 
-`core/alerts_sink` and `core/alerts_store` form the persistence layer but serve different jobs. The sink preserves emitted runtime records as hourly JSONL, which makes audit, replay, and evidence inspection possible. The store writes the same alerts into ClickHouse, which supports recent-similar lookup, history-window queries, and context assembly for downstream consumers. This dual-surface design keeps evidence preservation and retrieval optimization from interfering with each other.
+`RunbookPlanOutline` is the current deterministic planning seed. It keeps `prechecks`, `operator_actions`, `approval_boundary`, and `rollback_guidance` attached to the suggestion path without opening any write path.
 
-### Bounded AIOps suggestion layer
+`RunbookDraft` is the current structured planning output. It fixes `plan_id`, `plan_scope`, `plan_status`, `title`, `applicability`, `hypothesis_ref`, `hypothesis_statement`, `prechecks`, `operator_actions`, `boundaries`, `rollback_guidance`, `approval_boundary`, `evidence_refs`, and `change_summary`. The frontend convergence field now prefers this object over local prose assembly.
 
-`core/aiops_agent` starts from alerts. It builds evidence bundles from alert payload, topology context, device profile, recent history, and cluster context, then emits structured suggestions. This placement constrains the model input to already-qualified incidents, gives inference a denser and better-aligned contract, and keeps realtime detection independent from model latency and prompt variance. The current implementation supports both alert-scope and cluster-scope suggestions and persists them to Kafka and JSONL.
+`ReasoningStageRequests` is the last local-only layer before real model-backed reasoning. It materializes `hypothesis_critique` and `runbook_draft` as structured request contracts with stage-specific phase context, routing hints, attached reasoning objects, and expected response schemas. These request objects are now attached to each suggestion payload for audit and replay preparation. They are not executed yet.
 
-### Runtime projection and operator console
+Phase routing already exists. `hypothesis_generate` reads direct/supporting/contradictory/missing evidence. `hypothesis_critique` reads direct/supporting/contradictory. `runbook_retrieve` and `runbook_draft` reads direct/supporting/missing. `runbook_review` reads direct/contradictory/missing.
 
-The runtime gateway reads alert JSONL, suggestion JSONL, and deployment controls, then assembles a unified `RuntimeSnapshot`. The frontend consumes that snapshot and stream deltas directly. This projection allows the console to render freshness, incident volume, evidence coverage, lifecycle telemetry, and control boundaries in one process-oriented view. The UI presents how incidents are discovered, persisted, explained, and bounded within one surface.
+## Rule-Based Baseline
 
-## Component Inputs, Outputs, And Responsibilities
+The baseline path is fully deterministic from raw fact ingestion to alert confirmation and first-pass suggestion emission. `edge/fortigate-ingest` parses vendor syslog, tracks rotated files, advances checkpoints, preserves source provenance, and emits normalized fact JSONL with stable identifiers and timestamps. `edge/edge_forwarder` forwards those parsed facts to `netops.facts.raw.v1` without adding model inference or open-ended interpretation.
 
-| Component | Main inputs | Main outputs | Core responsibility |
-| --- | --- | --- | --- |
-| `edge/fortigate-ingest` | FortiGate syslog, rotated files, checkpoints | parsed fact JSONL | parse logs, preserve replay semantics, retain provenance |
-| `edge/edge_forwarder` | parsed fact JSONL | `netops.facts.raw.v1` | move edge facts into shared transport |
-| `core/correlator` | `netops.facts.raw.v1` | `netops.alerts.v1` | run quality gates, deterministic rules, windowed alert generation |
-| `core/alerts_sink` | `netops.alerts.v1` | hourly alert JSONL | preserve emitted runtime records for audit and replay |
-| `core/alerts_store` | `netops.alerts.v1` | ClickHouse alert rows | support history lookup and context retrieval |
-| `core/aiops_agent` | alerts, history, topology, device context | `netops.aiops.suggestions.v1`, suggestion JSONL | assemble evidence bundles and emit bounded structured guidance |
-| `frontend/gateway` | alerts, suggestions, deployment controls | `RuntimeSnapshot`, SSE stream | project runtime artifacts into a frontend state model |
-| `frontend` | snapshot, stream deltas | runtime console | render incident flow, evidence, lifecycle, and control boundaries |
+`core/correlator` is the baseline decision engine. It consumes `netops.facts.raw.v1`, applies quality-gate checks, matches rule definitions, aggregates events inside fixed windows, compares metrics against thresholds, and emits `netops.alerts.v1`. The current baseline logic includes explicit rule matching, severity mapping, alert cooldown handling, and deterministic alert payload assembly. The alert object already carries `rule_id`, `severity`, `metrics`, `dimensions`, `event_excerpt`, `topology_context`, `device_profile`, and `change_context`.
 
-## Representative Runtime Records
+`core/alerts_sink` and `core/alerts_store` are also part of the baseline. `core/alerts_sink` writes hourly alert JSONL as the audit surface. `core/alerts_store` writes the same alerts into ClickHouse as the hot query surface for `recent_similar_1h`, recent samples, and bounded history lookup. `core/aiops_agent/cluster_aggregator.py` extends the baseline with same-key repeated-pattern detection. It groups by rule, severity, service, and source device key. It applies `AIOPS_CLUSTER_WINDOW_SEC`, `AIOPS_CLUSTER_MIN_ALERTS`, and `AIOPS_CLUSTER_COOLDOWN_SEC`. It emits a deterministic cluster trigger only when the same-key gate is naturally reached.
 
-A mounted-runtime alert sample currently looks like this:
+The current suggestion path still has a deterministic baseline mode. The `template` provider converts a confirmed alert or confirmed cluster trigger into a bounded suggestion with `summary`, `hypotheses`, `recommended_actions`, `confidence`, and `projection_basis`. This path is deterministic in the sense that it only reads structured alert-side evidence, follows fixed logic branches, and produces stable output for the same input bundle. It does not read raw logs directly. It does not revise whether an alert is valid. It does not open any write path.
 
-```json
-{
-  "alert_id": "2081f46a5146d642d4110253926698c1b8b6fced",
-  "alert_ts": "2026-03-26T18:56:04+00:00",
-  "rule_id": "deny_burst_v1",
-  "severity": "warning",
-  "metrics": {
-    "deny_count": 321,
-    "window_sec": 60,
-    "threshold": 200
-  },
-  "event_excerpt": {
-    "action": "deny",
-    "srcip": "5.188.206.46",
-    "dstip": "77.236.99.125",
-    "service": "tcp/3472"
-  },
-  "topology_context": {
-    "service": "tcp/3472",
-    "srcintf": "wan1",
-    "dstintf": "unknown0",
-    "zone": "wan"
-  }
-}
-```
+The repository therefore already has a clean baseline for comparison. The baseline includes deterministic parsing, deterministic alert confirmation, deterministic history lookup, deterministic cluster gating, deterministic evidence assembly, and deterministic template suggestion generation.
 
-This alert already carries threshold conditions, local incident shape, and network placement. A mounted-runtime suggestion sample currently looks like this:
+## LLM Enhancement Scope
 
-```json
-{
-  "suggestion_id": "598b2edba0f164f9a0048e8d6021974123d1927c",
-  "suggestion_ts": "2026-03-31T15:35:49.119215+00:00",
-  "suggestion_scope": "alert",
-  "alert_id": "2081f46a5146d642d4110253926698c1b8b6fced",
-  "rule_id": "deny_burst_v1",
-  "priority": "P2",
-  "summary": "deny_burst_v1 triggered for service=tcp/3472 device=5.188.206.46",
-  "context": {
-    "service": "tcp/3472",
-    "src_device_key": "5.188.206.46",
-    "recent_similar_1h": 0,
-    "provider": "template"
-  }
-}
-```
+The LLM path is downstream-only. It starts from a confirmed alert contract or a confirmed cluster trigger. It does not replace `fortigate-ingest`. It does not replace `edge_forwarder`. It does not replace `core/correlator`. It does not decide whether the alert should exist.
 
-The suggestion remains tied to the alert and preserves scope, priority, summary, and compact context. The console consumes structured guidance with explicit source and scope.
+The first LLM-oriented enhancement is object normalization. `evidence_bundle` now carries `reasoning_runtime_seed` and `evidence_pack_v2`. `reasoning_runtime_seed` binds the alert to `candidate_event_graph`, `investigation_session`, `reasoning_trace_seed`, and `runbook_plan_outline`. `Evidence Pack V2` turns heterogeneous context into stable evidence groups. `direct_evidence` captures confirmed fields such as `alert.rule_id`, `alert.severity`, `topology.service`, `topology.src_device_key`, `path.path_signature`, and `rule.metrics`. `supporting_evidence` captures bounded history and context attachments such as `history.recent_similar_1h`, `history.cluster_size`, `topology.neighbor_refs`, `history.recent_alert_samples`, `change.change_refs`, `device.known_services`, and `policy.recent_policy_hits`. `contradictory_evidence` records facts that weaken a hypothesis, such as `recent_similar_1h=0`, cluster gate not reached, or no attached change signal. `missing_evidence` records absent fields explicitly instead of leaving them implicit.
 
-## Deployment Planes And Explicit Boundaries
+The second enhancement is structured reasoning output. `HypothesisSet` turns free-form hypothesis strings into ranked hypothesis items with evidence references, confidence labels, missing evidence references, next-best action pointers, and review state. `ReviewVerdict` turns a free-form suggestion into a bounded review result with explicit checks for evidence sufficiency, temporal freshness, topology consistency, overreach risk, remediation executability, and rollback readiness. These objects are now emitted into the suggestion payload and projected through the gateway into the frontend. The frontend inspector slab and projector no longer need to infer all reasoning state from prose alone.
 
-The current system naturally separates into three runtime planes. The edge ingestion plane handles near-source parsing, checkpoints, and fact generation. The core streaming plane handles Kafka facts, deterministic correlation, audit persistence, ClickHouse retrieval, and AIOps suggestion generation. The runtime projection plane assembles mounted artifacts and deployment controls into a console-facing state model. This separation supports both distributed deployment and single-host demo operation while preserving one stable set of data contracts.
+The third enhancement is structured planning output. `runbook_draft.py` now combines `HypothesisSet`, `ReviewVerdict`, `runbook_plan_outline`, and bounded recommended actions into a typed runbook draft. That output keeps plan state, approval boundary, evidence references, and change summary attached to the suggestion payload instead of leaving the planning surface inside free text.
 
-The first decision point remains deterministic because the current phase still depends on a stable raw-to-alert path under real traffic, replay validation, and rule tuning. The AIOps layer sits downstream of alerts because device fields, timestamps, rule outcomes, and recent history are already aligned there in a compact contract. The frontend stays read-only because observation, explanation, and execution belong to different risk classes. Current delivery covers investigation support, incident explanation, context retrieval, and structured guidance. Approval-driven execution, rollback-aware write paths, device mutation, and remediation automation remain outside the delivered boundary.
+The fourth enhancement is stage-aware context control. `phase_context_router.py` now slices `Evidence Pack V2` by stage. Hypothesis generation sees direct, supporting, contradictory, and missing evidence. Critique sees direct, supporting, and contradictory evidence. Runbook retrieval and draft see direct, supporting, and missing evidence. Runbook review sees direct, contradictory, and missing evidence. This keeps each stage bounded to the fields it should use.
 
-## Current Progress
+The fifth enhancement is future model routing. `provider_routing.py` already emits `compute_target`, `max_parallelism`, `request_kind`, `suggestion_scope`, `candidate_event_graph_id`, `investigation_session_id`, and `runbook_plan_id`. `reasoning_stage_requests` now packages those routing hints with stage-local context for `hypothesis_critique` and `runbook_draft`. The core node can therefore route selected downstream requests to an external GPU service without changing the deterministic baseline path. If the model path is unavailable, the template provider remains the fallback.
 
-The currently mounted workspace exposes `/data/netops-runtime` alert and suggestion artifacts together with the current repository codebase. In this mounted dataset, the alert sink covers `554` hourly files with `152,481` alert records from `2026-03-04T15:09:11+00:00` to `2026-03-27T23:00:17+00:00`. The suggestion sink covers `480` hourly files from `2026-03-09T05:08:56.549849+00:00` to `2026-03-31T15:36:55.895982+00:00`. The last 24 mounted alert partitions contain `2067` `deny_burst_v1` warnings and `2` `bytes_spike_v1` critical alerts. The last 24 mounted suggestion partitions contain `9058` alert-scope suggestions and `1353` cluster-scope suggestions, all from the current `template` provider. A live `/data/fortigate-runtime` volume is unavailable in this mount, so raw-edge freshness and full cross-layer time alignment are not directly measurable from mounted artifacts alone. The current verification baseline is `33` collected tests across `tests/core` and the two frontend runtime snapshot and stream tests.
+## Baseline vs LLM Comparison Points
 
-## Evaluation Surfaces
+The repository now exposes comparison points at multiple layers instead of only comparing final summary text.
 
-The repository already exposes several concrete measurement surfaces for later paper evaluation. The edge layer can be evaluated on field coverage, parse success rate, checkpoint correctness, and replay correctness. The deterministic alert layer can be evaluated on end-to-end alert latency, rule-hit distribution, window aggregation correctness, and freshness. The persistence layer can be evaluated on emitted-record retention, query latency, and recent-similar lookup effectiveness. The suggestion layer can be evaluated on suggestion latency, scope distribution, provider stability, and context completeness. The runtime console can be evaluated on snapshot completeness, SSE freshness, timeline coverage, and operator-visible lifecycle consistency.
+Baseline vs LLM evidence layer compares the original evidence bundle against `Evidence Pack V2`. The measurement target is whether direct/supporting/contradictory/missing evidence is explicit, whether source lineage is preserved, and whether missing fields are surfaced as structured gaps.
+
+Baseline vs LLM hypothesis layer compares raw `hypotheses: string[]` against `HypothesisSet`. The measurement target is whether hypotheses are ranked, whether support and contradiction references are attached, whether next-best actions are explicit, and whether the frontend can inspect the current primary hypothesis without re-parsing prose.
+
+Baseline vs LLM review layer compares confidence-only suggestion output against `ReviewVerdict`. The measurement target is whether review checks are explicit, whether blocking issues are surfaced, whether approval is attached as data, and whether the final action surface distinguishes accepted projection from operator-gated projection and return-to-evidence paths.
+
+Baseline vs LLM planning layer compares plain recommended actions against `runbook_plan_outline` and `runbook_draft`. The measurement target is whether prechecks, approval boundary, rollback guidance, operator actions, evidence references, and change summary are attached as stable fields rather than buried in text.
+
+Baseline vs LLM runtime layer compares one-shot deterministic suggestion generation against a staged downstream reasoning path. The measurement target is whether the system can preserve deterministic alert confirmation while adding typed evidence, typed hypotheses, typed review, and future model-backed planning without changing the upstream alert contract.
+
+Baseline vs LLM orchestration layer compares one-shot provider inference against stage-scoped request contracts. The measurement target is whether critique and planning requests are reproducible, bounded by phase context, and ready for remote execution without changing the upstream ingest, correlator, or audit surfaces.
+
+## Deployment Boundary
+
+`192.168.1.23` is the edge node. It runs `Intel Xeon E3-1220 v5`, `4` CPU threads, `7.7 GiB` RAM, and `914 GiB` root storage with about `669 GiB` free. This node should stay limited to `fortigate-ingest` and `edge_forwarder`.
+
+`192.168.1.27` is the core node. It runs `Intel Xeon Silver 4310`, `24` CPU threads, `14 GiB` RAM, and `1.8 TiB` root storage with about `1.7 TiB` free. This node hosts Kafka consumers, `core/correlator`, `core/alerts_sink`, `core/alerts_store`, `core/aiops_agent`, and `frontend/gateway`.
+
+The current resource split supports structured evidence assembly, bounded post-alert reasoning, and remote model calls. It does not support hosting a large local model next to Kafka consumers, ClickHouse-backed reads, and the rest of the core services. The repository already reserves remote model access through `AIOPS_PROVIDER=http|gpu_http|external_model_service`, `AIOPS_PROVIDER_ENDPOINT_URL`, `AIOPS_PROVIDER_MODEL`, `AIOPS_PROVIDER_COMPUTE_TARGET`, and `AIOPS_PROVIDER_MAX_PARALLELISM`.
 
 ## Verification
 
@@ -160,5 +116,18 @@ python3 -m pytest -q tests/core
 pytest -q tests/frontend/test_runtime_reader_snapshot.py tests/frontend/test_runtime_stream_delta.py
 python3 -m compileall -q core edge frontend/gateway
 python3 -m core.benchmark.live_runtime_check
+cd frontend && npm test
 cd frontend && npm run build
 ```
+
+The current branch also passes focused tests for `Evidence Pack V2`, `HypothesisSet`, `ReviewVerdict`, runtime snapshot projection, and the frontend node inspector/event-field helpers.
+
+## LLM Resource Planning
+
+The next LLM stage should stay post-alert and stay off the two existing nodes. The current runtime produces about `6918.9` alerts/day, `288.29` alerts/hour, and `0.0801` alerts/second over the measured alert window. It produces about `8062.5` suggestions/day, `335.94` suggestions/hour, and `0.0933` suggestions/second over the measured suggestion window. That volume supports a selective reasoning policy. It does not support default long-chain LLM execution on every suggestion.
+
+The edge node should never execute model inference. The core node should continue to build `evidence_bundle`, `evidence_pack_v2`, `hypothesis_set`, `review_verdict`, provider routing hints, and remote requests. It should not host local 14B+ or 30B+ models. Keep `AIOPS_PROVIDER_MAX_PARALLELISM=1` until queue metrics, provider error metrics, and replay traces are all present.
+
+The first external GPU tier should cover compact triage and structured critique. A practical starting point is one remote endpoint in the `24 GiB` to `48 GiB` class for compact reasoning and one stronger endpoint in the `48 GiB` to `80 GiB` class for review and runbook drafting. `triage_compact` requests should stay around `1k-2.5k` input tokens. `hypothesis_critique` should stay around `2.5k-4k`. `runbook_draft` should stay around `3k-5k`. `runbook_review` should stay around `2.5k-4.5k`. Keep stage payloads bounded. Keep serialized evidence packs small. Keep the template provider as the mandatory fallback path.
+
+The next capacity steps should follow this order: keep the current foundation path on `template` plus bounded remote samples, add remote GPU endpoints for selective alert-scope and cluster-scope requests, add request queue metrics and cache keys, then raise concurrency only after timeout rate, queue delay, and replay coverage are observable. If remote GPU is not available and the next experiment actually needs model execution, the fallback is an API-backed provider. That step should be gated by cost and data-handling review, not enabled by default.
