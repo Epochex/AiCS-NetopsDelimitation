@@ -12,31 +12,31 @@ from .config import Settings
 
 STATIC_TOPOLOGY_NOTES = [
   {
-    'title': 'Deterministic before AI',
+    'title': 'Deterministic before LLM',
     'detail': (
-      'The interface keeps correlator and alert topics ahead of AIOps because '
-      'the backend is explicitly deterministic-stream-first.'
+      'The console keeps LCORE fault annotation, deterministic alerting, and '
+      'AIOps reasoning as separate planes instead of letting the model create alerts.'
     ),
   },
   {
-    'title': 'Evidence is a first-class payload',
+    'title': 'Topology is evidence',
     'detail': (
-      'The drawer mirrors the real suggestion shape: context, '
-      'evidence_bundle, confidence, and recommended actions.'
+      'The current reasoning path carries a topology-aware subgraph that separates '
+      'root-candidate, symptom, and noise nodes before stage requests are assembled.'
     ),
   },
   {
-    'title': 'Cluster path stays honest',
+    'title': 'LLM calls are gated',
     'detail': (
-      'Cluster-scope is shown as a real path with live control parameters, '
-      'not as a fabricated success state.'
+      'Low-value transient slices stay on the bounded template path, while '
+      'high-value fault-localization slices remain eligible for external LLM review.'
     ),
   },
   {
-    'title': 'Remediation is visible as a control boundary',
+    'title': 'Remediation stays bounded',
     'detail': (
-      'The topology includes the remediation loop as the next engineering '
-      'surface, but keeps it planned to avoid fake closure.'
+      'The output is still operator guidance only: execution, approval, and rollback '
+      'remain visible boundaries rather than hidden write-back behavior.'
     ),
   },
 ]
@@ -46,7 +46,7 @@ CONTROL_SPECS = [
     'rule-deny-threshold',
     'RULE_DENY_THRESHOLD',
     'core/deployments/40-core-correlator.yaml',
-    'Deterministic alert gate for deny_burst_v1 under normal runtime conditions.',
+    'Legacy traffic-burst rule retained for compatibility; LCORE runtime is driven by annotated_fault_v1.',
   ),
   (
     'rule-cooldown',
@@ -76,13 +76,13 @@ CONTROL_SPECS = [
     'forwarder-local',
     'FORWARDER_FILTER_DROP_LOCAL_DENY',
     'edge/edge_forwarder/deployments/30-edge-forwarder.yaml',
-    'Current edge-forwarder posture is lossless forwarding rather than aggressive suppression.',
+    'Edge forwarding remains lossless for canonical LCORE fact replay.',
   ),
   (
     'forwarder-broadcast',
     'FORWARDER_FILTER_DROP_BROADCAST_MDNS_NBNS',
     'edge/edge_forwarder/deployments/30-edge-forwarder.yaml',
-    'Broadcast and discovery traffic stays visible, which is important for strategy tuning.',
+    'Legacy office-traffic suppression switch; no longer defines the active LCORE scenario.',
   ),
 ]
 
@@ -214,7 +214,7 @@ def load_runtime_snapshot(settings: Settings) -> dict[str, Any]:
       control_lookup=control_lookup,
     ),
     'stageLinks': [
-      {'id': 'l1', 'source': 'fortigate', 'target': 'ingest', 'state': 'active'},
+      {'id': 'l1', 'source': 'lcore-source', 'target': 'ingest', 'state': 'active'},
       {'id': 'l2', 'source': 'ingest', 'target': 'forwarder', 'state': 'active'},
       {'id': 'l3', 'source': 'forwarder', 'target': 'raw-topic', 'state': 'active'},
       {'id': 'l4', 'source': 'raw-topic', 'target': 'correlator', 'state': 'active'},
@@ -321,21 +321,21 @@ def _build_stage_nodes(
 ) -> list[dict[str, Any]]:
   return [
     {
-      'id': 'fortigate',
-      'title': 'FortiGate',
-      'subtitle': 'source device log plane',
+      'id': 'lcore-source',
+      'title': 'LCORE-D Edge Source',
+      'subtitle': 'core-router telemetry + fault labels',
       'status': 'flowing' if raw_freshness_sec is not None else 'steady',
       'x': 0,
       'y': 90,
       'metrics': [
-        {'label': 'mode', 'value': 'syslog source'},
-        {'label': 'signal', 'value': 'real traffic'},
+        {'label': 'mode', 'value': 'lcore stream'},
+        {'label': 'signal', 'value': 'fault telemetry'},
       ],
     },
     {
       'id': 'ingest',
-      'title': 'edge/fortigate-ingest',
-      'subtitle': 'parse, checkpoint, replay control',
+      'title': 'edge/lcore-streamer',
+      'subtitle': 'canonicalize, checkpoint, stream',
       'status': 'watch' if history_backlog else 'flowing',
       'x': 240,
       'y': 90,
@@ -347,17 +347,17 @@ def _build_stage_nodes(
     {
       'id': 'forwarder',
       'title': 'edge-forwarder',
-      'subtitle': 'parsed -> Kafka raw',
+      'subtitle': 'canonical LCORE facts -> Kafka raw',
       'status': 'steady',
       'x': 520,
       'y': 90,
       'metrics': [
         {
-          'label': 'drop local deny',
+          'label': 'lossless',
           'value': control_lookup.get('FORWARDER_FILTER_DROP_LOCAL_DENY', 'unknown'),
         },
         {
-          'label': 'drop mdns/nbns',
+          'label': 'legacy filters',
           'value': control_lookup.get(
             'FORWARDER_FILTER_DROP_BROADCAST_MDNS_NBNS',
             'unknown',
@@ -380,17 +380,14 @@ def _build_stage_nodes(
     {
       'id': 'correlator',
       'title': 'core-correlator',
-      'subtitle': 'quality gate + deterministic rules',
+      'subtitle': 'quality gate + annotated fault rule',
       'status': 'flowing' if alerts_for_day else 'steady',
       'x': 1060,
       'y': 90,
       'metrics': [
         {
-          'label': 'deny threshold',
-          'value': (
-            f"{control_lookup.get('RULE_DENY_THRESHOLD', 'unknown')} / "
-            f"{control_lookup.get('RULE_DENY_WINDOW_SEC', '60')}s"
-          ),
+          'label': 'active rule',
+          'value': 'annotated_fault_v1',
         },
         {
           'label': 'cooldown',
@@ -437,7 +434,7 @@ def _build_stage_nodes(
     {
       'id': 'aiops-agent',
       'title': 'core-aiops-agent',
-      'subtitle': 'alert evidence + inference',
+      'subtitle': 'topology subgraph + bounded reasoning',
       'status': 'flowing' if latest_suggestion else 'steady',
       'x': 1580,
       'y': 90,
@@ -456,15 +453,12 @@ def _build_stage_nodes(
     {
       'id': 'suggestions-topic',
       'title': 'netops.aiops.suggestions.v1',
-      'subtitle': 'structured operator guidance',
+      'subtitle': 'structured localization guidance',
       'status': 'flowing' if latest_suggestion else 'steady',
       'x': 1840,
       'y': 90,
       'metrics': [
-        {
-          'label': 'provider',
-          'value': _get_nested_text(latest_suggestion, ('context', 'provider')) or 'unknown',
-        },
+        {'label': 'LLM gate', 'value': _llm_gate_label(latest_suggestion)},
         {'label': 'current day', 'value': f"{len(suggestions_for_day)} suggestions"},
       ],
     },
@@ -599,22 +593,22 @@ def _build_suggestion_story_timeline(
       'id': 'step-edge',
       'stageId': 'ingest',
       'stamp': _format_iso(event_ts),
-      'title': 'Edge fact observed',
+      'title': 'LCORE telemetry fact observed',
       'detail': (
-        f"FortiGate {event_excerpt.get('type', 'traffic')} / "
-        f"{event_excerpt.get('subtype', 'local')} {event_excerpt.get('action', 'event')} "
-        f"for service={service} device={src_device_key} was parsed into the live raw path."
+        f"LCORE {event_excerpt.get('type', 'telemetry')} / "
+        f"{event_excerpt.get('subtype', 'monitoring')} {event_excerpt.get('action', 'observe')} "
+        f"for device={src_device_key} scenario={_alert_scenario(alert)} entered the raw path."
       ),
     },
     {
       'id': 'step-correlation',
       'stageId': 'correlator',
       'stamp': _format_iso(alert_ts),
-      'title': 'Correlation window satisfied',
+      'title': 'Deterministic fault rule satisfied',
       'detail': (
-        f"{_get_text(alert, 'rule_id') or 'rule'} reached "
-        f"{metrics.get('deny_count', 'n/a')} events inside "
-        f"{metrics.get('window_sec', control_lookup.get('RULE_DENY_WINDOW_SEC', '60'))} seconds."
+        f"{_get_text(alert, 'rule_id') or 'rule'} accepted label="
+        f"{metrics.get('label_value', 'n/a')} scenario={_alert_scenario(alert)} "
+        'without model participation.'
       ),
       'durationMs': _duration_ms(event_ts, alert_ts),
     },
@@ -622,7 +616,7 @@ def _build_suggestion_story_timeline(
       'id': 'step-enrichment',
       'stageId': 'alerts-topic',
       'stamp': _format_iso(alert_ts),
-      'title': 'Alert enrichment attached evidence',
+      'title': 'Alert enrichment attached topology evidence',
       'detail': (
         'Current alert payload carried '
         + (', '.join(evidence_blocks) if evidence_blocks else 'no enriched evidence blocks')
@@ -652,9 +646,9 @@ def _build_suggestion_story_timeline(
         'id': 'step-aiops',
         'stageId': 'suggestions-topic',
         'stamp': _format_iso(suggestion_ts),
-        'title': f"AIOps {(_get_text(suggestion, 'suggestion_scope') or 'alert')}-scope suggestion emitted",
+        'title': f"AIOps {(_get_text(suggestion, 'suggestion_scope') or 'alert')}-scope guidance emitted",
         'detail': (
-          f"Provider={_get_text(context, 'provider') or 'template'} returned "
+          f"Gate={_llm_gate_label(suggestion)}; provider={_get_text(context, 'provider') or 'template'} returned "
           f"{len(_string_list(suggestion.get('hypotheses')))} hypotheses and "
           f"{len(_string_list(suggestion.get('recommended_actions')))} recommended actions."
         ),
@@ -705,11 +699,11 @@ def _build_stage_telemetry(
 
   return [
     {
-      'stageId': 'fortigate',
+      'stageId': 'lcore-source',
       'mode': 'status',
       'state': 'active',
       'label': 'source',
-      'value': 'live plane',
+      'value': 'lcore edge',
       'endedAt': _format_iso(event_ts),
     },
     {
@@ -817,6 +811,40 @@ def _normalize_projection_basis(value: Any) -> dict[str, list[dict[str, str]]]:
     if entries:
       normalized[str(key)] = entries
   return normalized
+
+
+def _alert_scenario(alert: dict[str, Any]) -> str:
+  return (
+    _get_nested_text(alert, ('dimensions', 'fault_scenario'))
+    or _get_nested_text(alert, ('metrics', 'label_value'))
+    or 'unknown'
+  )
+
+
+def _llm_gate_label(suggestion: dict[str, Any] | None) -> str:
+  if not suggestion:
+    return 'n/a'
+  evidence_bundle = (
+    suggestion.get('evidence_bundle', {})
+    if isinstance(suggestion.get('evidence_bundle'), dict)
+    else {}
+  )
+  subgraph = (
+    evidence_bundle.get('topology_subgraph')
+    if isinstance(evidence_bundle.get('topology_subgraph'), dict)
+    else {}
+  )
+  gate = (
+    subgraph.get('llm_invocation_gate')
+    if isinstance(subgraph.get('llm_invocation_gate'), dict)
+    else {}
+  )
+  if gate:
+    tier = _get_text(gate, 'budget_tier') or 'template_only'
+    decision = 'invoke' if gate.get('should_invoke_llm') else 'skip'
+    return f'{decision} · {tier}'
+  context = suggestion.get('context', {}) if isinstance(suggestion.get('context'), dict) else {}
+  return _get_text(context, 'provider') or 'template'
 
 
 def _fallback_projection_basis(
@@ -984,6 +1012,25 @@ def _build_suggestion_records(
       suggestion=suggestion,
       hypothesis_set=hypothesis_set,
     )
+    topology_map = _normalize_mapping(evidence_bundle.get('topology_context'))
+    subgraph = (
+      evidence_bundle.get('topology_subgraph')
+      if isinstance(evidence_bundle.get('topology_subgraph'), dict)
+      else {}
+    )
+    gate = (
+      subgraph.get('llm_invocation_gate')
+      if isinstance(subgraph.get('llm_invocation_gate'), dict)
+      else {}
+    )
+    if subgraph:
+      topology_map['selected_node_count'] = str(subgraph.get('selected_node_count') or 0)
+      topology_map['noise_node_count'] = str(subgraph.get('noise_node_count') or 0)
+      topology_map['root_candidate_nodes'] = ', '.join(_string_list(subgraph.get('root_candidate_nodes'))) or 'none'
+      topology_map['symptom_nodes'] = ', '.join(_string_list(subgraph.get('symptom_nodes'))) or 'none'
+    if gate:
+      topology_map['llm_gate'] = _llm_gate_label(suggestion)
+      topology_map['llm_gate_reason'] = _get_text(gate, 'reason') or 'n/a'
     records.append(
       {
         'id': _get_text(suggestion, 'suggestion_id') or _get_text(suggestion, 'alert_id') or 'unknown',
@@ -1006,7 +1053,7 @@ def _build_suggestion_records(
           'provider': _get_text(context, 'provider') or 'template',
         },
         'evidenceBundle': {
-          'topology': _normalize_mapping(evidence_bundle.get('topology_context')),
+          'topology': topology_map,
           'device': _normalize_mapping(evidence_bundle.get('device_context')),
           'change': _normalize_mapping(evidence_bundle.get('change_context')),
           'historical': _normalize_mapping(evidence_bundle.get('historical_context')),
@@ -1696,7 +1743,7 @@ def _stage_ids_for_feed_items(items: list[dict[str, Any]]) -> list[str]:
 def _stage_ids_for_feed_item(item: dict[str, Any]) -> list[str]:
   kind = item.get('kind')
   if kind == 'raw':
-    return ['fortigate', 'ingest', 'forwarder', 'raw-topic']
+    return ['lcore-source', 'ingest', 'forwarder', 'raw-topic']
   if kind == 'alert':
     return ['correlator', 'alerts-topic', 'cluster-window']
   if kind == 'suggestion':

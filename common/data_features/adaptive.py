@@ -498,6 +498,10 @@ def _build_topology_context(row: Mapping[str, Any], plan: FeaturePlan, entity_ke
     site = _first_by_name(row, ["site", "pop", "location"])
     zone = _first_by_name(row, ["zone", "area", "domain"])
     neighbor = _first_by_name(row, ["neighbor", "peer", "next_hop"])
+    hop_to_server = _first_by_name(row, ["hop_to_server", "hop server", "server_hop"])
+    hop_to_core = _first_by_name(row, ["hop_to_core", "hop core", "core_hop"])
+    downstream_dependents = _first_by_name(row, ["downstream_dependents", "downstream"])
+    path_up = _first_by_name(row, ["path_up", "path status", "path_state"])
 
     path_parts = [item for item in [src or entity_key, link, dst] if item]
     topology = {
@@ -514,6 +518,10 @@ def _build_topology_context(row: Mapping[str, Any], plan: FeaturePlan, entity_ke
         "policyid": "",
         "policytype": "",
         "neighbor_refs": [neighbor] if neighbor else [],
+        "hop_to_server": hop_to_server,
+        "hop_to_core": hop_to_core,
+        "downstream_dependents": downstream_dependents,
+        "path_up": path_up,
         "topology_feature_fields": plan.topology_fields,
     }
     return topology

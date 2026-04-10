@@ -1,12 +1,14 @@
 from typing import Any
 
 from core.aiops_agent.evidence_pack_v2 import select_evidence_pack_v2_view
+from core.aiops_agent.alert_reasoning_runtime.topology_subgraph import summarize_topology_subgraph
 
 
 def build_phase_context_payload(stage: str, evidence_bundle: dict[str, Any]) -> dict[str, Any]:
     normalized_stage = str(stage or "").strip().lower()
     reasoning_seed = evidence_bundle.get("reasoning_runtime_seed") or {}
     candidate_event_graph = reasoning_seed.get("candidate_event_graph") or {}
+    topology_subgraph = reasoning_seed.get("topology_subgraph") or evidence_bundle.get("topology_subgraph") or {}
     investigation_session = reasoning_seed.get("investigation_session") or {}
     runbook_plan_outline = reasoning_seed.get("runbook_plan_outline") or {}
     evidence_pack_v2 = evidence_bundle.get("evidence_pack_v2") or {}
@@ -21,6 +23,7 @@ def build_phase_context_payload(stage: str, evidence_bundle: dict[str, Any]) -> 
             evidence_pack_v2,
         ),
         "candidate_event_graph": _graph_summary(candidate_event_graph),
+        "topology_subgraph": summarize_topology_subgraph(topology_subgraph),
         "investigation_session": _session_summary(investigation_session),
     }
 
@@ -51,6 +54,7 @@ def build_phase_context_payload(stage: str, evidence_bundle: dict[str, Any]) -> 
             "policy_context": evidence_bundle.get("policy_context") or {},
             "sample_context": evidence_bundle.get("sample_context") or {},
             "change_context": evidence_bundle.get("change_context") or {},
+            "topology_subgraph": summarize_topology_subgraph(topology_subgraph),
         }
         return base
 

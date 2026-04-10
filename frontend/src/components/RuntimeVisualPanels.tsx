@@ -181,7 +181,7 @@ function processTraceSegments(
     fallbackValue: string
   }> = [
     {
-      id: 'fortigate',
+      id: 'lcore-source',
       enTitle: 'Source signal',
       zhTitle: '源信号',
       tone: 'raw',

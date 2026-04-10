@@ -47,6 +47,7 @@ function formatStageState(status: RuntimeSnapshot['stageNodes'][number]['status'
 
 function layoutSystemFlowNodes(nodes: RuntimeSnapshot['stageNodes']) {
   const positions: Record<string, { x: number; y: number }> = {
+    'lcore-source': { x: 0, y: 96 },
     fortigate: { x: 0, y: 96 },
     ingest: { x: 232, y: 96 },
     forwarder: { x: 464, y: 96 },

@@ -272,20 +272,34 @@ def _event_entity_key(event: dict[str, Any]) -> str:
     topology = event.get("topology_context")
     if not isinstance(topology, dict):
         topology = {}
+    profile = event.get("device_profile")
+    if not isinstance(profile, dict):
+        profile = {}
     for value in [
+        profile.get("device_name"),
+        profile.get("src_device_key"),
         event.get("src_device_key"),
         event.get("node_id"),
         event.get("device_id"),
         event.get("router"),
-        topology.get("path_signature"),
         topology.get("srcip"),
+        topology.get("path_signature"),
         topology.get("srcintf"),
         event.get("srcip"),
     ]:
         text = str(value or "").strip()
-        if text:
+        if text and not _is_low_semantic_entity_key(text):
             return text
     return "unknown"
+
+
+def _is_low_semantic_entity_key(value: str) -> bool:
+    text = value.strip()
+    if not text:
+        return True
+    if text.isdigit() and len(text) <= 2:
+        return True
+    return False
 
 
 def _fault_severity(scenario: str) -> str:
@@ -374,12 +388,19 @@ def _build_topology_context(event: dict[str, Any]) -> dict[str, Any]:
     topology["dstintfrole"] = str(topology.get("dstintfrole") or event.get("dstintfrole") or "")
     topology["site"] = str(topology.get("site") or event.get("site") or "")
     topology["zone"] = str(topology.get("zone") or event.get("srcintfrole") or event.get("dstintfrole") or "")
-    topology["path_signature"] = (
-        f"{topology['srcintf'] or 'unknown'}->{topology['dstintf'] or 'unknown'}"
+    topology["path_signature"] = str(
+        topology.get("path_signature")
+        or f"{topology['srcintf'] or 'unknown'}->{topology['dstintf'] or 'unknown'}"
     )
     topology["policyid"] = str(topology.get("policyid") or event.get("policyid") or "")
     topology["policytype"] = str(topology.get("policytype") or event.get("policytype") or "")
     topology["neighbor_refs"] = [str(item).strip() for item in neighbor_refs if str(item).strip()]
+    topology["hop_to_server"] = str(topology.get("hop_to_server") or event.get("hop_to_server") or "")
+    topology["hop_to_core"] = str(topology.get("hop_to_core") or event.get("hop_to_core") or "")
+    topology["downstream_dependents"] = str(
+        topology.get("downstream_dependents") or event.get("downstream_dependents") or ""
+    )
+    topology["path_up"] = str(topology.get("path_up") or event.get("path_up") or "")
     return topology
 
 

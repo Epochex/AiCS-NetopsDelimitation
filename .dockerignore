@@ -1,0 +1,9 @@
+.git
+.pytest_cache
+__pycache__
+*.pyc
+*.pdf
+auth/
+documentation/images/
+frontend/node_modules/
+frontend/dist/

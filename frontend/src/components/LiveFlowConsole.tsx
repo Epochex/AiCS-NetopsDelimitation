@@ -243,7 +243,7 @@ function buildLifecycle(
     ...snapshot.clusterWatch.map((item) => item.progress),
   )
   const clusterRemaining = Math.max(0, safeClusterTarget - clusterProgress)
-  const fortigate = stageLookup.get('fortigate')
+  const lcoreSource = stageLookup.get('lcore-source')
   const ingest = stageLookup.get('ingest')
   const forwarder = stageLookup.get('forwarder')
   const rawTopic = stageLookup.get('raw-topic')
@@ -255,7 +255,7 @@ function buildLifecycle(
   const sourceTs =
     telemetryLookup.get('raw-topic')?.endedAt ??
     telemetryLookup.get('ingest')?.endedAt ??
-    telemetryLookup.get('fortigate')?.endedAt
+    telemetryLookup.get('lcore-source')?.endedAt
   const handoffTs =
     telemetryLookup.get('raw-topic')?.endedAt ??
     telemetryLookup.get('forwarder')?.endedAt ??
@@ -278,20 +278,20 @@ function buildLifecycle(
     {
       id: 'source-signal',
       title: 'Source Signal',
-      purpose: 'A real device log has entered the platform.',
-      systems: 'FortiGate',
-      status: fortigate?.status ?? 'steady',
-      stageIds: ['fortigate'],
+      purpose: 'A core-router telemetry fact has entered the platform.',
+      systems: 'LCORE-D edge source',
+      status: lcoreSource?.status ?? 'steady',
+      stageIds: ['lcore-source'],
       facts: [
-        stageMetricValue(fortigate, 'mode'),
-        stageMetricValue(fortigate, 'signal'),
+        stageMetricValue(lcoreSource, 'mode'),
+        stageMetricValue(lcoreSource, 'signal'),
       ],
       band: {
         mode: 'timestamp',
         state: 'active',
         label: 'seen',
         value: sourceTs ? formatMaybeTimestamp(sourceTs, 'time') : 'live',
-        detail: 'source plane stays hot until a new raw fact arrives',
+        detail: 'LCORE source plane stays hot until a new canonical fact arrives',
         stamp: sourceTs,
         meter: 100,
         durationMs: 0,
@@ -302,7 +302,7 @@ function buildLifecycle(
       id: 'edge-handoff',
       title: 'Edge Parse + Handoff',
       purpose: 'The edge normalizes, checkpoints, and hands the fact to the raw stream.',
-      systems: 'fortigate-ingest -> edge-forwarder -> netops.facts.raw.v1',
+      systems: 'lcore-streamer -> edge-forwarder -> netops.facts.raw.v1',
       status:
         rawTopic?.status === 'flowing' || ingest?.status === 'flowing'
           ? 'flowing'
@@ -311,7 +311,7 @@ function buildLifecycle(
       facts: [
         `parsed ${stageMetricValue(ingest, 'parsed')}`,
         `freshness ${stageMetricValue(rawTopic, 'freshness')}`,
-        `drop local deny ${stageMetricValue(forwarder, 'drop local deny')}`,
+        `lossless ${stageMetricValue(forwarder, 'lossless')}`,
       ],
       band: {
         mode: 'timestamp',
@@ -328,7 +328,7 @@ function buildLifecycle(
     {
       id: 'deterministic-alert',
       title: 'Deterministic Alert',
-      purpose: 'The correlator decides whether the event crosses the rule threshold.',
+      purpose: 'The correlator confirms labeled fault transitions without model participation.',
       systems: 'core-correlator -> netops.alerts.v1',
       status:
         alertsTopic?.status === 'flowing' || correlator?.status === 'flowing'
@@ -336,7 +336,7 @@ function buildLifecycle(
           : 'steady',
       stageIds: ['correlator', 'alerts-topic'],
       facts: [
-        `threshold ${stageMetricValue(correlator, 'deny threshold')}`,
+        `rule ${stageMetricValue(correlator, 'active rule')}`,
         `latest ${stageMetricValue(alertsTopic, 'latest')}`,
       ],
       band: {
@@ -1555,7 +1555,7 @@ function projectorMeasuredStepMs(
   const sourceTs =
     telemetryLookup.get('raw-topic')?.endedAt ??
     telemetryLookup.get('ingest')?.endedAt ??
-    telemetryLookup.get('fortigate')?.endedAt
+    telemetryLookup.get('lcore-source')?.endedAt
   const handoffTs =
     telemetryLookup.get('raw-topic')?.endedAt ??
     telemetryLookup.get('forwarder')?.endedAt ??
