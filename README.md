@@ -1,170 +1,205 @@
 ## NetOps Causality Remediation
 [![English](https://img.shields.io/badge/Language-English-1f6feb)](./README.md) [![Simplified Chinese](https://img.shields.io/badge/Language-Simplified%20Chinese-2ea043)](./README_CN.md)
 
-This repository implements a NetOps primary pipeline that is anchored in deterministic alert adjudication and strengthened by downstream reasoning. Rule-backed alert confirmation remains the first decision point at all times; reasoning is introduced only after an alert has already been established. The project has moved beyond conceptual design and is now at a stage where the local structured pipeline is largely closed, with production-grade remote model execution as the main remaining gap.
+This branch implements a topology-aware NetOps reasoning pipeline for LCORE-D style core-network telemetry. The system keeps deterministic alert establishment separate from model-assisted analysis: the model is not allowed to decide whether an alert exists, and it only receives bounded evidence after the rule path has confirmed an alert.
 
-## System Architecture
+The current research focus is no longer office FortiGate traffic. Office runtime is treated as a legacy engineering trace. The active scenario is LCORE-D fault localization, where the system must use topology structure to reduce noisy evidence, distinguish root-candidate and symptom nodes, and avoid unnecessary LLM calls for low-value or self-healing slices.
 
-The current system is best understood as six structural planes:
+## System Definition
 
-- Edge ingestion plane: receives real device logs and normalizes raw input into a stable stream of facts.
-- Deterministic decision plane: collapses that fact stream into established alerts, preserving a non-model first judgment.
-- Dual persistence plane: maintains both audit-grade storage and hot query history for compliance and retrieval use cases.
-- Aggregation trigger plane: turns repeated patterns under the same key into cluster-level triggers.
-- Downstream alert reasoning plane: assembles evidence, structured hypotheses, structured review, structured runbook drafts, and stage request contracts.
-- Runtime projection plane: renders runtime artifacts into frontend snapshots, timelines, compare views, and operator-readable surfaces.
+The system is defined by five planes:
 
-A future controlled execution plane is intentionally reserved in the design, but it currently exists only as an approval boundary, rollback boundary, and interface placeholder rather than a delivered capability.
+- Edge fact plane: converts LCORE-D rows into stable canonical facts with device identity, fault labels, and topology context.
+- Deterministic alert plane: applies quality gates and rule-backed alert confirmation before any model sees the incident.
+- Topology evidence plane: extracts a local subgraph around the confirmed alert and assigns root-candidate, symptom, and noise roles.
+- Bounded reasoning plane: builds structured evidence packs, hypotheses, review verdicts, runbook drafts, and stage requests.
+- Runtime projection plane: exposes alerts, suggestions, topology gates, and evaluation artifacts to the operator UI.
 
-## Main Flow
-
-The primary workflow can be summarized as the following chain:
+A controlled execution plane is intentionally out of scope for this branch. Remediation remains human-gated guidance with explicit approval and rollback boundaries.
 
 ```mermaid
 flowchart LR
-  A[Device logs] --> B[Edge ingestion plane]
-  B --> C[Structured fact stream]
-  C --> D[Deterministic decision plane]
-  D --> E[Established alerts]
-  E --> F[Audit persistence]
-  E --> G[Hot-query persistence]
-  E --> H[Aggregation trigger plane]
-  E --> I[Downstream alert reasoning plane]
-  H --> I
-  F --> J[Runtime projection plane]
-  G --> J
-  I --> J
-  J --> K[Operator console]
+  A["LCORE-D edge stream"] --> B["Canonical fact"]
+  B --> C["Quality gate"]
+  C --> D["Deterministic alert"]
+  D --> E["Topology-aware subgraph"]
+  E --> F["Evidence Pack V2"]
+  F --> G["Hypothesis + review + runbook"]
+  G --> H["Stage requests"]
+  H --> I["Runtime console"]
+
+  E --> J{"LLM gate"}
+  J -->|"high-value fault"| K["External LLM eligible"]
+  J -->|"transient / low evidence"| L["Template-only bounded path"]
 ```
 
-The same architecture is also illustrated in the repository documentation:
+The main object chain is:
 
-![System flow map](<documentation/images/System Flow Map.png>)
+`canonical fact -> deterministic alert -> evidence bundle -> topology_subgraph -> Evidence Pack V2 -> HypothesisSet -> ReviewVerdict -> RunbookDraft -> ReasoningStageRequests -> runtime projection`
 
-In object-chain terms, the alert path is:
+## LCORE Runtime Contract
 
-`alert -> evidence bundle -> reasoning runtime seed -> Evidence Pack V2 -> HypothesisSet -> ReviewVerdict -> RunbookDraft -> ReasoningStageRequests -> runtime projection`
+The edge side owns fact identity and topology normalization. The core side owns alerting, evidence assembly, and reasoning. The contract currently expected by core is:
 
-In cluster terms, the only difference is the entry point: repeated patterns under the same key replace a single alert as the trigger. The downstream object layer, stage matrix, and frontend projection surface remain shared rather than splitting into two independent systems.
+| Field | Expected meaning |
+| --- | --- |
+| `src_device_key` | Stable LCORE device identity such as `CORE-R1` to `CORE-R7` |
+| `device_profile.device_name` | Same stable device identity as `src_device_key` |
+| `fault_context.scenario` | Normalized scenario such as `healthy`, `induced_fault`, or `transient_fault` |
+| `topology_context.path_signature` | Stable topology signature without local file paths |
+| `topology_context.hop_to_core` | Distance-like topology feature toward the core side |
+| `topology_context.hop_to_server` | Distance-like topology feature toward the server side |
+| `topology_context.downstream_dependents` | Local downstream dependency count when available |
+| `topology_context.path_up` | Path-state feature from the LCORE source |
+| `topology_context.interface_type` | Numeric interface-type feature when present |
+| `topology_context.srcintf` | Reserved for real interface names; numeric feature values should not be placed here |
 
-## Current Delivery Status
+This division is important: core has defensive guards for malformed facts, but the correct fix for identity and topology errors belongs to the edge canonicalization layer.
 
-The repository already contains stable implementations of the following core structures:
+## Topology-Aware Subgraph Extraction
 
-- `reasoning_runtime_seed`
+The topology-aware layer adapts the failure-localization idea from LLM-based production-network diagnosis to this project’s bounded NetOps setting. Instead of sending every alert and every neighboring fact to an LLM, the system builds a minimal local subgraph for each confirmed alert:
+
+- Root-candidate nodes are nodes with direct fault evidence, critical scenarios, or high recurrence.
+- Symptom nodes are nearby or historically related nodes that may reflect propagation.
+- Noise nodes are weakly related nodes kept outside the selected reasoning core.
+- The LLM gate uses scenario severity, topology evidence, recurrence, and self-healing likelihood to decide whether an external LLM call is justified.
+
+This gives the branch a clearer research contribution than a generic post-alert summarizer: topology is not only displayed as context, but used to choose evidence and reduce reasoning diffusion.
+
+## Implementation Summary
+
+The implemented core structures include:
+
+- `topology_subgraph`
+- `llm_invocation_gate`
 - `candidate_event_graph`
-- `investigation_session`
-- `reasoning_trace_seed`
-- `runbook_plan_outline`
+- `reasoning_runtime_seed`
 - `Evidence Pack V2`
 - `HypothesisSet`
 - `ReviewVerdict`
 - `RunbookDraft`
 - `ReasoningStageRequests`
 
-These structures show that the current focus is no longer whether a model can be connected at all, but whether evidence, hypothesis, review, planning, and stage contracts have been turned into stable typed objects first. The frontend already reflects that direction: the main operator view, convergence field, node inspector, and compare workbench all treat structured objects as the primary product, rather than relying on free-form natural-language summaries as the only source of meaning.
+The main implementation files are:
 
-The current frontend runtime surfaces are documented below:
+| Area | Path |
+| --- | --- |
+| Topology subgraph extraction | `core/aiops_agent/alert_reasoning_runtime/topology_subgraph.py` |
+| Alert/cluster seed adapter | `core/aiops_agent/alert_reasoning_runtime/rule_based_seed_adapter.py` |
+| Evidence bundle projection | `core/aiops_agent/evidence_bundle.py` |
+| Evidence Pack V2 integration | `core/aiops_agent/evidence_pack_v2.py` |
+| Provider routing hint | `core/aiops_agent/provider_routing.py` |
+| Review verdict checks | `core/aiops_agent/review_verdict.py` |
+| LCORE adaptive fact conversion | `common/data_features/adaptive.py` |
+| Ablation benchmark | `core/benchmark/topology_subgraph_ablation.py` |
+| Frontend runtime projection | `frontend/gateway/app/runtime_reader.py` |
 
-![Frontend runtime projection](<documentation/images/前端主页面投影.png>)
+## Evaluation Snapshot
 
-![Explanation benchmark field](<documentation/images/Explanation Benchmark Field UI坐标图.png>)
+The current ablation compares an invoke-all baseline against topology-aware selective invocation. The baseline assumes every confirmed alert is sent to an external LLM. The topology-aware path invokes the external LLM only when the subgraph gate marks the alert as high-value.
 
-## Feature Count Reference
+| Dataset slice | Alerts scanned | Invoke-all LLM calls | Topology-gated LLM calls | Call reduction | High-value alerts | High-value recall |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Office legacy trace | `886` | `886` | `0` | `100.00%` | `0` | `0.00%` |
+| LCORE-D 50k replay sample | `1302` | `1302` | `173` | `86.71%` | `173` | `100.00%` |
 
-The tables below consolidate the current `edge -> core` feature-count contract in one place. The counts are based on object shapes actually produced by the codebase rather than concept-only wording. Any mounted runtime artifact that still follows an older schema is called out explicitly.
+The office trace is useful as a legacy engineering sanity check, but it has no high-value LCORE fault-localization labels in the evaluated window. The LCORE-D replay is the relevant research slice.
 
-### Edge Plane
+```mermaid
+xychart-beta
+  title "LLM Invocation Requests"
+  x-axis ["Office invoke-all", "Office gated", "LCORE invoke-all", "LCORE gated"]
+  y-axis "requests" 0 --> 1400
+  bar [886, 0, 1302, 173]
+```
 
-| Plane | Stage / Object | Top-level feature count | Key nested or supporting notes | Remarks |
-| --- | --- | ---: | --- | --- |
-| edge | raw vendor log input | `47` | `4` syslog header fields + `43` FortiGate KV fields | Vendor-log contract before parser normalization |
-| edge | ingest structured event | `66` | `source=3`, `device_profile<=9`, `kv_subset<=56` | Parsed JSONL emitted by `fortigate-ingest` |
-| edge | forwarder -> Kafka fact | `66` | top-level unchanged | `edge_forwarder` filters and forwards without rewriting the payload schema |
+```mermaid
+xychart-beta
+  title "Topology Gate Quality"
+  x-axis ["Office high-value recall", "LCORE high-value recall", "LCORE call reduction"]
+  y-axis "percent" 0 --> 100
+  bar [0, 100, 86.71]
+```
 
-### Core Plane
+```mermaid
+xychart-beta
+  title "Average Subgraph Size"
+  x-axis ["Office selected", "Office noise", "LCORE selected", "LCORE noise"]
+  y-axis "nodes" 0 --> 3
+  line [2.0, 1.099, 2.0, 1.968]
+```
 
-| Plane | Stage / Object | Top-level feature count | Key nested or supporting notes | Remarks |
-| --- | --- | ---: | --- | --- |
-| core | correlator input fact | `66` | Same structured fact shape forwarded from edge Kafka input | Input contract of the deterministic plane |
-| core | deterministic alert | `12` | `dimensions=1`, `metrics=3`, `event_excerpt=31`, `topology_context=13`, `device_profile=12`, `change_context=6` | Current alert JSONL matches the code path |
-| core | alerts sink JSONL | `12` | Same shape as deterministic alert | Audit persistence only; no schema rewrite |
-| core | ClickHouse alert row | `17` columns | Includes `metrics_json`, `dimensions_json`, `event_excerpt_json`, `topology_context_json`, `device_profile_json`, `change_context_json` | Storage-row contract rather than payload contract |
-| core | cluster trigger | `6` | `ClusterKey=4` | Exists only when repeated-pattern aggregation is hit |
-| core | evidence bundle | `16` | `alert_ref=3`, `historical_context=9`, `rule_context=5`, `path_context=6`, `policy_context=3`, `sample_context=1`, `window_context=3`, `topology_context=14`, `device_context=12`, `change_context=6` | Shared object layer for alert-scope and cluster-scope |
-| core | reasoning runtime seed | `6` | `candidate_event_graph=9`, `investigation_session=9`, `reasoning_trace_seed=6`, `runbook_plan_outline=10` | Alert-scope version |
-| core | cluster reasoning runtime seed | `7` | Adds `cluster_context=6` on top of the alert-scope seed | Cluster-scope version |
-| core | candidate event graph | `9` | `node item=5`, `edge item=7` | Internal runtime-seed object |
-| core | investigation session | `9` | `working_memory_seed=5` | Internal runtime-seed object |
-| core | reasoning trace seed | `6` | No additional fixed nested object | Internal runtime-seed object |
-| core | runbook plan outline | `10` | `applicability=3`, `approval_boundary=3` | Internal runtime-seed object |
-| core | Evidence Pack V2 | `14` | `alert_ref=3`, `freshness=2`, `source_reliability=1`, `summary=4`, `evidence entry item=9` | Typed evidence input used by hypothesis, review, and runbook stages |
-| core | inference request | `12` | `expected_response_schema=6` | Strongly typed pre-provider request object |
-| core | inference result | `12` | No additional fixed nested object | Normalized provider result |
-| core | HypothesisSet | `6` | `hypothesis item=10` | Structured hypothesis object |
-| core | ReviewVerdict | `9` | `checks=6`, single check=`2` | Structured review object |
-| core | RunbookDraft | `15` | `applicability=3`, `approval_boundary=3`, `change_summary=2` | Structured runbook draft |
-| core | reasoning stage requests | `2` stages | Each stage request=`10`, `input_contract=3`, `routing_hint=12` | Currently fixed to `hypothesis_critique` and `runbook_draft` |
-| core | suggestion payload (final emitted schema) | `24` | `context=17`, `inference=12`, `reasoning_stage_requests=2` | Final persisted payload = structured suggestion plus stage requests |
-| core | suggestion JSONL (latest runtime artifact) | `24` | `context=17`, `evidence_bundle=16`, `reasoning_runtime_seed=6` | The latest mounted runtime file is aligned to the new schema; older historical files can be backfilled with the migration utility |
+The measured result is not yet final root-cause top-1 accuracy. It is a first-stage systems result: the topology gate reduces LLM calls by `86.71%` on the LCORE-D replay while preserving `100%` of high-value alert eligibility. The next evaluation step is to attach incident-window root labels and report root-candidate, symptom, and noise classification accuracy.
+
+## Model Execution Plan
+
+The current system should not colocate a large model inside the core pipeline. The core node should stay focused on deterministic alerting, evidence assembly, and runtime projection. Model execution should be attached as a provider behind an explicit stage request interface.
+
+Recommended provider order:
+
+- Short term: keep the template path as the always-available fallback.
+- Near term: expose an OpenAI-compatible endpoint from the Waseda GPU cluster and route only topology-gated high-value alerts to it.
+- Experiment tier: evaluate GLM-4.5-Air or another reasoning/coding model through vLLM or SGLang.
+- Control tier: keep hosted API models available for comparison, regression checks, and cases where local models fail.
+
+The reason to use the GPU cluster is not training from scratch. It is controlled inference and possible lightweight LoRA/SFT experiments on incident-local prompts. CPU-only or memory-only inference can be useful for small models, but this project emphasizes reasoning depth and long structured context; the GPU cluster is the more realistic path for paper-grade evaluation.
 
 ## Operating Boundaries
 
-The project currently maintains six explicit boundaries:
+- Alert establishment is deterministic and rule-backed.
+- LLM reasoning is post-alert and evidence-bounded.
+- Topology selection happens before external model invocation.
+- Low-value transient slices may remain template-only.
+- Suggestions are not automatically written back to devices.
+- Any future execution path must stop at approval and rollback boundaries.
 
-- Alert-establishment boundary: the model must not decide whether an alert is valid in the first place.
-- Execution boundary: suggestions are not written back to devices automatically.
-- Approval boundary: any action beyond read-only diagnosis must stop before human approval.
-- Rollback boundary: a plan without rollback preparation cannot be elevated into an execution output.
-- Transport boundary: the edge ingestion plane does not participate in model reasoning or stage orchestration.
-- Data-contract boundary: future remote models may consume only explicit stage requests, not arbitrary runtime files or full repository context.
+## Current Status
 
-## Current Runtime Facts
+This branch has completed the local structured path for topology-aware post-alert reasoning. It has also moved the active runtime scenario from office traffic to LCORE-D telemetry.
 
-The currently mounted runtime surface shows the following:
+Completed:
 
-- The alert artifact set contains `691` hourly files and `201003` total records, covering `2026-03-04T15:09:11+00:00` through `2026-04-02T16:23:04+00:00`.
-- The suggestion artifact set contains `603` hourly files and `222023` total records, covering `2026-03-09T05:08:56.549849+00:00` through `2026-04-05T18:03:18.303384+00:00`.
-- The latest 24 alert buckets are still dominated by `deny_burst_v1|warning`.
-- The latest 24 suggestion buckets remain primarily `alert` scope, while `cluster` scope represents a smaller share.
+- LCORE canonical fact adaptation
+- deterministic `annotated_fault_v1` alerting
+- topology-aware subgraph extraction
+- LLM invocation gating
+- evidence pack and stage request integration
+- frontend runtime projection for LCORE/topology semantics
+- ablation benchmark for LLM-call reduction
 
-This distribution indicates a low-QPS, tightly constrained, strongly fallback-oriented downstream reasoning workload. It is sufficient for structured evidence, structured hypotheses, structured review, structured runbook drafting, and replay-based evaluation, but it is not an appropriate shape for permanently colocating a large model on the existing core nodes.
+Remaining:
 
-## Resource Planning Conclusions
+- root-cause label alignment for paper-grade localization accuracy
+- provider execution wiring to a real local or remote LLM endpoint
+- response validation and timeout fallback
+- trace capture for replayable model evaluations
+- comparison against rule-only and invoke-all baselines over full LCORE-D incident windows
 
-The current resource-planning conclusion is straightforward:
+## Useful Commands
 
-- The edge ingestion plane should remain focused on log intake and fact normalization.
-- Core nodes should remain focused on alert confirmation, evidence assembly, structured object generation, and stage request assembly.
-- Model execution should live in an external GPU service or a controlled API provider.
-- The `template` path must remain a permanent fallback.
-- The first priority is to complete remote reasoning connectivity, response validation, timeout fallback, trace capture, and replay/eval.
-- Only after that should limited domain adaptation become a priority.
-- There is no current need to train a foundation model from scratch.
-
-## Next Step
-
-The clearly defined stopping point at this stage is that the local structured pipeline is already closed, while real remote model execution is not yet connected. The next milestone is therefore not to keep expanding local schemas or to keep broadening documentation, but to close the following loop:
-
-- real provider execution
-- response validation
-- timeout / fallback
-- trace capture
-- replay / eval
-
-Once that loop is complete, the system will move from "structured reasoning objects are in place" to the next stage: "real remote critique and planning are wired into production flow."
-
-## LCORE-D Data Adaptation
-
-The benchmark data path is now prepared for `LCORE-D: A Benchmark Dataset for Core Network Analysis` (`https://data.mendeley.com/datasets/77sztrg5ks/2`). This source is more suitable than the office-only FortiGate trace for topology-aware and fault-localization work because it provides 407 hours of ISP monitoring data with ten benchmark fault labels: single link failure, multiple link failure, misconfiguration, routing misconfiguration, line card failure, ICMP blocked by firewall, node failure, multiple nodes failures, single node failure, and SNMP agent failure.
-
-The adapter entry point is:
+Prepare LCORE-D facts:
 
 ```bash
 python3 -m core.benchmark.lcore_adaptive_prepare \
-  --input /data/lcore-d \
-  --output-jsonl /data/netops-runtime/lcore/events.jsonl \
-  --plan-json /data/netops-runtime/lcore/feature-plan.json
+  --input /data/netops-runtime/LCORE-D/raw \
+  --output-jsonl /data/netops-runtime/LCORE-D/work/events-sample.jsonl \
+  --plan-json /data/netops-runtime/LCORE-D/work/feature-plan-core.json \
+  --max-records 50000
 ```
 
-It automatically discovers time, label, entity, topology, metric, and categorical fields, then emits canonical fact JSONL for the existing core pipeline. The correlator also includes `annotated_fault_v1`, a benchmark-safe rule that preserves those ten scenarios and triggers on fault annotation transitions without changing the non-model alert-establishment boundary.
+Run topology-gate ablation:
+
+```bash
+python3 -m core.benchmark.topology_subgraph_ablation \
+  --alert-dir /data/netops-runtime/LCORE-D/work/alerts-sample \
+  --limit-files 0 \
+  --output-json /data/netops-runtime/LCORE-D/work/topology-subgraph-ablation.json
+```
+
+Validate the current branch:
+
+```bash
+python3 -m pytest tests/core/test_topology_subgraph.py tests/core/test_aiops_agent.py tests/common/test_adaptive_features.py tests/core/test_rules.py -q
+cd frontend && PATH=/data/.local/node/bin:$PATH npm run build
+```
