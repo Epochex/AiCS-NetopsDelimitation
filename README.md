@@ -106,9 +106,9 @@ The current ablation compares an invoke-all baseline against topology-aware sele
 
 The office trace is useful as a legacy engineering sanity check, but it has no high-value LCORE fault-localization labels in the evaluated window. The LCORE-D replay is the relevant research slice.
 
-![Topology-aware subgraph extraction ablation](documentation/images/topology_ablation_summary.svg)
+![Topology-aware subgraph extraction ablation](documentation/images/topology_ablation_summary.png)
 
-Figure: one-shot ablation summary. Panel A compares invoke-all and topology-gated LLM request volume. Panel B shows the efficiency-quality frontier: the LCORE topology gate moves from 0% call reduction at invoke-all baseline to 86.71% call reduction while retaining 100% high-value recall. Panel C reports average selected and noise nodes per alert, showing that noise remains auditable but is kept outside the core LLM evidence slice.
+Figure: one-shot ablation summary. Panel A compares invoke-all and topology-gated LLM request volume. Panel B shows the efficiency-quality frontier: the LCORE topology gate moves from 0% call reduction at the invoke-all baseline to 86.71% call reduction while retaining 100% high-value recall. The dashed evidence-size curve shows that the selected LLM evidence slice remains compact as the gate becomes stricter.
 
 The measured result is not yet final root-cause top-1 accuracy. It is a first-stage systems result: the topology gate reduces LLM calls by `86.71%` on the LCORE-D replay while preserving `100%` of high-value alert eligibility. The next evaluation step is to attach incident-window root labels and report root-candidate, symptom, and noise classification accuracy.
 
