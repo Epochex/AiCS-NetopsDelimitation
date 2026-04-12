@@ -1,11 +1,10 @@
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Protocol
 from urllib import error, request
 
 from core.aiops_agent.app_config import AgentConfig
 from core.aiops_agent.inference_schema import InferenceRequest, InferenceResult, inference_result_from_payload
-from core.aiops_agent.provider_routing import build_provider_routing_hint
 from core.aiops_agent.provider_routing import build_provider_routing_hint
 
 
@@ -733,6 +732,21 @@ class HTTPInferenceProvider:
 
     def infer(self, inference_request: InferenceRequest) -> InferenceResult:
         routing_hint = build_provider_routing_hint(self.routing_config, inference_request)
+        if not bool(routing_hint.get("should_invoke_llm")):
+            fallback = TemplateProvider(name=f"{self.name}:template_only").infer(inference_request)
+            raw_response = dict(fallback.raw_response)
+            raw_response["external_provider_skipped"] = True
+            raw_response["external_provider_skip_reason"] = (
+                "topology gate selected template_only budget tier"
+            )
+            raw_response["routing"] = routing_hint
+            return replace(
+                fallback,
+                provider_name=self.name,
+                provider_kind="topology_gate_template_fallback",
+                raw_response=raw_response,
+            )
+
         body = json.dumps(
             {
                 "model": self.model,

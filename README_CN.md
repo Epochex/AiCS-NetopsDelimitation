@@ -1,155 +1,196 @@
 ## NetOps Causality Remediation
-[![English](https://img.shields.io/badge/Language-English-1f6feb)](./README.md) [![简体中文](https://img.shields.io/badge/%E8%AF%AD%E8%A8%80-%E7%AE%80%E4%BD%93%E4%B8%AD%E6%96%87-2ea043)](./README_CN.md)
+[![English](https://img.shields.io/badge/Language-English-1f6feb)](./README.md) [![Simplified Chinese](https://img.shields.io/badge/Language-Simplified%20Chinese-2ea043)](./README_CN.md)
 
-本仓库实现了一条以确定性告警判定为锚点、以下游推理能力作为增强层的 NetOps 主链。基于规则的告警确认始终是系统的第一决策点，推理能力只会在告警已经成立之后介入。项目已经越过概念设计阶段，目前处于“本地结构化链路基本闭合、主要剩余工作是真实远端模型执行接线”的阶段。
+当前分支实现的是一个面向 LCORE-D 核心网络遥测的 topology-aware NetOps 推理流水线。系统将确定性告警建立与模型辅助分析显式分离：模型不能决定告警是否成立，只能在规则路径已经确认告警之后，接收边界受控的证据。
 
-## 系统架构
+当前研究重点已经不再是办公室 FortiGate 流量。办公室 runtime 只作为历史工程链路参考。当前 active scenario 是 LCORE-D 故障定位：系统需要利用拓扑结构减少噪声证据，区分 root-candidate 与 symptom 节点，并避免把低价值或可能自愈的切片全部送入 LLM。
 
-当前系统最适合从六个结构平面来理解：
+## 系统定义
 
-- 边缘采集平面：接收真实设备日志，并把原始输入规整为稳定的事实流。
-- 确定性判定平面：将事实流收束为已成立告警，确保首轮判定不被模型替代。
-- 双持久化平面：同时维护审计级存储和热查询历史，分别服务合规与检索。
-- 聚合触发平面：把同键重复模式收束为 cluster 级触发条件。
-- 告警下游推理平面：负责证据组装、结构化假设、结构化审查、结构化 runbook 草案和阶段请求契约。
-- 运行时投影平面：把运行时产物渲染为前端快照、时间线、对比视图和操作员可读界面。
+系统由五个平面组成：
 
-设计中还预留了未来的受控执行平面，但它当前只体现为审批边界、回滚边界和接口占位，并不属于已交付能力。
+- Edge fact plane：将 LCORE-D 行数据转换为稳定的 canonical facts，包含设备身份、故障标签与拓扑上下文。
+- Deterministic alert plane：在任何模型参与之前，通过质量门控和规则确认告警。
+- Topology evidence plane：围绕已确认告警提取局部子图，并给节点分配 root-candidate、symptom、noise 角色。
+- Bounded reasoning plane：构造结构化 evidence pack、hypothesis、review verdict、runbook draft 和 stage request。
+- Runtime projection plane：将告警、建议、拓扑 gate 和评测产物投影到 operator UI。
 
-## 主流程
-
-当前主流程可以概括为以下链路：
+受控执行平面不属于当前分支交付范围。Remediation 仍然是人工确认的运维指导，并保留明确的 approval 与 rollback 边界。
 
 ```mermaid
 flowchart LR
-  A[设备日志] --> B[边缘采集平面]
-  B --> C[结构化事实流]
-  C --> D[确定性判定平面]
-  D --> E[已成立告警]
-  E --> F[审计持久化]
-  E --> G[热查询持久化]
-  E --> H[聚合触发平面]
-  E --> I[告警下游推理平面]
-  H --> I
-  F --> J[运行时投影平面]
-  G --> J
-  I --> J
-  J --> K[操作员控制台]
+  A["LCORE-D edge stream"] --> B["Canonical fact"]
+  B --> C["Quality gate"]
+  C --> D["Deterministic alert"]
+  D --> E["Topology-aware subgraph"]
+  E --> F["Evidence Pack V2"]
+  F --> G["Hypothesis + review + runbook"]
+  G --> H["Stage requests"]
+  H --> I["Runtime console"]
+
+  E --> J{"LLM gate"}
+  J -->|"high-value fault"| K["External LLM eligible"]
+  J -->|"transient / low evidence"| L["Template-only bounded path"]
 ```
 
-仓库中的文档图片也展示了同一套架构关系：
+主要对象链路为：
 
-![系统流程图](<documentation/images/System Flow Map.png>)
+`canonical fact -> deterministic alert -> evidence bundle -> topology_subgraph -> Evidence Pack V2 -> HypothesisSet -> ReviewVerdict -> RunbookDraft -> ReasoningStageRequests -> runtime projection`
 
-如果从对象链角度理解，告警路径为：
+## LCORE Runtime Contract
 
-`alert -> evidence bundle -> reasoning runtime seed -> Evidence Pack V2 -> HypothesisSet -> ReviewVerdict -> RunbookDraft -> ReasoningStageRequests -> runtime projection`
+edge 侧负责 fact identity 与 topology normalization。core 侧负责告警、证据组装与推理。当前 core 期望的 contract 如下：
 
-如果从 cluster 路径理解，唯一差异只在入口：触发源从单条告警变成同键重复模式。后续对象层、阶段矩阵和前端投影面保持共用，不会裂变成两套独立系统。
+| 字段 | 期望含义 |
+| --- | --- |
+| `src_device_key` | 稳定的 LCORE 设备身份，例如 `CORE-R1` 到 `CORE-R7` |
+| `device_profile.device_name` | 与 `src_device_key` 一致的稳定设备身份 |
+| `fault_context.scenario` | 归一化场景，例如 `healthy`、`induced_fault` 或 `transient_fault` |
+| `topology_context.path_signature` | 不含本地文件路径的稳定拓扑签名 |
+| `topology_context.hop_to_core` | 指向核心侧的距离类拓扑特征 |
+| `topology_context.hop_to_server` | 指向服务器侧的距离类拓扑特征 |
+| `topology_context.downstream_dependents` | 可用时表示局部下游依赖数量 |
+| `topology_context.path_up` | 来自 LCORE 源数据的路径状态特征 |
+| `topology_context.interface_type` | 存在时保留数值型接口类型特征 |
+| `topology_context.srcintf` | 仅保留真实接口名；数值特征不应放入该字段 |
 
-## 当前交付状态
+这个职责划分很重要：core 有 defensive guard 防止异常 fact 把链路打歪，但 identity 与 topology 的正确修复应该发生在 edge canonicalization 层。
 
-仓库中已经稳定落地的核心结构包括：
+## Topology-Aware Subgraph Extraction
 
-- `reasoning_runtime_seed`
+topology-aware 层将 LLM-based production-network failure localization 的思想适配到本项目的 bounded NetOps 场景中。系统不会把每个告警及其全部邻近事实都送入 LLM，而是为每个已确认告警构造最小局部子图：
+
+- Root-candidate nodes：具有直接故障证据、关键故障场景或高复发性的节点。
+- Symptom nodes：拓扑上相邻或历史上相关，可能反映故障传播的节点。
+- Noise nodes：弱相关节点，保留在 selected reasoning core 之外。
+- LLM gate：根据场景严重度、拓扑证据、复发性和自愈可能性决定是否值得调用外部 LLM。
+
+这使当前分支的贡献不再只是普通 post-alert summary：拓扑不仅是展示上下文，而是直接参与证据选择，并减少推理扩散。
+
+## 实现摘要
+
+当前已经实现的核心结构包括：
+
+- `topology_subgraph`
+- `llm_invocation_gate`
 - `candidate_event_graph`
-- `investigation_session`
-- `reasoning_trace_seed`
-- `runbook_plan_outline`
+- `reasoning_runtime_seed`
 - `Evidence Pack V2`
 - `HypothesisSet`
 - `ReviewVerdict`
 - `RunbookDraft`
 - `ReasoningStageRequests`
 
-这些结构说明，项目当前关注的重点已经不是“能不能把模型接进来”，而是“是否先把证据、假设、审查、计划和阶段契约沉淀为稳定的类型化对象”。前端也已经沿着这个方向演进：主操作视图、convergence field、node inspector 和 compare workbench 都把结构化对象视为主产物，而不是把自由文本摘要当成唯一语义来源。
+主要实现文件如下：
 
-当前前端运行时界面可参考以下图示：
+| 区域 | 路径 |
+| --- | --- |
+| 拓扑子图提取 | `core/aiops_agent/alert_reasoning_runtime/topology_subgraph.py` |
+| 告警/集群 seed adapter | `core/aiops_agent/alert_reasoning_runtime/rule_based_seed_adapter.py` |
+| Evidence bundle 投影 | `core/aiops_agent/evidence_bundle.py` |
+| Evidence Pack V2 接入 | `core/aiops_agent/evidence_pack_v2.py` |
+| Provider routing hint | `core/aiops_agent/provider_routing.py` |
+| Review verdict checks | `core/aiops_agent/review_verdict.py` |
+| LCORE adaptive fact conversion | `common/data_features/adaptive.py` |
+| Ablation benchmark | `core/benchmark/topology_subgraph_ablation.py` |
+| 前端 runtime 投影 | `frontend/gateway/app/runtime_reader.py` |
 
-![前端运行时主投影](<documentation/images/前端主页面投影.png>)
+## 评测快照
 
-![解释基准视图](<documentation/images/Explanation Benchmark Field UI坐标图.png>)
+当前 ablation 将 invoke-all baseline 与 topology-aware selective invocation 进行对比。baseline 假设每个已确认告警都会送入外部 LLM。topology-aware 路径只有在 subgraph gate 将告警标记为 high-value 时才调用外部 LLM。
 
-## Feature 数量对照
+| 数据切片 | 扫描告警数 | Invoke-all LLM 调用 | Topology-gated LLM 调用 | 调用减少 | High-value alerts | High-value recall |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Office legacy trace | `886` | `886` | `0` | `100.00%` | `0` | `0.00%` |
+| LCORE-D 50k replay sample | `1302` | `1302` | `173` | `86.71%` | `173` | `100.00%` |
 
-下表把当前 `edge -> core` 链路上的 feature 数量口径统一收束到一处。这里以代码实际生成的对象结构为准，而不是仅复述概念层表述。对于已经挂载但仍停留在旧 schema 上的运行时产物，也会显式标注。
+office trace 可以作为历史工程链路 sanity check，但在当前评测窗口中没有 high-value LCORE 故障定位标签。LCORE-D replay 才是当前研究相关的数据切片。
 
-### Edge 平面
+![Topology-aware subgraph extraction ablation](documentation/images/topology_ablation_summary.png)
 
-| 平面 | 阶段 / 对象 | 顶层 feature 数 | 关键嵌套或补充说明 | 备注 |
-| --- | --- | ---: | --- | --- |
-| edge | 原始厂商日志输入 | `47` | `4` 个 syslog header 字段 + `43` 个 FortiGate KV 字段 | parser 归一化之前的 vendor log 契约 |
-| edge | ingest 结构化事件 | `66` | `source=3`，`device_profile<=9`，`kv_subset<=56` | `fortigate-ingest` 输出的 parsed JSONL |
-| edge | forwarder -> Kafka fact | `66` | 顶层结构不变 | `edge_forwarder` 只做过滤与转发，不重写 payload schema |
+图：一次性 ablation 总结。Panel A 对比 invoke-all 与 topology-gated 的 LLM 请求量。Panel B 展示 efficiency-quality frontier：LCORE topology gate 从 invoke-all baseline 的 0% 调用减少，移动到 86.71% 调用减少，同时保留 100% high-value recall。虚线 evidence-size curve 表示 gate 变严格后，进入 LLM 的 selected evidence slice 仍保持紧凑。
 
-### Core 平面
+当前数字还不是最终 root-cause top-1 accuracy。它是第一阶段系统结果：在 LCORE-D replay 上，topology gate 将 LLM 调用减少 `86.71%`，同时保留 `100%` high-value alert eligibility。下一步评测需要接入 incident-window root labels，并报告 root-candidate、symptom、noise 的分类准确率。
 
-| 平面 | 阶段 / 对象 | 顶层 feature 数 | 关键嵌套或补充说明 | 备注 |
-| --- | --- | ---: | --- | --- |
-| core | correlator 输入 fact | `66` | 与 edge Kafka 输入转发过来的结构化 fact 保持一致 | 确定性判定平面的输入契约 |
-| core | deterministic alert | `12` | `dimensions=1`，`metrics=3`，`event_excerpt=31`，`topology_context=13`，`device_profile=12`，`change_context=6` | 当前 alert JSONL 与代码路径一致 |
-| core | alerts sink JSONL | `12` | 与 deterministic alert 同构 | 仅用于审计落盘，不改 schema |
-| core | ClickHouse alert row | `17` 列 | 包含 `metrics_json`、`dimensions_json`、`event_excerpt_json`、`topology_context_json`、`device_profile_json`、`change_context_json` | 这是存储行契约，不是 payload 契约 |
-| core | cluster trigger | `6` | `ClusterKey=4` | 仅在 repeated-pattern 聚合命中时存在 |
-| core | evidence bundle | `16` | `alert_ref=3`，`historical_context=9`，`rule_context=5`，`path_context=6`，`policy_context=3`，`sample_context=1`，`window_context=3`，`topology_context=14`，`device_context=12`，`change_context=6` | alert-scope 与 cluster-scope 共用的对象层 |
-| core | reasoning runtime seed | `6` | `candidate_event_graph=9`，`investigation_session=9`，`reasoning_trace_seed=6`，`runbook_plan_outline=10` | alert-scope 版本 |
-| core | cluster reasoning runtime seed | `7` | 在 alert-scope 基础上增加 `cluster_context=6` | cluster-scope 版本 |
-| core | candidate event graph | `9` | `node item=5`，`edge item=7` | runtime seed 内部对象 |
-| core | investigation session | `9` | `working_memory_seed=5` | runtime seed 内部对象 |
-| core | reasoning trace seed | `6` | 无额外固定嵌套对象 | runtime seed 内部对象 |
-| core | runbook plan outline | `10` | `applicability=3`，`approval_boundary=3` | runtime seed 内部对象 |
-| core | Evidence Pack V2 | `14` | `alert_ref=3`，`freshness=2`，`source_reliability=1`，`summary=4`，`evidence entry item=9` | hypothesis、review、runbook 阶段使用的类型化证据输入 |
-| core | inference request | `12` | `expected_response_schema=6` | provider 调用前的强约束请求对象 |
-| core | inference result | `12` | 无额外固定嵌套对象 | provider 返回的标准化结果 |
-| core | HypothesisSet | `6` | `hypothesis item=10` | 结构化假设对象 |
-| core | ReviewVerdict | `9` | `checks=6`，单个 check=`2` | 结构化审查对象 |
-| core | RunbookDraft | `15` | `applicability=3`，`approval_boundary=3`，`change_summary=2` | 结构化 runbook 草案 |
-| core | reasoning stage requests | `2` 个 stage | 每个 stage request=`10`，`input_contract=3`，`routing_hint=12` | 当前固定为 `hypothesis_critique` 与 `runbook_draft` |
-| core | suggestion payload（最终 emitted schema） | `24` | `context=17`，`inference=12`，`reasoning_stage_requests=2` | 最终落盘 payload = 结构化 suggestion + stage requests |
-| core | suggestion JSONL（当前最新运行时产物） | `24` | `context=17`，`evidence_bundle=16`，`reasoning_runtime_seed=6` | 当前最新 runtime 文件已对齐新 schema；较早历史文件可继续通过迁移工具补齐 |
+## GPU 推理服务回放
+
+外部推理服务路径现在已经有硬拓扑门控。如果 `llm_invocation_gate.should_invoke_llm=false`，`gpu_http` provider 会直接返回本地模板兜底，并记录 `external_provider_skipped=true`；它不会访问 GPU endpoint。如果 gate 为 true，请求可以通过早稻田 GPU 隧道进入 NetOps LLM gateway。
+
+当前 dry-run replay 用于在真实 GPU endpoint 接入前验证调度策略和响应契约：
+
+![Topology-gated LLM replay summary](documentation/images/llm_provider_replay_summary.png)
+
+当前 dry-run replay 扫描 `1302` 条 LCORE-D 告警，计划 `173` 次 topology-gated 外部调用，跳过 `1129` 条 template-only 告警，保留 `100%` high-value recall，并得到 `100%` schema-valid 兜底响应。真实 GPU 延迟和模型质量数字需要等早稻田 endpoint 跑起来后重新生成。
+
+运行细节见 [`documentation/WASEDA_GPU_LLM_PROVIDER.md`](documentation/WASEDA_GPU_LLM_PROVIDER.md)。
+
+## 模型执行计划
+
+当前系统不应该把大模型 colocate 到 core pipeline 内部。core 节点应继续专注确定性告警、证据组装与 runtime projection。模型执行应该作为 provider，通过显式 stage request interface 接入。
+
+推荐 provider 顺序：
+
+- 短期：保留 template path 作为永远可用的 fallback。
+- 近期：从早稻田 GPU 集群暴露 OpenAI-compatible endpoint，只将 topology-gated high-value alerts 路由过去。
+- 实验层：通过 vLLM 或 SGLang 评估 GLM-4.5-Air 或其他 reasoning/coding 模型。
+- 对照层：保留 hosted API model 作为质量对照、回归检查和本地模型失败时的兜底。
+
+使用 GPU 集群的目的不是从头训练 foundation model，而是受控推理，以及可能的轻量 LoRA/SFT incident-local prompt 实验。CPU-only 或 memory-only inference 可以用于小模型，但本项目强调推理深度和长结构化上下文；对于论文级评测，GPU 集群是更现实的路径。
 
 ## 运行边界
 
-项目当前明确维持六条边界：
+- 告警建立必须是确定性、规则支撑的。
+- LLM 推理只发生在 post-alert 且 evidence-bounded 的阶段。
+- 拓扑选择发生在外部模型调用之前。
+- 低价值 transient slices 可以保留在 template-only 路径。
+- suggestion 不会自动写回设备。
+- 未来任何执行路径都必须停在 approval 与 rollback 边界前。
 
-- 告警成立边界：模型不能反向决定告警是否成立。
-- 执行边界：建议不会被自动写回设备。
-- 审批边界：任何超出只读诊断范围的动作都必须停在人工审批之前。
-- 回滚边界：没有回滚准备的计划不能提升为执行输出。
-- 传输边界：边缘采集平面不参与模型推理或阶段编排。
-- 数据契约边界：未来远端模型只能消费显式阶段请求，不能任意读取运行时文件或整个仓库上下文。
+## 当前状态
 
-## 当前运行事实
+当前分支已经完成 topology-aware post-alert reasoning 的本地结构化链路，并且 active runtime scenario 已经从 office traffic 迁移到 LCORE-D telemetry。
 
-当前挂载的运行时投影面显示：
+已完成：
 
-- alert 产物包含 `691` 个小时文件，共 `201003` 条记录，时间范围为 `2026-03-04T15:09:11+00:00` 到 `2026-04-02T16:23:04+00:00`。
-- suggestion 产物包含 `603` 个小时文件，共 `222023` 条记录，时间范围为 `2026-03-09T05:08:56.549849+00:00` 到 `2026-04-05T18:03:18.303384+00:00`。
-- 最近 24 个 alert 分桶仍以 `deny_burst_v1|warning` 为主。
-- 最近 24 个 suggestion 分桶仍主要集中在 `alert` scope，`cluster` scope 占比较小。
+- LCORE canonical fact adaptation
+- 确定性 `annotated_fault_v1` 告警
+- topology-aware subgraph extraction
+- LLM invocation gating
+- evidence pack 与 stage request 接入
+- 面向 LCORE/topology 语义的前端 runtime projection
+- 用于 LLM 调用减少的 ablation benchmark
 
-这组分布说明，当前负载形态属于低 QPS、强约束、强 fallback 的告警下游推理工作流。它足以支撑结构化证据、结构化假设、结构化审查、结构化 runbook 草案和基于回放的评测，但并不适合把大模型长期常驻在现有核心节点上。
+待完成：
 
-## 资源规划结论
+- 面向论文级定位准确率的 root-cause label 对齐
+- 真实本地或远端 LLM endpoint 的 provider execution wiring
+- 响应校验与超时 fallback
+- 可回放模型评测的 trace capture
+- 基于完整 LCORE-D incident windows 的 rule-only 与 invoke-all baseline 对比
 
-现阶段的资源规划结论比较明确：
+## Replay Identity 与循环发送
 
-- 边缘采集平面应继续聚焦日志接入和事实归一化。
-- 核心节点应继续聚焦告警确认、证据组装、结构化对象生成和阶段请求装配。
-- 模型执行应部署在外部 GPU 服务或受控 API 提供器上。
-- `template` 路径必须长期保留为 fallback。
-- 第一优先级是打通远端推理接线、响应校验、超时回退、trace capture 和 replay/eval。
-- 之后才应考虑有限规模的领域适配。
-- 当前没有从零训练基础模型的必要。
+LCORE-D replay 现在有显式 `run_id`。edge streamer 会把它写入 `dataset_context.run_id`，存入 streamer checkpoint，并纳入 canonical `event_id` 的哈希。这样后续用同一份 LCORE 行数据再次 replay 时，可以被 core 识别为新的实验轮次，而不是被 duplicate gate 当作同一批历史 fact 丢弃。
 
-## 下一步
+循环发送是可行的，但它更适合作为系统健康检查流量，而不是直接混入论文级原始统计。它可以用于 LLM provider 接上之后验证全链路是否仍然可运行，例如 Kafka transport、core ingest、alerting、evidence assembly 和 UI freshness。用于论文评测时，每一轮 loop 都必须带独立 `run_id`，并在统计时显式分组或剔除重复 replay。
 
-当前阶段的明确停止点是：本地结构化链路已经闭合，但真实远端模型执行尚未接入。因此，下一里程碑不是继续扩展本地 schema，也不是继续拉长文档叙述，而是完成以下闭环：
+运行边界：
 
-- 真实推理 provider 执行接线
-- 响应校验
-- 超时 / 回退
-- 追踪采集
-- 回放 / 评测
+- 默认仍然是 one-shot replay，读到 EOF 后停止。
+- edge forwarder 本身是循环扫描文件的 daemon，但只发送 byte checkpoint 之后新增的 JSONL 行。
+- core consumer 持续消费 Kafka 新消息，但不会主动重放历史 offset，除非重置 consumer group。
+- 如果启用 LCORE streamer loop mode，每一轮必须使用不同 `run_id`；否则重复 `event_id` 被 core 丢弃是预期行为。
 
-完成这一步之后，系统才会从“结构化推理对象已经就位”迈入下一阶段，即“真实远端 critique 与 planning 已经接入生产链路”。
+## Runtime Feature 与流速记录
+
+下表记录 r230 edge 到 r450 core 的 LCORE-D replay 活跃窗口实测流速。
+
+| 阶段 | Runtime 对象 | 实测 feature 数量 | 实测数据量 | 实测流速 | 备注 |
+| --- | --- | ---: | ---: | ---: | --- |
+| LCORE-D raw CSV | 源数据行 | 每文件 `32-51` 列，7 个文件 union 后 `234` 列 | `169,712` 行，`26,670,593` bytes | offline source | 分文件列数：R1/R5/R7 为 `42`，R2 为 `32`，R3/R6 为 `51`，R4 为 `47` |
+| Adaptive feature plan | `feature-plan.json` | 采样 `43` 列；`1` 个 label field，`4` 个 entity fields，`7` 个 topology fields，`3` 个 metric fields | 基于 `5,000` 行采样生成 | 每轮 replay 生成一次 | 当前 label field 是 `class`；topology fields 包括 `Hop_to_core`、`Hop_to_server`、`path_up` |
+| Edge canonical fact JSONL | `events-lcore-d.jsonl` | `23` 个 top-level 字段；嵌套：topology `19`、device profile `12`、fault context `5`、本轮历史 dataset context `12` | `169,761` 行，`326,025,599` bytes | 最新完成 streamer 段 `17.12 EPS` | 新 replay 会增加 `dataset_context.run_id`，因此 dataset context 变为 `13` 个字段，top-level 仍为 `23` |
+| Edge forwarder -> Kafka | Kafka topic `netops.facts.raw.v1` | 同 canonical fact payload：`23` 个 top-level 字段 | 累计发送 `169,886` 条，`326,276,448` bytes，`0` dropped | 活跃窗口 `17.06 EPS`，约 `0.268 Mbps` | 累计量包含早期 smoke/replay 发送 |
+| Core correlator ingest | 质量门控后的 facts | 从 Kafka 消费的 canonical fact：`23` 个 top-level 字段 | 日志计数 `ingested=135,881`，`accepted=135,832`，`drop_duplicate_event_id=49` | 稳定窗口 `17.30 accepted facts/s` | 其他 drop 全为 `0`：缺字段、parse status、JSON error、DLQ |
+| Deterministic alert | `annotated_fault_v1` alert | `12` 个 top-level 字段；嵌套：dimensions `2`、metrics `3`、event excerpt `31`、topology `19`、device profile `12`、change context `6` | 日志计数 `alerts_emitted=3,416` | 稳定窗口 `0.0396 alerts/s` | 告警路径是 deterministic post-quality-gate；LLM 不参与告警成立 |
+| Runtime suggestion tail | `netops.aiops.suggestions.v1` | `24` 个 top-level 字段；嵌套：context `17`、evidence bundle `17`、inference `12`、runtime seed `7`、hypothesis set `6`、review verdict `9`、runbook draft `15`、stage requests `2` | topic latest offsets 跨历史合计 `293,458` 条 | 下游 AI 速率取决于告警产生速率与 LLM gate 策略 | 最新 tail sample 确认当前 suggestion schema 已是 24-field 版本 |

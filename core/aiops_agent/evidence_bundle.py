@@ -85,6 +85,7 @@ def build_alert_evidence_bundle(
         "device_context": _device_context(device_profile, src_device_key),
         "change_context": _change_context(change_context),
         "reasoning_runtime_seed": reasoning_runtime_seed,
+        "topology_subgraph": reasoning_runtime_seed.get("topology_subgraph") or {},
     }
     bundle["evidence_pack_v2"] = build_evidence_pack_v2(bundle)
     return bundle
@@ -171,6 +172,7 @@ def build_cluster_evidence_bundle(
         "device_context": _device_context(device_profile, trigger.key.src_device_key),
         "change_context": _change_context(change_context),
         "reasoning_runtime_seed": reasoning_runtime_seed,
+        "topology_subgraph": reasoning_runtime_seed.get("topology_subgraph") or {},
     }
     bundle["evidence_pack_v2"] = build_evidence_pack_v2(bundle)
     return bundle
@@ -201,6 +203,10 @@ def _topology_context(
             or f"{topology.get('srcintf') or excerpt.get('srcintf') or 'unknown'}->{topology.get('dstintf') or excerpt.get('dstintf') or 'unknown'}"
         ),
         "neighbor_refs": _normalize_str_list(topology.get("neighbor_refs")),
+        "hop_to_server": str(topology.get("hop_to_server") or ""),
+        "hop_to_core": str(topology.get("hop_to_core") or ""),
+        "downstream_dependents": str(topology.get("downstream_dependents") or ""),
+        "path_up": str(topology.get("path_up") or ""),
     }
 
 

@@ -55,6 +55,8 @@ def build_evidence_pack_v2(evidence_bundle: dict[str, Any]) -> dict[str, Any]:
     policy_context = evidence_bundle.get("policy_context") or {}
     device_context = evidence_bundle.get("device_context") or {}
     change_context = evidence_bundle.get("change_context") or {}
+    topology_subgraph = evidence_bundle.get("topology_subgraph") or {}
+    invocation_gate = topology_subgraph.get("llm_invocation_gate") or {}
 
     pack_id = hashlib.sha1(
         f"evidence-pack-v2|{bundle_id}|{bundle_scope}|{alert_ref.get('alert_id') or ''}".encode(
@@ -174,6 +176,26 @@ def build_evidence_pack_v2(evidence_bundle: dict[str, Any]) -> dict[str, Any]:
                 source_field="recent_policy_hits",
                 rationale="policy history attached to this service/path combination",
             ),
+            _entry(
+                kind="supporting",
+                label="topology.subgraph_root_candidates",
+                value=[
+                    item.get("node_id")
+                    for item in topology_subgraph.get("root_candidate_nodes") or []
+                    if isinstance(item, dict)
+                ],
+                source_section="topology_subgraph",
+                source_field="root_candidate_nodes",
+                rationale="minimal topology-aware subgraph root candidates selected before LLM invocation",
+            ),
+            _entry(
+                kind="supporting",
+                label="topology.llm_invocation_gate",
+                value=invocation_gate.get("budget_tier"),
+                source_section="topology_subgraph",
+                source_field="llm_invocation_gate",
+                rationale="selective invocation decision for reducing low-value LLM calls",
+            ),
         ]
     )
 
@@ -209,6 +231,16 @@ def build_evidence_pack_v2(evidence_bundle: dict[str, Any]) -> dict[str, Any]:
                 source_field="suspected_change",
                 rationale="weakens change-driven root-cause claims",
             ),
+            _entry(
+                kind="contradictory",
+                label="topology.low_value_llm_gate",
+                value=invocation_gate.get("reason")
+                if invocation_gate and not bool(invocation_gate.get("should_invoke_llm"))
+                else "",
+                source_section="topology_subgraph",
+                source_field="llm_invocation_gate",
+                rationale="marks cases where topology evidence is too thin for external LLM escalation",
+            ),
         ]
     )
 
@@ -222,6 +254,12 @@ def build_evidence_pack_v2(evidence_bundle: dict[str, Any]) -> dict[str, Any]:
                 "topology_context",
                 "neighbor_refs",
                 topology.get("neighbor_refs"),
+            ),
+            _missing(
+                "topology.topology_subgraph",
+                "topology_subgraph",
+                "selected_node_ids",
+                topology_subgraph.get("selected_node_ids"),
             ),
             _missing(
                 "history.recent_alert_samples",

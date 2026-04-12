@@ -18,6 +18,8 @@ def build_review_verdict(
     contradictory_count = int(summary.get("contradictory_count") or 0)
     missing_count = int(summary.get("missing_count") or 0)
     approval_boundary = runbook_plan_outline.get("approval_boundary") or {}
+    topology_subgraph = evidence_bundle.get("topology_subgraph") or {}
+    invocation_gate = topology_subgraph.get("llm_invocation_gate") or {}
     approval_required = bool(approval_boundary.get("approval_required"))
     rollback_guidance = runbook_plan_outline.get("rollback_guidance") or []
     freshness_sections = (evidence_pack.get("freshness") or {}).get("sections") or []
@@ -44,11 +46,11 @@ def build_review_verdict(
     )
     topology_consistency = (
         "consistent"
-        if {"topology.service", "topology.src_device_key", "path.path_signature"}.issubset(
-            topology_refs
-        )
+        if {"topology.service", "topology.src_device_key", "path.path_signature"}.issubset(topology_refs)
+        and int(topology_subgraph.get("selected_node_count") or 0) > 0
         else "partial"
     )
+    llm_budget_fit = "external_llm" if bool(invocation_gate.get("should_invoke_llm")) else "template_only"
     overreach_risk = "guarded" if approval_required else "bounded"
     remediation_executability = (
         "bounded"
@@ -62,6 +64,10 @@ def build_review_verdict(
         blocking_issues.append("evidence pack is still missing required support")
     if contradictory_count > supporting_count and contradictory_count > 0:
         blocking_issues.append("contradictory evidence outweighs supporting evidence")
+    if invocation_gate and not bool(invocation_gate.get("should_invoke_llm")) and "low-evidence" in str(
+        invocation_gate.get("reason") or ""
+    ):
+        blocking_issues.append("topology gate indicates low-value or low-evidence external LLM escalation")
     if rollback_readiness != "ready":
         blocking_issues.append("rollback guidance is incomplete")
 
@@ -101,7 +107,11 @@ def build_review_verdict(
             ),
             "topology_consistency": _check(
                 topology_consistency,
-                f"topology_refs={len(topology_refs)}",
+                f"topology_refs={len(topology_refs)}, selected_nodes={int(topology_subgraph.get('selected_node_count') or 0)}",
+            ),
+            "llm_budget_fit": _check(
+                llm_budget_fit,
+                f"decision_score={float(invocation_gate.get('decision_score') or 0.0):.3f}",
             ),
             "overreach_risk": _check(
                 overreach_risk,

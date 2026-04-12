@@ -37,9 +37,9 @@ spec:
             - name: KAFKA_TOPIC_RAW
               value: netops.facts.raw.v1
             - name: FORWARDER_INPUT_GLOB
-              value: /data/fortigate-runtime/output/parsed/events-*.jsonl
+              value: /data/netops-runtime/LCORE-D/output/events-*.jsonl
             - name: FORWARDER_CHECKPOINT_PATH
-              value: /data/netops-runtime/forwarder/checkpoint.json
+              value: /data/netops-runtime/forwarder/checkpoint.lcore-d.json
             - name: FORWARDER_SCAN_INTERVAL_SEC
               value: "5"
             - name: FORWARDER_MAX_BATCH_LINES

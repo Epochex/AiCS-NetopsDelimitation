@@ -1,4 +1,5 @@
 import json
+from dataclasses import replace
 
 from core.aiops_agent.app_config import AgentConfig
 from core.aiops_agent.cluster_aggregator import ClusterKey, ClusterTrigger
@@ -9,6 +10,7 @@ from core.aiops_agent.inference_queue import InMemoryInferenceQueue
 from core.aiops_agent.inference_schema import build_alert_inference_request, build_cluster_inference_request
 from core.aiops_agent.inference_worker import InferenceWorker
 from core.aiops_agent.providers import TemplateProvider, build_provider
+import core.aiops_agent.providers as providers_module
 from core.aiops_agent.reasoning_stage_requests import build_reasoning_stage_requests
 from core.aiops_agent.service import commit_if_needed, run_agent_loop
 from core.aiops_agent.suggestion_engine import (
@@ -86,6 +88,20 @@ class _Producer:
             }
         )
         return _ProducerFuture()
+
+
+class _HTTPResponse:
+    def __init__(self, payload: dict) -> None:
+        self.payload = payload
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args) -> None:
+        return None
+
+    def read(self) -> bytes:
+        return json.dumps(self.payload, ensure_ascii=True).encode("utf-8")
 
 
 def _config(output_dir: str, cluster_min_alerts: int = 3) -> AgentConfig:
@@ -236,6 +252,136 @@ def test_template_provider_worker_pipeline_builds_structured_suggestion() -> Non
     assert suggestion["context"]["recent_similar_1h"] == 25
     assert suggestion["inference"]["provider_name"] == "template"
     assert suggestion["confidence"] >= 0.75
+
+
+def test_gpu_http_provider_respects_topology_template_only_gate(monkeypatch) -> None:
+    alert = {
+        "alert_id": "lcore-transient-1",
+        "rule_id": "annotated_fault_v1",
+        "severity": "warning",
+        "dimensions": {
+            "src_device_key": "CORE-R4",
+            "fault_scenario": "transient_fault",
+        },
+        "metrics": {
+            "label_value": "transient_fault",
+        },
+        "event_excerpt": {
+            "src_device_key": "CORE-R4",
+            "service": "lcore-telemetry",
+        },
+        "topology_context": {
+            "src_device_key": "CORE-R4",
+            "service": "lcore-telemetry",
+            "path_signature": "CORE-R4|hop_core=3|hop_server=5|path_up=1",
+            "hop_to_core": "3",
+            "hop_to_server": "5",
+            "downstream_dependents": "4",
+            "path_up": "1",
+        },
+        "device_profile": {
+            "src_device_key": "CORE-R4",
+            "device_name": "CORE-R4",
+        },
+    }
+    evidence = build_alert_evidence_bundle(alert, recent_similar_1h=0)
+    gate = evidence["topology_subgraph"]["llm_invocation_gate"]
+    assert gate["should_invoke_llm"] is False
+    assert gate["budget_tier"] == "template_only"
+
+    config = replace(
+        _config("/tmp"),
+        provider="gpu_http",
+        provider_endpoint_url="http://127.0.0.1:9/infer",
+        provider_model="glm-fast",
+        provider_compute_target="external_gpu_service",
+    )
+    provider = build_provider(config)
+    req = build_alert_inference_request(alert, evidence, provider=provider.name)
+
+    def fail_urlopen(*_args, **_kwargs):
+        raise AssertionError("topology-gated template_only alert must not call the GPU endpoint")
+
+    monkeypatch.setattr(providers_module.request, "urlopen", fail_urlopen)
+    result = provider.infer(req)
+
+    assert result.provider_name == "gpu_http"
+    assert result.provider_kind == "topology_gate_template_fallback"
+    assert result.raw_response["external_provider_skipped"] is True
+    assert result.raw_response["routing"]["should_invoke_llm"] is False
+
+
+def test_gpu_http_provider_calls_endpoint_for_high_value_topology_gate(monkeypatch) -> None:
+    alert = {
+        "alert_id": "lcore-root-1",
+        "rule_id": "annotated_fault_v1",
+        "severity": "critical",
+        "dimensions": {
+            "src_device_key": "CORE-R4",
+            "fault_scenario": "single_node_failure",
+        },
+        "metrics": {
+            "label_value": "single_node_failure",
+        },
+        "event_excerpt": {
+            "src_device_key": "CORE-R4",
+            "service": "lcore-telemetry",
+        },
+        "topology_context": {
+            "src_device_key": "CORE-R4",
+            "service": "lcore-telemetry",
+            "path_signature": "CORE-R4|hop_core=3|hop_server=5|path_up=1",
+            "neighbor_refs": ["CORE-R3", "CORE-R5"],
+            "hop_to_core": "3",
+            "hop_to_server": "5",
+            "downstream_dependents": "4",
+            "path_up": "1",
+        },
+        "device_profile": {
+            "src_device_key": "CORE-R4",
+            "device_name": "CORE-R4",
+        },
+    }
+    evidence = build_alert_evidence_bundle(alert, recent_similar_1h=2)
+    gate = evidence["topology_subgraph"]["llm_invocation_gate"]
+    assert gate["should_invoke_llm"] is True
+
+    config = replace(
+        _config("/tmp"),
+        provider="gpu_http",
+        provider_endpoint_url="http://127.0.0.1:18080/infer",
+        provider_model="glm-fast",
+        provider_compute_target="external_gpu_service",
+    )
+    provider = build_provider(config)
+    req = build_alert_inference_request(alert, evidence, provider=provider.name)
+    captured = {}
+
+    def fake_urlopen(http_request, timeout):
+        captured["timeout"] = timeout
+        captured["body"] = json.loads(http_request.data.decode("utf-8"))
+        return _HTTPResponse(
+            {
+                "output": {
+                    "summary": "CORE-R4 is the root candidate.",
+                    "hypotheses": ["CORE-R4 single-node failure is the primary candidate."],
+                    "recommended_actions": ["Validate adjacent symptoms before operator-approved remediation."],
+                    "confidence_score": 0.81,
+                    "confidence_label": "high",
+                    "confidence_reason": "topology-gated high-value alert",
+                }
+            }
+        )
+
+    monkeypatch.setattr(providers_module.request, "urlopen", fake_urlopen)
+    result = provider.infer(req)
+
+    assert captured["timeout"] == 30
+    assert captured["body"]["routing"]["should_invoke_llm"] is True
+    assert captured["body"]["routing"]["llm_budget_tier"] == "external_llm"
+    assert result.provider_name == "gpu_http"
+    assert result.provider_kind == "external_model_service"
+    assert result.confidence_label == "high"
 
 
 def test_template_provider_worker_builds_alert_scope_suggestion() -> None:

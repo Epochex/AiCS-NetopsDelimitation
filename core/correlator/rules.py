@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from collections import defaultdict, deque
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -22,6 +23,7 @@ class RuleEngine:
         self._deny_windows: dict[str, deque[datetime]] = defaultdict(deque)
         self._bytes_windows: dict[str, deque[tuple[datetime, int]]] = defaultdict(deque)
         self._last_alert_at: dict[str, datetime] = {}
+        self._annotated_fault_states: dict[str, str] = {}
 
     def process(self, event: dict[str, Any]) -> list[dict[str, Any]]:
         event_ts = _parse_event_ts(event)
@@ -29,6 +31,10 @@ class RuleEngine:
             return []
 
         alerts = []
+
+        annotated_fault_alert = self._rule_annotated_fault(event, event_ts)
+        if annotated_fault_alert:
+            alerts.append(annotated_fault_alert)
 
         deny_alert = self._rule_deny_burst(event, event_ts)
         if deny_alert:
@@ -39,6 +45,43 @@ class RuleEngine:
             alerts.append(bytes_alert)
 
         return alerts
+
+    def _rule_annotated_fault(self, event: dict[str, Any], now: datetime) -> dict[str, Any] | None:
+        annotation = _fault_annotation(event)
+        if annotation is None:
+            return None
+
+        entity_key = _event_entity_key(event)
+        scenario = annotation["scenario"]
+        state_key = entity_key or "unknown"
+
+        if not annotation["is_fault"]:
+            self._annotated_fault_states[state_key] = "healthy"
+            return None
+
+        if self._annotated_fault_states.get(state_key) == scenario:
+            return None
+        self._annotated_fault_states[state_key] = scenario
+
+        alert_key = f"annotated_fault::{state_key}::{scenario}"
+        if not self._cooldown_ok(alert_key, now):
+            return None
+
+        return _make_alert(
+            rule_id="annotated_fault_v1",
+            severity=_fault_severity(scenario),
+            event=event,
+            event_ts=now,
+            dimensions={
+                "src_device_key": entity_key,
+                "fault_scenario": scenario,
+            },
+            metrics={
+                "annotation_confidence": annotation["confidence"],
+                "label_field": annotation["label_field"],
+                "label_value": annotation["label_value"],
+            },
+        )
 
     def _rule_deny_burst(self, event: dict[str, Any], now: datetime) -> dict[str, Any] | None:
         action = str(event.get("action") or "").lower()
@@ -195,6 +238,139 @@ def _make_alert(
     }
 
 
+def _fault_annotation(event: dict[str, Any]) -> dict[str, Any] | None:
+    context = event.get("fault_context")
+    if isinstance(context, dict):
+        if "is_fault" not in context and "scenario" not in context and "label_value" not in context:
+            return None
+        scenario = _normalize_scenario(context.get("scenario") or context.get("label_value"))
+        return {
+            "is_fault": bool(context.get("is_fault")),
+            "scenario": scenario,
+            "confidence": _to_float(context.get("confidence")) or 1.0,
+            "label_field": str(context.get("label_field") or ""),
+            "label_value": str(context.get("label_value") or context.get("scenario") or ""),
+        }
+
+    for field_name in ["fault_label", "fault_type", "scenario", "label", "class", "status", "state"]:
+        if field_name not in event:
+            continue
+        raw_value = event.get(field_name)
+        scenario = _normalize_scenario(raw_value)
+        return {
+            "is_fault": _is_fault_label(raw_value),
+            "scenario": scenario,
+            "confidence": 1.0,
+            "label_field": field_name,
+            "label_value": str(raw_value or ""),
+        }
+
+    return None
+
+
+def _event_entity_key(event: dict[str, Any]) -> str:
+    topology = event.get("topology_context")
+    if not isinstance(topology, dict):
+        topology = {}
+    profile = event.get("device_profile")
+    if not isinstance(profile, dict):
+        profile = {}
+    for value in [
+        profile.get("device_name"),
+        profile.get("src_device_key"),
+        event.get("src_device_key"),
+        event.get("node_id"),
+        event.get("device_id"),
+        event.get("router"),
+        topology.get("srcip"),
+        topology.get("path_signature"),
+        topology.get("srcintf"),
+        event.get("srcip"),
+    ]:
+        text = str(value or "").strip()
+        if text and not _is_low_semantic_entity_key(text):
+            return text
+    return "unknown"
+
+
+def _is_low_semantic_entity_key(value: str) -> bool:
+    text = value.strip()
+    if not text:
+        return True
+    if text.isdigit() and len(text) <= 2:
+        return True
+    return False
+
+
+def _fault_severity(scenario: str) -> str:
+    text = scenario.lower()
+    if any(
+        marker in text
+        for marker in [
+            "multiple_nodes",
+            "node_failure",
+            "single_node",
+            "multiple_link",
+            "routing_misconfiguration",
+            "line_card",
+        ]
+    ):
+        return "critical"
+    return "warning"
+
+
+def _normalize_scenario(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    text = re.sub(r"[^a-z0-9]+", "_", text).strip("_")
+    if text in {"", "0", "false", "normal", "healthy", "ok", "up", "benign", "none", "no_fault"}:
+        return "healthy"
+    if "icmp" in text and ("block" in text or "firewall" in text):
+        return "icmp_blocked_firewall"
+    if "snmp" in text and "agent" in text:
+        return "snmp_agent_failure"
+    if "multiple" in text and "link" in text:
+        return "multiple_link_failure"
+    if "single" in text and "link" in text:
+        return "single_link_failure"
+    if "multiple" in text and "node" in text:
+        return "multiple_nodes_failures"
+    if "single" in text and "node" in text:
+        return "single_node_failure"
+    if "link" in text and any(marker in text for marker in ["fault", "failure", "down"]):
+        return "link_failure"
+    if "node" in text and any(marker in text for marker in ["fault", "failure", "down"]):
+        return "node_failure"
+    if "routing" in text and any(marker in text for marker in ["misconfig", "fault", "failure"]):
+        return "routing_misconfiguration"
+    if "misconfig" in text or text == "misconfiguration":
+        return "misconfiguration"
+    if "line" in text and "card" in text:
+        return "line_card_failure"
+    if "transient" in text:
+        return "transient_fault"
+    if text in {"1", "true", "yes"}:
+        return "annotated_fault"
+    return text or "unknown_fault"
+
+
+def _is_fault_label(value: Any) -> bool:
+    text = _normalize_scenario(value)
+    return text not in {"healthy"}
+
+
+def _to_float(value: Any) -> float | None:
+    if isinstance(value, bool):
+        return 1.0 if value else 0.0
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str) and value.strip():
+        try:
+            return float(value.strip())
+        except ValueError:
+            return None
+    return None
+
+
 def _build_topology_context(event: dict[str, Any]) -> dict[str, Any]:
     base = event.get("topology_context")
     topology = dict(base) if isinstance(base, dict) else {}
@@ -212,12 +388,19 @@ def _build_topology_context(event: dict[str, Any]) -> dict[str, Any]:
     topology["dstintfrole"] = str(topology.get("dstintfrole") or event.get("dstintfrole") or "")
     topology["site"] = str(topology.get("site") or event.get("site") or "")
     topology["zone"] = str(topology.get("zone") or event.get("srcintfrole") or event.get("dstintfrole") or "")
-    topology["path_signature"] = (
-        f"{topology['srcintf'] or 'unknown'}->{topology['dstintf'] or 'unknown'}"
+    topology["path_signature"] = str(
+        topology.get("path_signature")
+        or f"{topology['srcintf'] or 'unknown'}->{topology['dstintf'] or 'unknown'}"
     )
     topology["policyid"] = str(topology.get("policyid") or event.get("policyid") or "")
     topology["policytype"] = str(topology.get("policytype") or event.get("policytype") or "")
     topology["neighbor_refs"] = [str(item).strip() for item in neighbor_refs if str(item).strip()]
+    topology["hop_to_server"] = str(topology.get("hop_to_server") or event.get("hop_to_server") or "")
+    topology["hop_to_core"] = str(topology.get("hop_to_core") or event.get("hop_to_core") or "")
+    topology["downstream_dependents"] = str(
+        topology.get("downstream_dependents") or event.get("downstream_dependents") or ""
+    )
+    topology["path_up"] = str(topology.get("path_up") or event.get("path_up") or "")
     return topology
 
 

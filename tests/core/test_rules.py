@@ -63,6 +63,98 @@ def test_bytes_spike_rule_triggers() -> None:
     assert r2[0]["rule_id"] == "bytes_spike_v1"
 
 
+def test_annotated_fault_rule_triggers_on_fault_transition_only() -> None:
+    engine = RuleEngine(
+        RuleConfig(
+            deny_window_sec=60,
+            deny_threshold=999999,
+            bytes_window_sec=300,
+            bytes_threshold=10**12,
+            cooldown_sec=0,
+        )
+    )
+
+    healthy = _event("l1", "2026-03-08T00:00:00Z")
+    healthy.update({"fault_context": {"is_fault": False, "scenario": "healthy", "label_field": "Fault"}})
+    first_fault = _event("l2", "2026-03-08T00:00:01Z", src_device_key="router-1")
+    first_fault.update(
+        {
+            "fault_context": {
+                "is_fault": True,
+                "scenario": "single link failure",
+                "label_field": "Fault",
+                "label_value": "Single Link Failure",
+                "confidence": 1.0,
+            }
+        }
+    )
+    repeated_fault = _event("l3", "2026-03-08T00:00:02Z", src_device_key="router-1")
+    repeated_fault.update({"fault_context": first_fault["fault_context"]})
+    next_fault = _event("l4", "2026-03-08T00:00:03Z", src_device_key="router-1")
+    next_fault.update(
+        {
+            "fault_context": {
+                "is_fault": True,
+                "scenario": "routing misconfiguration",
+                "label_field": "Fault",
+                "label_value": "Routing Misconfiguration",
+            }
+        }
+    )
+
+    assert engine.process(healthy) == []
+    r1 = engine.process(first_fault)
+    r2 = engine.process(repeated_fault)
+    r3 = engine.process(next_fault)
+
+    assert len(r1) == 1
+    assert r1[0]["rule_id"] == "annotated_fault_v1"
+    assert r1[0]["severity"] == "warning"
+    assert r1[0]["dimensions"]["fault_scenario"] == "single_link_failure"
+    assert r2 == []
+    assert len(r3) == 1
+    assert r3[0]["severity"] == "critical"
+    assert r3[0]["dimensions"]["fault_scenario"] == "routing_misconfiguration"
+
+
+def test_annotated_fault_rule_preserves_lcore_d_ten_scenarios() -> None:
+    labels_to_scenarios = {
+        "Single link failure": "single_link_failure",
+        "Multiple Link Failure": "multiple_link_failure",
+        "Misconfiguration": "misconfiguration",
+        "Routing Misconfiguration": "routing_misconfiguration",
+        "Line card Failure": "line_card_failure",
+        "ICMP Blocked (Firewall)": "icmp_blocked_firewall",
+        "Node failure": "node_failure",
+        "Multiple nodes failures": "multiple_nodes_failures",
+        "Single Node Failure": "single_node_failure",
+        "SNMP agent failure": "snmp_agent_failure",
+    }
+    engine = RuleEngine(
+        RuleConfig(
+            deny_window_sec=60,
+            deny_threshold=999999,
+            bytes_window_sec=300,
+            bytes_threshold=10**12,
+            cooldown_sec=0,
+        )
+    )
+
+    observed = {}
+    for idx, (label, expected) in enumerate(labels_to_scenarios.items()):
+        event = _event(
+            f"fault-{idx}",
+            f"2026-03-08T00:00:{idx:02d}Z",
+            src_device_key=f"router-{idx}",
+        )
+        event.update({"fault_context": {"is_fault": True, "label_value": label}})
+        alerts = engine.process(event)
+        assert len(alerts) == 1
+        observed[label] = alerts[0]["dimensions"]["fault_scenario"]
+
+    assert observed == labels_to_scenarios
+
+
 def test_invalid_event_ts_returns_no_alert() -> None:
     engine = RuleEngine(RuleConfig())
     result = engine.process(_event("x1", "not-a-time", action="deny"))
