@@ -109,7 +109,7 @@ TENSOR_PARALLEL_SIZE=2
 vLLM 暴露的是 OpenAI 兼容接口，core 当前使用的是 NetOps evidence contract。因此 GPU 节点上还需要启动一个轻量网关：
 
 ```bash
-OPENAI_BASE_URL=http://127.0.0.1:8000/v1 \
+OPENAI_BASE_URL=http://127.0.0.1:28000/v1 \
 OPENAI_MODEL=glm-fast \
 NETOPS_GATEWAY_PORT=18080 \
 ops/waseda_gpu/start_gateway.sh

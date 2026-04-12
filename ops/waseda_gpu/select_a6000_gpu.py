@@ -89,11 +89,17 @@ def write_lock(path: Path, selected: list[GpuState]) -> None:
         "locked_at": datetime.now(timezone.utc).isoformat(),
         "pid": os.getpid(),
         "selected_gpu_indices": [gpu.index for gpu in selected],
-        "selected_gpus": [asdict(gpu) | {"memory_free_mb": gpu.memory_free_mb} for gpu in selected],
+        "selected_gpus": [_gpu_payload(gpu) for gpu in selected],
         "lock_type": "soft_reservation",
         "note": "This lock documents NetOps model-service ownership but does not prevent scheduler-level use by other users.",
     }
     path.write_text(json.dumps(payload, ensure_ascii=True, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def _gpu_payload(gpu: GpuState) -> dict[str, int | str]:
+    payload = asdict(gpu)
+    payload["memory_free_mb"] = gpu.memory_free_mb
+    return payload
 
 
 def main() -> None:
@@ -129,10 +135,7 @@ def main() -> None:
             json.dumps(
                 {
                     "cuda_visible_devices": indices,
-                    "selected_gpus": [
-                        asdict(gpu) | {"memory_free_mb": gpu.memory_free_mb}
-                        for gpu in selected
-                    ],
+                    "selected_gpus": [_gpu_payload(gpu) for gpu in selected],
                 },
                 ensure_ascii=True,
                 indent=2,

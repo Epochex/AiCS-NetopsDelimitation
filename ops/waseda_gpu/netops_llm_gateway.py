@@ -10,7 +10,7 @@ from urllib import error, request
 
 HOST = os.environ.get("NETOPS_GATEWAY_HOST", "127.0.0.1")
 PORT = int(os.environ.get("NETOPS_GATEWAY_PORT", "18080"))
-OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL", "http://127.0.0.1:8000/v1")
+OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL", "http://127.0.0.1:28000/v1")
 OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "glm-fast")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 OPENAI_TIMEOUT_SEC = int(os.environ.get("OPENAI_TIMEOUT_SEC", "90"))
