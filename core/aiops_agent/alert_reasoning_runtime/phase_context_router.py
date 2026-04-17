@@ -12,12 +12,16 @@ def build_phase_context_payload(stage: str, evidence_bundle: dict[str, Any]) -> 
     investigation_session = reasoning_seed.get("investigation_session") or {}
     runbook_plan_outline = reasoning_seed.get("runbook_plan_outline") or {}
     evidence_pack_v2 = evidence_bundle.get("evidence_pack_v2") or {}
+    context_views = evidence_bundle.get("context_views") or {}
+    prompt_contracts = evidence_bundle.get("prompt_contracts") or {}
 
     base = {
         "stage": normalized_stage,
         "bundle_id": evidence_bundle.get("bundle_id") or "",
         "bundle_scope": evidence_bundle.get("bundle_scope") or "",
         "alert_ref": evidence_bundle.get("alert_ref") or {},
+        "context_views": context_views,
+        "prompt_contract": prompt_contracts.get(normalized_stage) or {},
         "evidence_pack_v2": select_evidence_pack_v2_view(
             normalized_stage,
             evidence_pack_v2,

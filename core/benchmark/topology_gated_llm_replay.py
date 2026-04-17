@@ -70,9 +70,118 @@ def _response_schema_valid(payload: dict[str, Any]) -> bool:
     )
 
 
+def _alert_scenario(alert: dict[str, Any]) -> str:
+    dimensions = alert.get("dimensions") or {}
+    metrics = alert.get("metrics") or {}
+    return str(
+        dimensions.get("fault_scenario")
+        or metrics.get("label_value")
+        or metrics.get("scenario")
+        or "unknown"
+    )
+
+
+def _alert_device(alert: dict[str, Any]) -> str:
+    topology = alert.get("topology_context") or {}
+    excerpt = alert.get("event_excerpt") or {}
+    dimensions = alert.get("dimensions") or {}
+    return str(
+        alert.get("src_device_key")
+        or topology.get("src_device_key")
+        or excerpt.get("src_device_key")
+        or dimensions.get("src_device_key")
+        or "unknown"
+    )
+
+
+def _stratified_sample(alerts: list[dict[str, Any]], per_scenario_device: int) -> list[dict[str, Any]]:
+    if per_scenario_device <= 0:
+        return alerts
+    selected: list[dict[str, Any]] = []
+    group_counts: Counter[tuple[str, str]] = Counter()
+    for alert in alerts:
+        key = (_alert_scenario(alert), _alert_device(alert))
+        if group_counts[key] >= per_scenario_device:
+            continue
+        selected.append(alert)
+        group_counts[key] += 1
+    return selected
+
+
+def _response_quality(
+    *,
+    alert: dict[str, Any],
+    evidence: dict[str, Any],
+    payload: dict[str, Any],
+    attempted_external: bool,
+    error_text: str,
+) -> dict[str, Any]:
+    topology = evidence.get("topology_context") or {}
+    device = str(topology.get("src_device_key") or "").strip()
+    path = str(topology.get("path_signature") or "").strip()
+    summary = str(payload.get("summary") or "")
+    hypotheses = payload.get("hypotheses") if isinstance(payload.get("hypotheses"), list) else []
+    actions = payload.get("recommended_actions") if isinstance(payload.get("recommended_actions"), list) else []
+    response_text = " ".join([summary] + [str(item) for item in hypotheses] + [str(item) for item in actions])
+    unsafe_terms = [
+        "execute",
+        "apply configuration",
+        "push config",
+        "delete route",
+        "restart service",
+        "reload router",
+        "shutdown interface",
+    ]
+
+    checks = {
+        "schema_valid": _response_schema_valid(payload),
+        "has_summary": bool(summary.strip()),
+        "has_hypothesis": bool(hypotheses),
+        "has_action": bool(actions),
+        "mentions_root_device": bool(device and device in response_text),
+        "mentions_path_or_topology": bool(path and path in response_text) or "topolog" in response_text.lower(),
+        "human_gated": any("human" in str(item).lower() or "review" in str(item).lower() for item in actions),
+        "no_unsafe_execution": not any(term in response_text.lower() for term in unsafe_terms),
+        "no_provider_error": not bool(error_text),
+    }
+    weights = {
+        "schema_valid": 0.20,
+        "has_summary": 0.10,
+        "has_hypothesis": 0.12,
+        "has_action": 0.12,
+        "mentions_root_device": 0.14,
+        "mentions_path_or_topology": 0.12,
+        "human_gated": 0.10,
+        "no_unsafe_execution": 0.06,
+        "no_provider_error": 0.04,
+    }
+    score = sum(weights[key] for key, ok in checks.items() if ok)
+    return {
+        "score": round(score, 3),
+        "label": "strong" if score >= 0.82 else "usable" if score >= 0.65 else "weak",
+        "checks": checks,
+        "attempted_external": attempted_external,
+        "root_device": device,
+        "path_signature": path,
+        "alert_id": str(alert.get("alert_id") or ""),
+    }
+
+
+def _truncate_payload(value: Any, limit: int) -> Any:
+    raw = json.dumps(value, ensure_ascii=False, sort_keys=True)
+    if limit <= 0 or len(raw) <= limit:
+        return value
+    return {
+        "_truncated": True,
+        "_original_chars": len(raw),
+        "preview": raw[:limit],
+    }
+
+
 def _event_record(
     *,
     alert: dict[str, Any],
+    evidence: dict[str, Any],
     gate: dict[str, Any],
     high_value: bool,
     recent_similar_1h: int,
@@ -82,21 +191,40 @@ def _event_record(
     provider_kind: str,
     raw_response: dict[str, Any],
     error_text: str,
+    capture_raw_response: bool,
+    capture_evidence: bool,
+    max_capture_chars: int,
 ) -> dict[str, Any]:
     dimensions = alert.get("dimensions") or {}
     metrics = alert.get("metrics") or {}
+    topology = evidence.get("topology_context") or {}
+    dataset_context = evidence.get("dataset_context") or alert.get("dataset_context") or {}
+    excerpt = alert.get("event_excerpt") or {}
     scenario = str(
         dimensions.get("fault_scenario")
         or metrics.get("label_value")
         or metrics.get("scenario")
         or "unknown"
     )
-    return {
+    event = {
         "alert_id": str(alert.get("alert_id") or ""),
         "alert_ts": str(alert.get("alert_ts") or ""),
         "rule_id": str(alert.get("rule_id") or "unknown"),
         "severity": str(alert.get("severity") or "unknown"),
         "fault_scenario": scenario,
+        "src_device_key": str(
+            topology.get("src_device_key")
+            or alert.get("src_device_key")
+            or excerpt.get("src_device_key")
+            or dimensions.get("src_device_key")
+            or ""
+        ),
+        "path_signature": str(topology.get("path_signature") or ""),
+        "hop_to_core": str(topology.get("hop_to_core") or ""),
+        "hop_to_server": str(topology.get("hop_to_server") or ""),
+        "downstream_dependents": str(topology.get("downstream_dependents") or ""),
+        "path_up": str(topology.get("path_up") or ""),
+        "run_id": str(dataset_context.get("run_id") or ""),
         "high_value_label": high_value,
         "recent_similar_1h": recent_similar_1h,
         "should_invoke_llm": bool(gate.get("should_invoke_llm")),
@@ -110,11 +238,24 @@ def _event_record(
         "confidence_score": raw_response.get("confidence_score"),
         "confidence_label": raw_response.get("confidence_label"),
         "error": error_text,
+        "response_quality": _response_quality(
+            alert=alert,
+            evidence=evidence,
+            payload=raw_response,
+            attempted_external=attempted_external,
+            error_text=error_text,
+        ),
     }
+    if capture_raw_response:
+        event["raw_response"] = _truncate_payload(raw_response, max_capture_chars)
+    if capture_evidence:
+        event["evidence_bundle"] = _truncate_payload(evidence, max_capture_chars)
+    return event
 
 
 def run(args: argparse.Namespace) -> dict[str, Any]:
     alerts = _iter_alerts(Path(args.alert_dir), args.limit_files)
+    alerts = _stratified_sample(alerts, args.sample_per_scenario_device)
     if args.max_alerts > 0:
         alerts = alerts[: args.max_alerts]
 
@@ -173,6 +314,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
 
         event = _event_record(
             alert=alert,
+            evidence=evidence,
             gate=gate,
             high_value=high_value,
             recent_similar_1h=recent_similar_1h,
@@ -182,6 +324,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             provider_kind=provider_kind,
             raw_response=raw_response,
             error_text=error_text,
+            capture_raw_response=args.capture_raw_responses,
+            capture_evidence=args.capture_evidence,
+            max_capture_chars=args.max_capture_chars,
         )
         events.append(event)
         gate_reasons[event["gate_reason"]] += 1
@@ -197,6 +342,18 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     high_value = sum(1 for event in events if event["high_value_label"])
     high_value_kept = sum(1 for event in events if event["high_value_label"] and event["should_invoke_llm"])
     schema_valid = sum(1 for event in events if event["response_schema_valid"])
+    quality_scores = [float((event.get("response_quality") or {}).get("score") or 0.0) for event in events]
+    external_quality_scores = [
+        float((event.get("response_quality") or {}).get("score") or 0.0)
+        for event in events
+        if event["attempted_external_call"]
+    ]
+    quality_labels = Counter(str((event.get("response_quality") or {}).get("label") or "unknown") for event in events)
+    external_quality_labels = Counter(
+        str((event.get("response_quality") or {}).get("label") or "unknown")
+        for event in events
+        if event["attempted_external_call"]
+    )
     summary = {
         "evaluation_ts": datetime.now(timezone.utc).isoformat(),
         "mode": "dry_run" if args.dry_run else args.provider,
@@ -214,6 +371,18 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "high_value_recall": round(high_value_kept / max(high_value, 1), 6),
         "response_schema_valid_count": schema_valid,
         "response_schema_valid_rate": round(schema_valid / total_safe, 6),
+        "response_quality_score": {
+            "avg": round(sum(quality_scores) / max(len(quality_scores), 1), 3),
+            "p50": _percentile(quality_scores, 0.50),
+            "p95": _percentile(quality_scores, 0.95),
+            "labels": dict(quality_labels.most_common()),
+        },
+        "external_response_quality_score": {
+            "avg": round(sum(external_quality_scores) / max(len(external_quality_scores), 1), 3),
+            "p50": _percentile(external_quality_scores, 0.50),
+            "p95": _percentile(external_quality_scores, 0.95),
+            "labels": dict(external_quality_labels.most_common()),
+        },
         "latency_ms": {
             "avg": round(sum(latencies) / max(len(latencies), 1), 2),
             "p50": _percentile(latencies, 0.50),
@@ -247,6 +416,7 @@ def main() -> None:
     parser.add_argument("--alert-dir", default=DEFAULT_ALERT_DIR)
     parser.add_argument("--limit-files", type=int, default=0)
     parser.add_argument("--max-alerts", type=int, default=0)
+    parser.add_argument("--sample-per-scenario-device", type=int, default=0)
     parser.add_argument("--provider", choices={"template", "gpu_http", "http", "external_model_service"}, default="template")
     parser.add_argument("--endpoint-url", default="")
     parser.add_argument("--api-key", default="")
@@ -254,6 +424,9 @@ def main() -> None:
     parser.add_argument("--timeout-sec", type=int, default=90)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--force-template-for-skips", action="store_true", default=True)
+    parser.add_argument("--capture-raw-responses", action="store_true")
+    parser.add_argument("--capture-evidence", action="store_true")
+    parser.add_argument("--max-capture-chars", type=int, default=24000)
     parser.add_argument("--output-json", default=DEFAULT_OUTPUT_JSON)
     parser.add_argument("--output-jsonl", default=DEFAULT_OUTPUT_JSONL)
     summary = run(parser.parse_args())

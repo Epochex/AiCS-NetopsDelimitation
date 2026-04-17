@@ -102,25 +102,51 @@ The current ablation compares an invoke-all baseline against topology-aware sele
 | Dataset slice | Alerts scanned | Invoke-all LLM calls | Topology-gated LLM calls | Call reduction | High-value alerts | High-value recall |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
 | Office legacy trace | `886` | `886` | `0` | `100.00%` | `0` | `0.00%` |
-| LCORE-D 50k replay sample | `1302` | `1302` | `173` | `86.71%` | `173` | `100.00%` |
+| LCORE-D Mark-1 live replay | `1302` | `1302` | `173` | `86.71%` | `173` | `100.00%` |
+| LCORE-D full core-patched replay | `6700` | `6700` | `562` | `91.61%` | `562` | `100.00%` |
 
 The office trace is useful as a legacy engineering sanity check, but it has no high-value LCORE fault-localization labels in the evaluated window. The LCORE-D replay is the relevant research slice.
 
 ![Topology-aware subgraph extraction ablation](documentation/images/topology_ablation_summary.png)
 
-Figure: one-shot ablation summary. Panel A compares invoke-all and topology-gated LLM request volume. Panel B shows the efficiency-quality frontier: the LCORE topology gate moves from 0% call reduction at the invoke-all baseline to 86.71% call reduction while retaining 100% high-value recall. The dashed evidence-size curve shows that the selected LLM evidence slice remains compact as the gate becomes stricter.
+Figure: one-shot ablation summary for the Mark-1 live replay. Panel A compares invoke-all and topology-gated LLM request volume. Panel B shows the efficiency-quality frontier: the LCORE topology gate moves from 0% call reduction at the invoke-all baseline to 86.71% call reduction while retaining 100% high-value recall. The stricter full core-patched replay now reaches 91.61% call reduction while preserving the same high-value recall.
 
-The measured result is not yet final root-cause top-1 accuracy. It is a first-stage systems result: the topology gate reduces LLM calls by `86.71%` on the LCORE-D replay while preserving `100%` of high-value alert eligibility. The next evaluation step is to attach incident-window root labels and report root-candidate, symptom, and noise classification accuracy.
+The measured result is not yet final root-cause top-1 accuracy. It is a first-stage systems result: the topology gate reduces LLM calls by `91.61%` on the full core-patched LCORE-D replay while preserving `100%` of high-value alert eligibility. The next evaluation step is to attach incident-window root labels and report root-candidate, symptom, and noise classification accuracy.
 
 ## GPU Provider Replay
 
 The external-provider path now has a hard topology gate. If `llm_invocation_gate.should_invoke_llm=false`, the `gpu_http` provider returns the local template fallback and records `external_provider_skipped=true`; it does not call the GPU endpoint. If the gate is true, the request can be routed through the Waseda GPU tunnel to the NetOps LLM gateway.
 
-The dry-run replay validates the dispatch policy and response contract before the live GPU endpoint is attached:
+The live provider path has been validated through the Waseda GPU cluster. The current runtime uses an OpenAI-compatible vLLM service on the GPU node at model port `28000`, a NetOps gateway at `18080`, and a core-side SSH tunnel that keeps the core invocation path stable at `http://127.0.0.1:18080/infer`.
 
-![Topology-gated LLM replay summary](documentation/images/llm_provider_replay_summary.png)
+Current live replay configuration:
 
-The current dry-run replay scanned `1302` LCORE-D alerts, planned `173` topology-gated external calls, skipped `1129` template-only alerts, preserved `100%` high-value recall, and produced `100%` schema-valid fallback responses. Live GPU latency and model-quality numbers must be regenerated after the Waseda endpoint is running.
+| Layer | Runtime value |
+| --- | --- |
+| Remote model service | `vLLM` on Waseda GPU node |
+| Model used for Mark-1 closure | `Qwen2.5-14B-Instruct` served as `netops-fast` |
+| Model port | `127.0.0.1:28000` on the GPU node |
+| NetOps gateway | `127.0.0.1:18080` on the GPU node |
+| Core invocation endpoint | `http://127.0.0.1:18080/infer` through SSH tunnel |
+| Execution mode | real external model call for high-value alerts; local template for gated skips |
+
+![Topology-gated live LLM replay summary](documentation/images/llm_provider_replay_real_full.png)
+
+The Mark-1 live GPU replay scanned `1302` LCORE-D alerts. The invoke-all baseline would have made `1302` external model calls. The topology-gated path made `173` real GPU calls, skipped `1129` template-only alerts, reduced external calls by `86.71%`, preserved `100%` high-value alert recall, and produced `100%` schema-valid responses. The `173` real GPU calls had `0` failures, with external latency avg `9675.38 ms`, p50 `9561.00 ms`, and p95 `11321.43 ms`.
+
+After the edge `run_id` and core topology-lineage fixes, a full core-patched LCORE-D replay produced `6700` deterministic alerts from `169,712` canonical facts. The topology gate retained all `562` induced-fault high-value alerts for external reasoning and kept `6138` transient-fault alerts on the local template path. This gives `91.61%` external-call reduction with `100%` high-value recall.
+
+Raw response capture audit was run on a stratified sample of `24` alerts, sampled by scenario and device. It made `14` real GPU calls and kept `10` transient alerts local. The audit had `0` provider failures, `100%` schema-valid responses, external response quality avg `1.000`, `14/14` external responses labelled `strong`, and `0` unsafe execution-language findings after gateway output bounding. External latency in this stricter prompt path was avg `14720.54 ms`, p50 `14847.22 ms`, and p95 `16907.45 ms`.
+
+The replay and audit artifacts are:
+
+- Summary: `/data/netops-runtime/LCORE-D/work/llm-provider-replay-real-full-summary.json`
+- Per-alert replay records: `/data/netops-runtime/LCORE-D/work/llm-provider-replay-real-full-events.jsonl`
+- Full core-patched gate summary: `/data/netops-runtime/LCORE-D/work/llm-provider-replay-corepatched-full-template-summary.json`
+- Raw response audit summary: `/data/netops-runtime/LCORE-D/work/llm-provider-replay-corepatched-stratified-real-prompt3-summary.json`
+- Raw response audit records: `/data/netops-runtime/LCORE-D/work/llm-provider-replay-corepatched-stratified-real-prompt3-events.jsonl`
+
+The raw response audit records store model-generated recommendation text and the evidence bundle used for each sampled alert. They should be used for qualitative review before making claims about action usefulness.
 
 Operational details are documented in [`documentation/WASEDA_GPU_LLM_PROVIDER.md`](documentation/WASEDA_GPU_LLM_PROVIDER.md).
 
@@ -159,13 +185,14 @@ Completed:
 - evidence pack and stage request integration
 - frontend runtime projection for LCORE/topology semantics
 - ablation benchmark for LLM-call reduction
+- Waseda GPU provider wiring for live LCORE-D replay
+- hard skip behavior for `template_only` topology gates
 
 Remaining:
 
 - root-cause label alignment for paper-grade localization accuracy
-- provider execution wiring to a real local or remote LLM endpoint
-- response validation and timeout fallback
-- trace capture for replayable model evaluations
+- full recommendation-quality audit with raw model response capture
+- production hardening for response validation, timeout fallback, and trace capture
 - comparison against rule-only and invoke-all baselines over full LCORE-D incident windows
 
 ## Replay Identity and Looping
@@ -189,8 +216,8 @@ This table records the r230 edge to r450 core LCORE-D replay throughput observed
 | --- | --- | ---: | ---: | ---: | --- |
 | LCORE-D raw CSV | Source rows | `32-51` columns per file, `234` union columns across 7 files | `169,712` rows, `26,670,593` bytes | offline source | Per-router files: R1/R5/R7 `42`, R2 `32`, R3/R6 `51`, R4 `47` columns |
 | Adaptive feature plan | `feature-plan.json` | `43` sampled columns, `1` label field, `4` entity fields, `7` topology fields, `3` metric fields | plan built from `5,000` sampled rows | one plan per replay | Active label field is `class`; active topology fields include `Hop_to_core`, `Hop_to_server`, and `path_up` |
-| Edge canonical fact JSONL | `events-lcore-d.jsonl` | `23` top-level fields; nested: topology `19`, device profile `12`, fault context `5`, dataset context `12` in the recorded run | `169,761` lines, `326,025,599` bytes | latest completed streamer segment `17.12 EPS` | New replays add `dataset_context.run_id`, so dataset context becomes `13` fields while top-level count stays `23` |
+| Edge canonical fact JSONL | `events-lcore-d.jsonl` | `22` top-level fields; nested: topology `19`, device profile `12`, fault context `5`, dataset context `11` in the full core-patched replay | `169,712` lines, `326,733,942` bytes | latest completed streamer segment `17.12 EPS` | New replays carry `dataset_context.run_id`, so replay identity is preserved without changing top-level fact shape |
 | Edge forwarder to Kafka | Kafka topic `netops.facts.raw.v1` | Same canonical fact payload: `23` top-level fields | cumulative `169,886` sent, `326,276,448` bytes, `0` dropped | active window `17.06 EPS`, about `0.268 Mbps` | Cumulative count includes earlier smoke/replay sends |
 | Core correlator ingest | Quality-gated facts | Canonical fact consumed from Kafka: `23` top-level fields | log counter `ingested=135,881`, `accepted=135,832`, `drop_duplicate_event_id=49` | stable window `17.30 accepted facts/s` | Other drops were `0`: missing fields, parse status, JSON errors, DLQ |
-| Deterministic alert | `annotated_fault_v1` alert | `12` top-level fields; nested: dimensions `2`, metrics `3`, event excerpt `31`, topology `19`, device profile `12`, change context `6` | log counter `alerts_emitted=3,416` | stable window `0.0396 alerts/s` | Alerting is post-quality-gate and deterministic; LLM is not in this path |
+| Deterministic alert | `annotated_fault_v1` alert | `14` top-level fields; nested: dimensions `2`, metrics `3`, event excerpt `31`, topology `20`, device profile `12`, change context `6` | full core-patched replay `6700` alerts | stable window `0.0396 alerts/s` in live runtime | Alerting is post-quality-gate and deterministic; LLM is not in this path |
 | Runtime suggestion tail | `netops.aiops.suggestions.v1` | `24` top-level fields; nested: context `17`, evidence bundle `17`, inference `12`, runtime seed `7`, hypothesis set `6`, review verdict `9`, runbook draft `15`, stage requests `2` | topic latest offsets sum to `293,458` messages across mixed history | downstream AI rate depends on alert emission and LLM gate policy | Latest tail sample confirms the current 24-field suggestion schema |

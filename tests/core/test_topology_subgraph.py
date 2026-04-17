@@ -70,6 +70,29 @@ def test_topology_subgraph_keeps_single_transient_fault_local() -> None:
     assert any(node["node_type"] == "self_healing_candidate" for node in subgraph["noise_nodes"])
 
 
+def test_lcore_evidence_synthesizes_semantic_path_from_hops() -> None:
+    alert = _lcore_alert("induced_fault")
+    alert["dataset_context"] = {"dataset_id": "lcore-d", "run_id": "run-a", "row_index": 7}
+    alert["event_excerpt"]["srcintf"] = "6"
+    alert["topology_context"].update(
+        {
+            "path_signature": "6->unknown",
+            "srcintf": "6",
+            "hop_to_core": "3",
+            "hop_to_server": "5",
+            "downstream_dependents": "4",
+            "path_up": "1",
+        }
+    )
+
+    evidence = build_alert_evidence_bundle(alert, recent_similar_1h=0)
+
+    assert evidence["dataset_context"]["run_id"] == "run-a"
+    assert evidence["topology_context"]["srcintf"] == ""
+    assert evidence["topology_context"]["path_signature"] == "CORE-R3|hop_core=3|hop_server=5|path_up=1"
+    assert evidence["path_context"]["path_signature"] == "CORE-R3|hop_core=3|hop_server=5|path_up=1"
+
+
 def test_stage_context_and_routing_carry_subgraph_gate() -> None:
     evidence = build_alert_evidence_bundle(
         _lcore_alert("single_node_failure"),
