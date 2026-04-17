@@ -6,6 +6,8 @@ from core.aiops_agent.alert_reasoning_runtime import (
     build_alert_runtime_seed,
     build_cluster_runtime_seed,
 )
+from core.aiops_agent.alert_reasoning_runtime.context_views import build_context_views
+from core.aiops_agent.alert_reasoning_runtime.prompt_contracts import build_prompt_contracts
 from core.aiops_agent.cluster_aggregator import ClusterTrigger
 from core.aiops_agent.evidence_pack_v2 import build_evidence_pack_v2
 
@@ -22,6 +24,7 @@ def build_alert_evidence_bundle(
     topology = alert.get("topology_context") or {}
     device_profile = alert.get("device_profile") or {}
     change_context = alert.get("change_context") or {}
+    dataset_context = alert.get("dataset_context") or {}
     alert_id = str(alert.get("alert_id") or "")
     rule_id = str(alert.get("rule_id") or "unknown")
     severity = str(alert.get("severity") or "unknown").lower()
@@ -47,6 +50,7 @@ def build_alert_evidence_bundle(
             "rule_id": rule_id,
             "severity": severity,
         },
+        "dataset_context": _dataset_context(dataset_context),
         "topology_context": _topology_context(excerpt, topology, device_profile, service, src_device_key),
         "historical_context": {
             "recent_similar_1h": max(0, int(recent_similar_1h)),
@@ -87,6 +91,8 @@ def build_alert_evidence_bundle(
         "reasoning_runtime_seed": reasoning_runtime_seed,
         "topology_subgraph": reasoning_runtime_seed.get("topology_subgraph") or {},
     }
+    bundle["context_views"] = build_context_views(bundle)
+    bundle["prompt_contracts"] = build_prompt_contracts(bundle["context_views"])
     bundle["evidence_pack_v2"] = build_evidence_pack_v2(bundle)
     return bundle
 
@@ -104,6 +110,7 @@ def build_cluster_evidence_bundle(
     topology = alert.get("topology_context") or {}
     device_profile = alert.get("device_profile") or {}
     change_context = alert.get("change_context") or {}
+    dataset_context = alert.get("dataset_context") or {}
     history_support = history_support or {}
 
     seed = (
@@ -128,6 +135,7 @@ def build_cluster_evidence_bundle(
             "rule_id": trigger.key.rule_id,
             "severity": trigger.key.severity,
         },
+        "dataset_context": _dataset_context(dataset_context),
         "topology_context": _topology_context(
             excerpt,
             topology,
@@ -174,6 +182,42 @@ def build_cluster_evidence_bundle(
         "reasoning_runtime_seed": reasoning_runtime_seed,
         "topology_subgraph": reasoning_runtime_seed.get("topology_subgraph") or {},
     }
+    incident_window = {
+        "schema_version": 1,
+        "window_id": str(trigger.key),
+        "window_sec": trigger.window_sec,
+        "window_start": trigger.first_alert_ts,
+        "window_end": trigger.last_alert_ts,
+        "alert_count": trigger.cluster_size,
+        "alert_ids": trigger.sample_alert_ids,
+        "sample_alert_ids": trigger.sample_alert_ids,
+        "devices": [trigger.key.src_device_key] if trigger.key.src_device_key else [],
+        "device_count": 1 if trigger.key.src_device_key else 0,
+        "path_signatures": [bundle["path_context"].get("path_signature") or ""],
+        "path_count": 1,
+        "path_shapes": [bundle["path_context"].get("path_signature") or ""],
+        "path_shape_count": 1,
+        "scenario_counts": {
+            str((metrics.get("label_value") or dimensions.get("fault_scenario") or "unknown")).lower(): trigger.cluster_size
+        },
+        "recurrence_pressure": trigger.cluster_size >= 3,
+        "topology_pressure": bool(bundle["topology_context"].get("neighbor_refs")),
+        "multi_device_spread": False,
+        "max_downstream_dependents": _safe_int(bundle["topology_context"].get("downstream_dependents")),
+        "timeline": [
+            {
+                "alert_id": alert_id,
+                "alert_ts": trigger.last_alert_ts,
+                "device": trigger.key.src_device_key,
+                "scenario": str((metrics.get("label_value") or dimensions.get("fault_scenario") or "unknown")).lower(),
+                "path_signature": bundle["path_context"].get("path_signature") or "",
+                "severity": trigger.key.severity,
+            }
+            for alert_id in trigger.sample_alert_ids[:12]
+        ],
+    }
+    bundle["context_views"] = build_context_views(bundle, incident_window=incident_window)
+    bundle["prompt_contracts"] = build_prompt_contracts(bundle["context_views"])
     bundle["evidence_pack_v2"] = build_evidence_pack_v2(bundle)
     return bundle
 
@@ -185,6 +229,11 @@ def _topology_context(
     service: str,
     src_device_key: str,
 ) -> dict[str, Any]:
+    srcintf = str(excerpt.get("srcintf") or topology.get("srcintf") or "")
+    dstintf = str(excerpt.get("dstintf") or topology.get("dstintf") or "")
+    if _is_low_semantic_interface(srcintf):
+        srcintf = ""
+    path_signature = _canonical_path_signature(topology, src_device_key, srcintf, dstintf)
     return {
         "service": service,
         "src_device_key": src_device_key,
@@ -192,22 +241,26 @@ def _topology_context(
         "dstip": str(excerpt.get("dstip") or topology.get("dstip") or ""),
         "srcport": str(excerpt.get("srcport") or ""),
         "dstport": str(excerpt.get("dstport") or ""),
-        "srcintf": str(excerpt.get("srcintf") or topology.get("srcintf") or ""),
-        "dstintf": str(excerpt.get("dstintf") or topology.get("dstintf") or ""),
+        "srcintf": srcintf,
+        "dstintf": dstintf,
         "srcintfrole": str(excerpt.get("srcintfrole") or topology.get("srcintfrole") or ""),
         "dstintfrole": str(excerpt.get("dstintfrole") or topology.get("dstintfrole") or ""),
         "site": str(topology.get("site") or device_profile.get("site") or ""),
         "zone": str(topology.get("zone") or ""),
-        "path_signature": str(
-            topology.get("path_signature")
-            or f"{topology.get('srcintf') or excerpt.get('srcintf') or 'unknown'}->{topology.get('dstintf') or excerpt.get('dstintf') or 'unknown'}"
-        ),
+        "path_signature": path_signature,
         "neighbor_refs": _normalize_str_list(topology.get("neighbor_refs")),
         "hop_to_server": str(topology.get("hop_to_server") or ""),
         "hop_to_core": str(topology.get("hop_to_core") or ""),
         "downstream_dependents": str(topology.get("downstream_dependents") or ""),
         "path_up": str(topology.get("path_up") or ""),
     }
+
+
+def _safe_int(value: Any) -> int:
+    try:
+        return int(str(value or "0"))
+    except ValueError:
+        return 0
 
 
 def _path_context(
@@ -217,14 +270,58 @@ def _path_context(
 ) -> dict[str, Any]:
     srcintf = str(excerpt.get("srcintf") or topology.get("srcintf") or "")
     dstintf = str(excerpt.get("dstintf") or topology.get("dstintf") or "")
+    if _is_low_semantic_interface(srcintf):
+        srcintf = ""
+    path_signature = _canonical_path_signature(
+        topology,
+        str(topology.get("src_device_key") or excerpt.get("src_device_key") or ""),
+        srcintf,
+        dstintf,
+    )
     return {
         "srcintf": srcintf,
         "dstintf": dstintf,
         "srcintfrole": str(excerpt.get("srcintfrole") or topology.get("srcintfrole") or ""),
         "dstintfrole": str(excerpt.get("dstintfrole") or topology.get("dstintfrole") or ""),
-        "path_signature": str(topology.get("path_signature") or f"{srcintf or 'unknown'}->{dstintf or 'unknown'}"),
+        "path_signature": path_signature,
         "recent_path_hits": history_support.get("recent_path_hits") or [],
     }
+
+
+def _canonical_path_signature(topology: dict[str, Any], src_device_key: str, srcintf: str, dstintf: str) -> str:
+    current = str(topology.get("path_signature") or "").strip()
+    if current and not _is_low_semantic_path_signature(current):
+        return current
+    hop_to_core = str(topology.get("hop_to_core") or "").strip()
+    hop_to_server = str(topology.get("hop_to_server") or "").strip()
+    path_up = str(topology.get("path_up") or "").strip()
+    parts: list[str] = []
+    if hop_to_core:
+        parts.append(f"hop_core={hop_to_core}")
+    if hop_to_server:
+        parts.append(f"hop_server={hop_to_server}")
+    if path_up:
+        parts.append(f"path_up={path_up}")
+    if src_device_key and parts:
+        return f"{src_device_key}|" + "|".join(parts)
+    return f"{srcintf or 'unknown'}->{dstintf or 'unknown'}"
+
+
+def _is_low_semantic_path_signature(value: str) -> bool:
+    text = value.strip()
+    if not text or text in {"unknown", "unknown->unknown"}:
+        return True
+    if "/data/" in text or ".csv" in text:
+        return True
+    left, sep, right = text.partition("->")
+    if sep and _is_low_semantic_interface(left) and right.strip().lower() == "unknown":
+        return True
+    return False
+
+
+def _is_low_semantic_interface(value: str) -> bool:
+    text = value.strip()
+    return bool(text) and text.isdigit() and len(text) <= 2
 
 
 def _policy_context(
@@ -237,6 +334,21 @@ def _policy_context(
         "policytype": str(excerpt.get("policytype") or topology.get("policytype") or ""),
         "recent_policy_hits": history_support.get("recent_policy_hits") or [],
     }
+
+
+def _dataset_context(dataset_context: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(dataset_context, dict):
+        return {}
+    keys = [
+        "dataset_id",
+        "run_id",
+        "row_index",
+        "source_uri",
+        "source_file",
+        "timestamp_source",
+        "primary_time_field",
+    ]
+    return {key: dataset_context.get(key) for key in keys if key in dataset_context}
 
 
 def _device_context(device_profile: dict[str, Any], src_device_key: str) -> dict[str, Any]:

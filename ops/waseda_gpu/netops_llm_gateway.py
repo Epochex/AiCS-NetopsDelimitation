@@ -14,9 +14,12 @@ OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL", "http://127.0.0.1:28000/v1")
 OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "glm-fast")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 OPENAI_TIMEOUT_SEC = int(os.environ.get("OPENAI_TIMEOUT_SEC", "90"))
-MAX_TOKENS = int(os.environ.get("OPENAI_MAX_TOKENS", "1536"))
+MAX_TOKENS = int(os.environ.get("OPENAI_MAX_TOKENS", "512"))
 TEMPERATURE = float(os.environ.get("OPENAI_TEMPERATURE", "0.2"))
 DRY_RUN = os.environ.get("NETOPS_GATEWAY_DRY_RUN", "").lower() in {"1", "true", "yes"}
+MAX_LIST_ITEMS = int(os.environ.get("NETOPS_GATEWAY_MAX_LIST_ITEMS", "8"))
+MAX_TEXT_CHARS = int(os.environ.get("NETOPS_GATEWAY_MAX_TEXT_CHARS", "700"))
+MAX_DICT_KEYS = int(os.environ.get("NETOPS_GATEWAY_MAX_DICT_KEYS", "36"))
 
 
 def _json_response(handler: BaseHTTPRequestHandler, status: int, payload: dict[str, Any]) -> None:
@@ -28,13 +31,37 @@ def _json_response(handler: BaseHTTPRequestHandler, status: int, payload: dict[s
     handler.wfile.write(raw)
 
 
+def _bounded(value: Any, depth: int = 0) -> Any:
+    if depth >= 6:
+        return "<truncated-depth>"
+    if isinstance(value, str):
+        if len(value) <= MAX_TEXT_CHARS:
+            return value
+        return value[:MAX_TEXT_CHARS] + "...<truncated>"
+    if isinstance(value, list):
+        limited = [_bounded(item, depth + 1) for item in value[:MAX_LIST_ITEMS]]
+        if len(value) > MAX_LIST_ITEMS:
+            limited.append(f"<truncated {len(value) - MAX_LIST_ITEMS} items>")
+        return limited
+    if isinstance(value, dict):
+        items = list(value.items())
+        bounded = {
+            str(key): _bounded(item, depth + 1)
+            for key, item in items[:MAX_DICT_KEYS]
+        }
+        if len(items) > MAX_DICT_KEYS:
+            bounded["_truncated_keys"] = len(items) - MAX_DICT_KEYS
+        return bounded
+    return value
+
+
 def _compact_request(provider_body: dict[str, Any]) -> dict[str, Any]:
     input_payload = provider_body.get("input") if isinstance(provider_body.get("input"), dict) else {}
     bundle = input_payload.get("evidence_bundle") if isinstance(input_payload.get("evidence_bundle"), dict) else {}
     evidence_pack = bundle.get("evidence_pack_v2") if isinstance(bundle.get("evidence_pack_v2"), dict) else {}
     topology_subgraph = bundle.get("topology_subgraph") if isinstance(bundle.get("topology_subgraph"), dict) else {}
     gate = topology_subgraph.get("llm_invocation_gate") if isinstance(topology_subgraph.get("llm_invocation_gate"), dict) else {}
-    return {
+    compact = {
         "request_id": input_payload.get("request_id"),
         "request_kind": input_payload.get("request_kind"),
         "alert_id": input_payload.get("alert_id"),
@@ -54,25 +81,49 @@ def _compact_request(provider_body: dict[str, Any]) -> dict[str, Any]:
             "noise_nodes": topology_subgraph.get("noise_nodes"),
             "llm_invocation_gate": gate,
         },
+        "context_views": bundle.get("context_views"),
+        "prompt_contract": (bundle.get("prompt_contracts") or {}).get("incident_interpretation"),
         "direct_evidence": evidence_pack.get("direct_evidence"),
         "supporting_evidence": evidence_pack.get("supporting_evidence"),
         "contradictory_evidence": evidence_pack.get("contradictory_evidence"),
         "missing_evidence": evidence_pack.get("missing_evidence"),
     }
+    return _bounded(compact)
 
 
 def _build_messages(provider_body: dict[str, Any]) -> list[dict[str, str]]:
     compact = _compact_request(provider_body)
-    system = (
-        "You are a bounded NetOps fault-localization assistant. "
-        "Use only the supplied evidence. Distinguish root cause, symptom, and noise. "
-        "Return strict JSON with keys summary, hypotheses, recommended_actions, "
-        "confidence_score, confidence_label, confidence_reason."
+    context_views = compact.get("context_views") if isinstance(compact.get("context_views"), dict) else {}
+    topology_view = context_views.get("topology_view") if isinstance(context_views.get("topology_view"), dict) else {}
+    topology = compact.get("topology_context") if isinstance(compact.get("topology_context"), dict) else {}
+    root_device = str(topology.get("src_device_key") or "unknown")
+    if root_device == "unknown":
+        root_device = str(topology_view.get("src_device_key") or "unknown")
+    path_signature = str(topology.get("path_signature") or topology_view.get("path_signature") or "unknown")
+    contract = compact.get("prompt_contract") if isinstance(compact.get("prompt_contract"), dict) else {}
+    system = str(
+        contract.get("system_prompt")
+        or (
+            "You are a bounded NetOps fault-localization assistant. "
+            "Use only the supplied evidence. Distinguish root cause, symptom, and noise. "
+            "Return strict JSON with keys summary, hypotheses, recommended_actions, "
+            "confidence_score, confidence_label, confidence_reason. "
+            "Every answer must keep remediation human-approved and must not include executable commands."
+        )
     )
+    task_prompt = str(contract.get("task_prompt") or "Analyze this topology-gated alert evidence.")
+    required_views = contract.get("required_context_views") if isinstance(contract.get("required_context_views"), list) else []
+    forbidden = contract.get("forbidden_behavior") if isinstance(contract.get("forbidden_behavior"), list) else []
     user = (
-        "Analyze this topology-gated alert evidence. Keep remediation human-gated. "
-        "Do not invent devices, topology links, metrics, or commands outside the evidence.\n\n"
-        + json.dumps(compact, ensure_ascii=False, indent=2, sort_keys=True)
+        f"{task_prompt} "
+        "Keep remediation human-gated. "
+        "Do not invent devices, topology links, metrics, or commands outside the evidence. "
+        f"The summary or first hypothesis must explicitly mention root candidate {root_device}. "
+        f"The summary, first hypothesis, or first action must explicitly mention path_signature {path_signature}. "
+        "Every recommended action must be phrased as a human review, verification, or approval step. "
+        f"Required evidence views: {', '.join(str(item) for item in required_views) or 'context_views'}. "
+        f"Forbidden behavior: {'; '.join(str(item) for item in forbidden) or 'unsupported claims'}.\n\n"
+        + json.dumps(compact, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
     )
     return [
         {"role": "system", "content": system},
@@ -118,7 +169,57 @@ def _normalize_model_payload(raw_text: str, provider_body: dict[str, Any]) -> di
         return payload
     if not isinstance(payload, dict):
         return _fallback_payload(provider_body, "model returned non-object json")
+    return _enforce_bounded_payload(payload, provider_body)
+
+
+def _enforce_bounded_payload(payload: dict[str, Any], provider_body: dict[str, Any]) -> dict[str, Any]:
+    compact = _compact_request(provider_body)
+    topology = compact.get("topology_context") if isinstance(compact.get("topology_context"), dict) else {}
+    device = str(topology.get("src_device_key") or "unknown")
+    path = str(topology.get("path_signature") or "unknown")
+
+    summary = str(payload.get("summary") or "")
+    if device != "unknown" and device not in summary:
+        summary = f"Root candidate {device}. {summary}".strip()
+    if path != "unknown" and path not in summary:
+        summary = f"{summary} Path signature: {path}.".strip()
+    payload["summary"] = summary
+
+    actions = payload.get("recommended_actions")
+    if not isinstance(actions, list):
+        actions = []
+    sanitized_actions = [_sanitize_action(str(item)) for item in actions if str(item).strip()]
+    if path != "unknown" and not any(path in item for item in sanitized_actions):
+        sanitized_actions.append(
+            f"Human review should verify path_signature {path} against the selected topology evidence."
+        )
+    if not any("human" in item.lower() or "approval" in item.lower() or "review" in item.lower() for item in sanitized_actions):
+        sanitized_actions.append(
+            "Keep remediation human-approved; do not execute changes from this model response."
+        )
+    payload["recommended_actions"] = sanitized_actions[:6]
     return payload
+
+
+def _sanitize_action(action: str) -> str:
+    text = action.strip()
+    replacements = {
+        "execute": "prepare for human-approved verification of",
+        "apply configuration": "review the proposed configuration",
+        "push config": "review the proposed configuration",
+        "delete route": "review the affected route",
+        "restart service": "review service health for",
+        "reload router": "review router health for",
+        "shutdown interface": "review interface state for",
+    }
+    lowered = text.lower()
+    for unsafe, safe in replacements.items():
+        if unsafe in lowered:
+            text = text.replace(unsafe, safe)
+            text = text.replace(unsafe.capitalize(), safe.capitalize())
+    if not any(marker in text.lower() for marker in ("human", "approval", "review", "verify")):
+        text = f"Human review should verify: {text}"
+    return text
 
 
 def call_openai_compatible(provider_body: dict[str, Any]) -> dict[str, Any]:

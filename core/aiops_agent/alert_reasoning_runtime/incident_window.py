@@ -1,0 +1,487 @@
+from __future__ import annotations
+
+import hashlib
+from collections import Counter
+from datetime import datetime, timezone
+from typing import Any
+
+
+SELF_HEALING_SCENARIOS = {"transient_fault", "transient_healthy"}
+NON_FAULT_SCENARIOS = {"", "unknown", "healthy", "normal"}
+EXTERNAL_WINDOW_LABELS = {
+    "external_induced_fault",
+    "mixed_fault_and_transient",
+    "external_multi_device_spread",
+    "external_repeated_transient",
+    "external_unknown_with_pressure",
+}
+
+
+def build_incident_windows(
+    alerts: list[dict[str, Any]],
+    window_sec: int = 600,
+    *,
+    group_by_scenario: bool = False,
+) -> list[dict[str, Any]]:
+    """Group deterministic alerts into bounded incident windows.
+
+    The grouping is intentionally deterministic and model-free. It uses a time
+    bucket, normalized scenario, and path shape. The path shape removes the
+    seed device prefix when LCORE-style hop metadata is available, allowing a
+    window to capture multiple devices that share the same topological shape.
+    """
+
+    buckets: dict[tuple[int, str, str], list[dict[str, Any]]] = {}
+    for alert in sorted(alerts, key=_alert_sort_key):
+        ts = _parse_ts(alert.get("alert_ts"))
+        bucket = int(ts.timestamp()) // max(1, window_sec) if ts else 0
+        scenario = _scenario(alert) if group_by_scenario else "*"
+        key = (bucket, scenario, _path_shape(alert))
+        buckets.setdefault(key, []).append(alert)
+
+    windows = [
+        _build_window(bucket_key=key, window_alerts=value, window_sec=window_sec)
+        for key, value in sorted(buckets.items(), key=lambda item: item[0])
+    ]
+    return windows
+
+
+def index_windows_by_alert_id(windows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    index: dict[str, dict[str, Any]] = {}
+    for window in windows:
+        for alert_id in window.get("alert_ids") or []:
+            if alert_id:
+                index[str(alert_id)] = window
+    return index
+
+
+def build_incident_window_index(
+    alerts: list[dict[str, Any]],
+    window_sec: int = 600,
+    *,
+    group_by_scenario: bool = False,
+) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]]]:
+    windows = build_incident_windows(
+        alerts,
+        window_sec=window_sec,
+        group_by_scenario=group_by_scenario,
+    )
+    return windows, index_windows_by_alert_id(windows)
+
+
+def summarize_incident_window(window: dict[str, Any] | None) -> dict[str, Any]:
+    if not window:
+        return {
+            "window_id": "",
+            "alert_count": 0,
+            "device_count": 0,
+            "path_count": 0,
+            "path_shape_count": 0,
+            "scenario_counts": {},
+            "recurrence_pressure": False,
+            "topology_pressure": False,
+            "multi_device_spread": False,
+            "window_label": "",
+            "recommended_action": "local",
+            "quality_proxy_label": "",
+            "timeline": [],
+        }
+    return {
+        "window_id": str(window.get("window_id") or ""),
+        "window_start": str(window.get("window_start") or ""),
+        "window_end": str(window.get("window_end") or ""),
+        "alert_count": int(window.get("alert_count") or 0),
+        "device_count": int(window.get("device_count") or 0),
+        "path_count": int(window.get("path_count") or 0),
+        "path_shape_count": int(window.get("path_shape_count") or 0),
+        "scenario_counts": window.get("scenario_counts") or {},
+        "devices": list(window.get("devices") or [])[:8],
+        "path_signatures": list(window.get("path_signatures") or [])[:8],
+        "path_shapes": list(window.get("path_shapes") or [])[:8],
+        "recurrence_pressure": bool(window.get("recurrence_pressure")),
+        "topology_pressure": bool(window.get("topology_pressure")),
+        "multi_device_spread": bool(window.get("multi_device_spread")),
+        "max_downstream_dependents": int(window.get("max_downstream_dependents") or 0),
+        "pressure_score": int(window.get("pressure_score") or 0),
+        "window_label": str(window.get("window_label") or ""),
+        "recommended_action": str(window.get("recommended_action") or "local"),
+        "quality_proxy_label": str(window.get("quality_proxy_label") or ""),
+        "decision_reason": str(window.get("decision_reason") or ""),
+        "selected_evidence_targets": window.get("selected_evidence_targets") or {},
+        "excluded_evidence_targets": window.get("excluded_evidence_targets") or [],
+        "timeline": list(window.get("timeline") or [])[:12],
+    }
+
+
+def build_window_evidence_boundary(window: dict[str, Any] | None) -> dict[str, Any]:
+    """Return the window-level selected, excluded, and missing evidence surfaces."""
+
+    if not window:
+        return {
+            "schema_version": 1,
+            "window_id": "",
+            "window_label": "",
+            "recommended_action": "local",
+            "selected_surface": {},
+            "excluded_surface": [],
+            "missing_surface": [{"field": "incident_window", "reason": "no incident window available"}],
+        }
+    selected = window.get("selected_evidence_targets") or {}
+    excluded = window.get("excluded_evidence_targets") or []
+    missing = []
+    if not selected.get("devices"):
+        missing.append({"field": "devices", "reason": "no device evidence in incident window"})
+    if not selected.get("path_signatures"):
+        missing.append({"field": "path_signatures", "reason": "no path evidence in incident window"})
+    if int(window.get("alert_count") or 0) <= 1:
+        missing.append({"field": "timeline", "reason": "single-alert window has no temporal ordering"})
+    return {
+        "schema_version": 1,
+        "window_id": str(window.get("window_id") or ""),
+        "window_label": str(window.get("window_label") or ""),
+        "recommended_action": str(window.get("recommended_action") or "local"),
+        "decision_reason": str(window.get("decision_reason") or ""),
+        "pressure_score": int(window.get("pressure_score") or 0),
+        "quality_proxy_label": str(window.get("quality_proxy_label") or ""),
+        "selected_surface": selected,
+        "excluded_surface": excluded,
+        "missing_surface": missing,
+    }
+
+
+def _build_window(
+    *,
+    bucket_key: tuple[int, str, str],
+    window_alerts: list[dict[str, Any]],
+    window_sec: int,
+) -> dict[str, Any]:
+    bucket, scenario_key, path_shape = bucket_key
+    timestamps = [_parse_ts(alert.get("alert_ts")) for alert in window_alerts]
+    parsed = [ts for ts in timestamps if ts is not None]
+    start = min(parsed) if parsed else datetime.fromtimestamp(bucket * window_sec, timezone.utc)
+    end = max(parsed) if parsed else start
+    devices = sorted({_device(alert) for alert in window_alerts if _device(alert)})
+    path_signatures = sorted({_path_signature(alert) for alert in window_alerts if _path_signature(alert)})
+    path_shapes = sorted({_path_shape(alert) for alert in window_alerts if _path_shape(alert)})
+    scenario_counts = Counter(_scenario(alert) for alert in window_alerts)
+    max_downstream = max((_downstream_dependents(alert) for alert in window_alerts), default=0)
+    high_value_alerts = [alert for alert in window_alerts if _is_high_value(alert)]
+    self_healing_alerts = [alert for alert in window_alerts if _scenario(alert) in SELF_HEALING_SCENARIOS]
+    timeline = [
+        {
+            "alert_id": str(alert.get("alert_id") or ""),
+            "alert_ts": str(alert.get("alert_ts") or ""),
+            "device": _device(alert),
+            "scenario": _scenario(alert),
+            "path_signature": _path_signature(alert),
+            "severity": str(alert.get("severity") or "unknown").lower(),
+        }
+        for alert in sorted(window_alerts, key=_alert_sort_key)
+    ]
+    high_value_count = len(high_value_alerts)
+    self_healing_count = len(self_healing_alerts)
+    recurrence_pressure = len(window_alerts) >= 3
+    multi_device_spread = len(devices) >= 2
+    topology_pressure = multi_device_spread or len(path_signatures) >= 2 or max_downstream >= 10
+    alert_ids = [str(alert.get("alert_id") or "") for alert in window_alerts if str(alert.get("alert_id") or "")]
+    window_label = _window_label(
+        high_value_count=high_value_count,
+        self_healing_count=self_healing_count,
+        total_count=len(window_alerts),
+        recurrence_pressure=recurrence_pressure,
+        topology_pressure=topology_pressure,
+        multi_device_spread=multi_device_spread,
+    )
+    recommended_action = "external" if window_label in EXTERNAL_WINDOW_LABELS else "local"
+    pressure_score = int(recurrence_pressure) + int(topology_pressure) + int(multi_device_spread) + int(max_downstream >= 10)
+    quality_proxy_label = _quality_proxy_label(
+        high_value_count=high_value_count,
+        self_healing_count=self_healing_count,
+        total_count=len(window_alerts),
+        pressure_score=pressure_score,
+    )
+    selected_targets, excluded_targets = _window_evidence_targets(
+        window_alerts=window_alerts,
+        high_value_alerts=high_value_alerts,
+        self_healing_alerts=self_healing_alerts,
+        devices=devices,
+        path_signatures=path_signatures,
+        recommended_action=recommended_action,
+        window_label=window_label,
+    )
+    window_id = _hash_id(
+        "incident-window|"
+        f"{bucket}|{scenario_key}|{path_shape}|{','.join(alert_ids[:8])}|{len(alert_ids)}"
+    )
+    return {
+        "schema_version": 1,
+        "window_id": window_id,
+        "window_sec": window_sec,
+        "window_start": start.isoformat(),
+        "window_end": end.isoformat(),
+        "group_key": {
+            "time_bucket": bucket,
+            "scenario": scenario_key,
+            "path_shape": path_shape,
+        },
+        "alert_count": len(window_alerts),
+        "alert_ids": alert_ids,
+        "sample_alert_ids": alert_ids[:12],
+        "scenario_counts": dict(scenario_counts),
+        "devices": devices,
+        "device_count": len(devices),
+        "path_signatures": path_signatures,
+        "path_count": len(path_signatures),
+        "path_shapes": path_shapes,
+        "path_shape_count": len(path_shapes),
+        "first_alert_ts": start.isoformat(),
+        "last_alert_ts": end.isoformat(),
+        "timeline": timeline,
+        "recurrence_pressure": recurrence_pressure,
+        "topology_pressure": topology_pressure,
+        "multi_device_spread": multi_device_spread,
+        "max_downstream_dependents": max_downstream,
+        "pressure_score": pressure_score,
+        "high_value_count": high_value_count,
+        "self_healing_count": self_healing_count,
+        "self_healing_dominant": self_healing_count > 0 and high_value_count == 0,
+        "window_label": window_label,
+        "recommended_action": recommended_action,
+        "quality_proxy_label": quality_proxy_label,
+        "decision_reason": _window_decision_reason(
+            window_label=window_label,
+            alert_count=len(window_alerts),
+            device_count=len(devices),
+            high_value_count=high_value_count,
+            pressure_score=pressure_score,
+        ),
+        "selected_evidence_targets": selected_targets,
+        "excluded_evidence_targets": excluded_targets,
+    }
+
+
+def _window_label(
+    *,
+    high_value_count: int,
+    self_healing_count: int,
+    total_count: int,
+    recurrence_pressure: bool,
+    topology_pressure: bool,
+    multi_device_spread: bool,
+) -> str:
+    if high_value_count > 0 and self_healing_count > 0:
+        return "mixed_fault_and_transient"
+    if high_value_count > 0:
+        return "external_induced_fault"
+    if self_healing_count > 0 and multi_device_spread:
+        return "external_multi_device_spread"
+    if self_healing_count > 0 and recurrence_pressure:
+        return "external_repeated_transient"
+    if self_healing_count > 0 and topology_pressure:
+        return "local_transient_with_pressure"
+    if self_healing_count == total_count and total_count > 0:
+        return "local_single_transient"
+    if recurrence_pressure or topology_pressure:
+        return "external_unknown_with_pressure"
+    return "local_low_evidence"
+
+
+def _quality_proxy_label(
+    *,
+    high_value_count: int,
+    self_healing_count: int,
+    total_count: int,
+    pressure_score: int,
+) -> str:
+    if high_value_count > 0 and self_healing_count > 0:
+        return "mixed_high_value_window"
+    if high_value_count > 0:
+        return "high_value_window"
+    if self_healing_count == total_count and pressure_score > 0:
+        return "pressure_self_healing_window"
+    if self_healing_count == total_count:
+        return "low_value_self_healing_window"
+    if pressure_score > 0:
+        return "unknown_pressure_window"
+    return "low_evidence_window"
+
+
+def _window_evidence_targets(
+    *,
+    window_alerts: list[dict[str, Any]],
+    high_value_alerts: list[dict[str, Any]],
+    self_healing_alerts: list[dict[str, Any]],
+    devices: list[str],
+    path_signatures: list[str],
+    recommended_action: str,
+    window_label: str,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    target_alerts = high_value_alerts or window_alerts
+    representative_alerts = _representatives_by_device(target_alerts, max_items=3)
+    target_ids = _alert_ids(target_alerts)
+    representative_ids = _alert_ids(representative_alerts)
+    selected = {
+        "alert_ids": target_ids[:12],
+        "representative_alert_ids": representative_ids[:6],
+        "devices": sorted({_device(alert) for alert in target_alerts if _device(alert)})[:8] or devices[:8],
+        "path_signatures": sorted({_path_signature(alert) for alert in target_alerts if _path_signature(alert)})[:8]
+        or path_signatures[:8],
+        "timeline_required": len(window_alerts) > 1,
+        "selection_basis": window_label,
+    }
+    excluded: list[dict[str, Any]] = []
+    if recommended_action == "local":
+        excluded.append(
+            {
+                "kind": "local_window",
+                "alert_ids": _alert_ids(window_alerts)[:12],
+                "reason": "window label remains on bounded local path",
+            }
+        )
+    elif high_value_alerts and self_healing_alerts:
+        excluded.append(
+            {
+                "kind": "transient_context_not_primary",
+                "alert_ids": _alert_ids(self_healing_alerts)[:12],
+                "reason": "transient alerts are retained as context but not primary targets",
+            }
+        )
+    return selected, excluded
+
+
+def _representatives_by_device(alerts: list[dict[str, Any]], max_items: int) -> list[dict[str, Any]]:
+    reps: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for alert in sorted(alerts, key=_alert_sort_key):
+        device = _device(alert) or str(alert.get("alert_id") or "")
+        if device in seen:
+            continue
+        reps.append(alert)
+        seen.add(device)
+        if len(reps) >= max_items:
+            break
+    if not reps and alerts:
+        reps.append(sorted(alerts, key=_alert_sort_key)[0])
+    return reps
+
+
+def _alert_ids(alerts: list[dict[str, Any]]) -> list[str]:
+    return [str(alert.get("alert_id") or "") for alert in alerts if str(alert.get("alert_id") or "")]
+
+
+def _window_decision_reason(
+    *,
+    window_label: str,
+    alert_count: int,
+    device_count: int,
+    high_value_count: int,
+    pressure_score: int,
+) -> str:
+    if window_label == "mixed_fault_and_transient":
+        return f"window contains {high_value_count} high-value alerts and transient context."
+    if window_label == "external_induced_fault":
+        return f"window contains {high_value_count} high-value fault alerts."
+    if window_label == "external_multi_device_spread":
+        return f"transient-looking alerts span {device_count} devices."
+    if window_label == "external_repeated_transient":
+        return f"transient-looking alerts repeat {alert_count} times in the window."
+    if window_label == "local_transient_with_pressure":
+        return f"transient-looking window has topology pressure score {pressure_score} but no recurrence or spread trigger."
+    if window_label == "local_single_transient":
+        return "single transient-looking window remains local."
+    if window_label == "external_unknown_with_pressure":
+        return f"unknown window has pressure score {pressure_score}."
+    return "low-evidence window remains local."
+
+
+def _alert_sort_key(alert: dict[str, Any]) -> tuple[datetime, str]:
+    return (
+        _parse_ts(alert.get("alert_ts")) or datetime.min.replace(tzinfo=timezone.utc),
+        str(alert.get("alert_id") or ""),
+    )
+
+
+def _parse_ts(raw: Any) -> datetime | None:
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _scenario(alert: dict[str, Any]) -> str:
+    dimensions = alert.get("dimensions") or {}
+    metrics = alert.get("metrics") or {}
+    return str(
+        dimensions.get("fault_scenario")
+        or metrics.get("label_value")
+        or metrics.get("scenario")
+        or "unknown"
+    ).strip().lower()
+
+
+def _device(alert: dict[str, Any]) -> str:
+    topology = alert.get("topology_context") or {}
+    excerpt = alert.get("event_excerpt") or {}
+    dimensions = alert.get("dimensions") or {}
+    device_profile = alert.get("device_profile") or {}
+    return str(
+        topology.get("src_device_key")
+        or excerpt.get("src_device_key")
+        or dimensions.get("src_device_key")
+        or device_profile.get("src_device_key")
+        or ""
+    ).strip()
+
+
+def _path_signature(alert: dict[str, Any]) -> str:
+    topology = alert.get("topology_context") or {}
+    excerpt = alert.get("event_excerpt") or {}
+    path = str(topology.get("path_signature") or "").strip()
+    if path:
+        return path
+    srcintf = str(excerpt.get("srcintf") or topology.get("srcintf") or "unknown").strip()
+    dstintf = str(excerpt.get("dstintf") or topology.get("dstintf") or "unknown").strip()
+    return f"{srcintf or 'unknown'}->{dstintf or 'unknown'}"
+
+
+def _path_shape(alert: dict[str, Any]) -> str:
+    signature = _path_signature(alert)
+    if "|" in signature:
+        return "|".join(signature.split("|")[1:]) or signature
+    topology = alert.get("topology_context") or {}
+    hop_core = str(topology.get("hop_to_core") or "").strip()
+    hop_server = str(topology.get("hop_to_server") or "").strip()
+    path_up = str(topology.get("path_up") or "").strip()
+    parts = []
+    if hop_core:
+        parts.append(f"hop_core={hop_core}")
+    if hop_server:
+        parts.append(f"hop_server={hop_server}")
+    if path_up:
+        parts.append(f"path_up={path_up}")
+    return "|".join(parts) if parts else signature
+
+
+def _downstream_dependents(alert: dict[str, Any]) -> int:
+    topology = alert.get("topology_context") or {}
+    try:
+        return int(str(topology.get("downstream_dependents") or "0"))
+    except ValueError:
+        return 0
+
+
+def _is_high_value(alert: dict[str, Any]) -> bool:
+    severity = str(alert.get("severity") or "").lower()
+    scenario = _scenario(alert)
+    if severity == "critical":
+        return True
+    return scenario not in SELF_HEALING_SCENARIOS and scenario not in NON_FAULT_SCENARIOS
+
+
+def _hash_id(seed: str) -> str:
+    return hashlib.sha1(seed.encode("utf-8"), usedforsecurity=False).hexdigest()

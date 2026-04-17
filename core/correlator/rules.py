@@ -189,6 +189,7 @@ def _make_alert(
     source_event_id = str(event.get("event_id") or "")
     seed = f"{rule_id}|{source_event_id}|{int(event_ts.timestamp())}"
     alert_id = hashlib.sha1(seed.encode("utf-8"), usedforsecurity=False).hexdigest()
+    src_device_key = str(dimensions.get("src_device_key") or _event_entity_key(event) or "unknown")
 
     return {
         "schema_version": 1,
@@ -196,9 +197,11 @@ def _make_alert(
         "alert_ts": event_ts.isoformat(),
         "rule_id": rule_id,
         "severity": severity,
+        "src_device_key": src_device_key,
         "source_event_id": source_event_id,
         "dimensions": dimensions,
         "metrics": metrics,
+        "dataset_context": _build_dataset_context(event),
         "event_excerpt": {
             "event_id": event.get("event_id"),
             "event_ts": event.get("event_ts"),
@@ -218,7 +221,7 @@ def _make_alert(
             "dstintf": event.get("dstintf"),
             "dstintfrole": event.get("dstintfrole"),
             "service": event.get("service"),
-            "src_device_key": event.get("src_device_key"),
+            "src_device_key": src_device_key,
             "srcmac": event.get("srcmac") or event.get("mastersrcmac"),
             "devname": event.get("devname"),
             "srcname": event.get("srcname"),
@@ -380,18 +383,21 @@ def _build_topology_context(event: dict[str, Any]) -> dict[str, Any]:
         neighbor_refs = []
 
     topology["service"] = str(topology.get("service") or event.get("service") or "")
+    topology["src_device_key"] = _event_entity_key(event)
     topology["srcip"] = str(topology.get("srcip") or event.get("srcip") or "")
     topology["dstip"] = str(topology.get("dstip") or event.get("dstip") or "")
-    topology["srcintf"] = str(topology.get("srcintf") or event.get("srcintf") or "")
+    srcintf = str(topology.get("srcintf") or event.get("srcintf") or "")
+    interface_type = str(topology.get("interface_type") or event.get("interface_type") or "")
+    if _is_low_semantic_entity_key(srcintf):
+        interface_type = interface_type or srcintf
+        srcintf = ""
+    topology["srcintf"] = srcintf
     topology["dstintf"] = str(topology.get("dstintf") or event.get("dstintf") or "")
     topology["srcintfrole"] = str(topology.get("srcintfrole") or event.get("srcintfrole") or "")
     topology["dstintfrole"] = str(topology.get("dstintfrole") or event.get("dstintfrole") or "")
     topology["site"] = str(topology.get("site") or event.get("site") or "")
     topology["zone"] = str(topology.get("zone") or event.get("srcintfrole") or event.get("dstintfrole") or "")
-    topology["path_signature"] = str(
-        topology.get("path_signature")
-        or f"{topology['srcintf'] or 'unknown'}->{topology['dstintf'] or 'unknown'}"
-    )
+    topology["path_signature"] = _canonical_path_signature(event, topology)
     topology["policyid"] = str(topology.get("policyid") or event.get("policyid") or "")
     topology["policytype"] = str(topology.get("policytype") or event.get("policytype") or "")
     topology["neighbor_refs"] = [str(item).strip() for item in neighbor_refs if str(item).strip()]
@@ -401,7 +407,44 @@ def _build_topology_context(event: dict[str, Any]) -> dict[str, Any]:
         topology.get("downstream_dependents") or event.get("downstream_dependents") or ""
     )
     topology["path_up"] = str(topology.get("path_up") or event.get("path_up") or "")
+    topology["interface_type"] = interface_type
     return topology
+
+
+def _canonical_path_signature(event: dict[str, Any], topology: dict[str, Any]) -> str:
+    current = str(topology.get("path_signature") or "").strip()
+    if current and not _is_low_semantic_path_signature(current):
+        return current
+
+    device = _event_entity_key(event)
+    hop_to_core = str(topology.get("hop_to_core") or event.get("hop_to_core") or "").strip()
+    hop_to_server = str(topology.get("hop_to_server") or event.get("hop_to_server") or "").strip()
+    path_up = str(topology.get("path_up") or event.get("path_up") or "").strip()
+    parts: list[str] = []
+    if hop_to_core:
+        parts.append(f"hop_core={hop_to_core}")
+    if hop_to_server:
+        parts.append(f"hop_server={hop_to_server}")
+    if path_up:
+        parts.append(f"path_up={path_up}")
+    if device and device != "unknown" and parts:
+        return f"{device}|" + "|".join(parts)
+
+    srcintf = str(topology.get("srcintf") or event.get("srcintf") or "").strip()
+    dstintf = str(topology.get("dstintf") or event.get("dstintf") or "").strip()
+    return f"{srcintf or 'unknown'}->{dstintf or 'unknown'}"
+
+
+def _is_low_semantic_path_signature(value: str) -> bool:
+    text = value.strip()
+    if not text or text in {"unknown", "unknown->unknown"}:
+        return True
+    if "/data/" in text or ".csv" in text:
+        return True
+    left, sep, right = text.partition("->")
+    if sep and _is_low_semantic_entity_key(left) and right.strip().lower() == "unknown":
+        return True
+    return False
 
 
 def _build_device_profile(event: dict[str, Any]) -> dict[str, Any]:
@@ -429,6 +472,27 @@ def _build_device_profile(event: dict[str, Any]) -> dict[str, Any]:
     profile["asset_tags"] = asset_tags
     profile["known_services"] = known_services
     return profile
+
+
+def _build_dataset_context(event: dict[str, Any]) -> dict[str, Any]:
+    base = event.get("dataset_context")
+    if not isinstance(base, dict):
+        return {}
+    keys = [
+        "dataset_id",
+        "run_id",
+        "row_index",
+        "source_uri",
+        "source_file",
+        "timestamp_source",
+        "primary_time_field",
+        "label_fields",
+        "entity_fields",
+        "topology_fields",
+        "metric_field_count",
+        "original_column_count",
+    ]
+    return {key: base.get(key) for key in keys if key in base}
 
 
 def _build_change_context(event: dict[str, Any]) -> dict[str, Any]:

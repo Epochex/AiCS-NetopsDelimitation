@@ -1,6 +1,8 @@
 import hashlib
 from typing import Any
 
+from core.aiops_agent.alert_reasoning_runtime.self_healing_policy import assess_self_healing_decision
+
 
 HIGH_VALUE_SCENARIOS = {
     "induced_fault",
@@ -63,6 +65,11 @@ def extract_topology_aware_subgraph(
         cluster_size=cluster_size,
         neighbor_refs=neighbor_refs,
         topology=topology,
+    )
+    self_healing_decision = assess_self_healing_decision(
+        alert=alert,
+        recent_similar_1h=recent_similar_1h,
+        incident_window=_cluster_as_window(cluster_context),
     )
     root_node = _node(
         node_id=f"device::{device_key}",
@@ -157,6 +164,7 @@ def extract_topology_aware_subgraph(
             "budget_tier": "external_llm" if should_invoke else "template_only",
             "reason": gate_reason,
             "score_reasons": reasons,
+            "self_healing_decision": self_healing_decision,
         },
     }
 
@@ -408,3 +416,19 @@ def _string_list(value: Any) -> list[str]:
 
 def _hash_id(seed: str) -> str:
     return hashlib.sha1(seed.encode("utf-8"), usedforsecurity=False).hexdigest()
+
+
+def _cluster_as_window(cluster_context: dict[str, Any]) -> dict[str, Any] | None:
+    if not cluster_context:
+        return None
+    cluster_size = int(cluster_context.get("cluster_size") or 1)
+    device = str(cluster_context.get("src_device_key") or "")
+    return {
+        "alert_count": cluster_size,
+        "device_count": 1 if device else 0,
+        "devices": [device] if device else [],
+        "recurrence_pressure": cluster_size >= 3,
+        "topology_pressure": False,
+        "multi_device_spread": False,
+        "max_downstream_dependents": 0,
+    }

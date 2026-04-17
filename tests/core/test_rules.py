@@ -253,3 +253,65 @@ def test_alert_prefers_structured_context_when_event_already_contains_it() -> No
     assert alert["device_profile"]["asset_tags"] == ["iot", "lab"]
     assert alert["change_context"]["change_window_min"] == 30
     assert alert["change_context"]["change_refs"] == ["chg-1"]
+
+
+def test_lcore_alert_preserves_semantic_topology_and_run_id() -> None:
+    engine = RuleEngine(
+        RuleConfig(
+            deny_window_sec=60,
+            deny_threshold=999999,
+            bytes_window_sec=300,
+            bytes_threshold=10**12,
+            cooldown_sec=0,
+        )
+    )
+    event = _event("lcore-1", "2026-03-08T00:00:00Z", src_device_key="CORE-R4")
+    event.update(
+        {
+            "type": "telemetry",
+            "subtype": "fault_annotation",
+            "srcintf": "6",
+            "fault_context": {
+                "is_fault": True,
+                "scenario": "induced_fault",
+                "label_field": "class",
+                "label_value": "F",
+            },
+            "dataset_context": {
+                "dataset_id": "lcore-d",
+                "run_id": "run-20260412",
+                "row_index": 42,
+            },
+            "topology_context": {
+                "src_device_key": "CORE-R4",
+                "srcintf": "6",
+                "hop_to_core": "3",
+                "hop_to_server": "5",
+                "downstream_dependents": "4",
+                "path_up": "0",
+                "path_signature": "6->unknown",
+            },
+            "device_profile": {
+                "src_device_key": "CORE-R4",
+                "device_name": "CORE-R4",
+                "family": "lcore-d",
+            },
+        }
+    )
+
+    result = engine.process(event)
+
+    assert len(result) == 1
+    alert = result[0]
+    topology = alert["topology_context"]
+    assert alert["src_device_key"] == "CORE-R4"
+    assert alert["event_excerpt"]["src_device_key"] == "CORE-R4"
+    assert topology["src_device_key"] == "CORE-R4"
+    assert alert["dataset_context"]["run_id"] == "run-20260412"
+    assert topology["path_signature"] == "CORE-R4|hop_core=3|hop_server=5|path_up=0"
+    assert topology["srcintf"] == ""
+    assert topology["interface_type"] == "6"
+    assert topology["hop_to_core"] == "3"
+    assert topology["hop_to_server"] == "5"
+    assert topology["downstream_dependents"] == "4"
+    assert topology["path_up"] == "0"
