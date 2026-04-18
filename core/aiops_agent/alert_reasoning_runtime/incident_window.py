@@ -5,6 +5,9 @@ from collections import Counter
 from datetime import datetime, timezone
 from typing import Any
 
+from core.aiops_agent.alert_reasoning_runtime.representative_selection import select_representative_alerts
+from core.aiops_agent.alert_reasoning_runtime.window_risk import score_window_risk
+
 
 SELF_HEALING_SCENARIOS = {"transient_fault", "transient_healthy"}
 NON_FAULT_SCENARIOS = {"", "unknown", "healthy", "normal"}
@@ -84,6 +87,9 @@ def summarize_incident_window(window: dict[str, Any] | None) -> dict[str, Any]:
             "window_label": "",
             "recommended_action": "local",
             "quality_proxy_label": "",
+            "risk_score": 0,
+            "risk_tier": "low",
+            "risk_atoms": [],
             "timeline": [],
         }
     return {
@@ -106,6 +112,10 @@ def summarize_incident_window(window: dict[str, Any] | None) -> dict[str, Any]:
         "window_label": str(window.get("window_label") or ""),
         "recommended_action": str(window.get("recommended_action") or "local"),
         "quality_proxy_label": str(window.get("quality_proxy_label") or ""),
+        "risk_score": int(window.get("risk_score") or 0),
+        "risk_tier": str(window.get("risk_tier") or "low"),
+        "risk_atoms": list(window.get("risk_atoms") or [])[:12],
+        "risk_reasons": list(window.get("risk_reasons") or [])[:8],
         "decision_reason": str(window.get("decision_reason") or ""),
         "selected_evidence_targets": window.get("selected_evidence_targets") or {},
         "excluded_evidence_targets": window.get("excluded_evidence_targets") or [],
@@ -143,6 +153,11 @@ def build_window_evidence_boundary(window: dict[str, Any] | None) -> dict[str, A
         "decision_reason": str(window.get("decision_reason") or ""),
         "pressure_score": int(window.get("pressure_score") or 0),
         "quality_proxy_label": str(window.get("quality_proxy_label") or ""),
+        "risk_score": int(window.get("risk_score") or 0),
+        "risk_tier": str(window.get("risk_tier") or "low"),
+        "risk_atoms": list(window.get("risk_atoms") or [])[:12],
+        "risk_weights": window.get("risk_weights") or {},
+        "risk_reasons": list(window.get("risk_reasons") or [])[:8],
         "selected_surface": selected,
         "excluded_surface": excluded,
         "missing_surface": missing,
@@ -213,7 +228,7 @@ def _build_window(
         "incident-window|"
         f"{bucket}|{scenario_key}|{path_shape}|{','.join(alert_ids[:8])}|{len(alert_ids)}"
     )
-    return {
+    window = {
         "schema_version": 1,
         "window_id": window_id,
         "window_sec": window_sec,
@@ -258,6 +273,8 @@ def _build_window(
         "selected_evidence_targets": selected_targets,
         "excluded_evidence_targets": excluded_targets,
     }
+    window.update(score_window_risk(window))
+    return window
 
 
 def _window_label(
@@ -317,12 +334,13 @@ def _window_evidence_targets(
     window_label: str,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     target_alerts = high_value_alerts or window_alerts
-    representative_alerts = _representatives_by_device(target_alerts, max_items=3)
+    representative_selection = select_representative_alerts(target_alerts, max_items=3)
     target_ids = _alert_ids(target_alerts)
-    representative_ids = _alert_ids(representative_alerts)
+    representative_ids = representative_selection.get("representative_alert_ids") or []
     selected = {
         "alert_ids": target_ids[:12],
         "representative_alert_ids": representative_ids[:6],
+        "representative_selection": representative_selection,
         "devices": sorted({_device(alert) for alert in target_alerts if _device(alert)})[:8] or devices[:8],
         "path_signatures": sorted({_path_signature(alert) for alert in target_alerts if _path_signature(alert)})[:8]
         or path_signatures[:8],

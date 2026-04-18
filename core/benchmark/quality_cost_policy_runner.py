@@ -9,13 +9,19 @@ from typing import Any
 
 from core.aiops_agent.alert_reasoning_runtime.incident_window import build_incident_window_index
 from core.aiops_agent.alert_reasoning_runtime.context_views import build_context_views
+from core.aiops_agent.alert_reasoning_runtime.budget_controller import select_windows_under_budget
 from core.aiops_agent.alert_reasoning_runtime.self_healing_policy import (
     SELF_HEALING_SCENARIOS,
     assess_self_healing_decision,
 )
+from core.aiops_agent.alert_reasoning_runtime.window_labeling import build_weak_window_label
 from core.aiops_agent.evidence_bundle import build_alert_evidence_bundle
 from core.benchmark.topology_subgraph_ablation import _is_high_value, _iter_alerts, _parse_ts
 
+
+BUDGET_FRACTIONS = (1, 2, 5, 10, 20, 40, 60)
+BUDGET_POLICIES = tuple(f"budget-risk-{value}" for value in BUDGET_FRACTIONS)
+BUDGET_COVERAGE_POLICIES = tuple(f"budget-coverage-{value}" for value in BUDGET_FRACTIONS)
 
 POLICIES = (
     "invoke-all",
@@ -26,6 +32,8 @@ POLICIES = (
     "topology-aware",
     "topology+timeline",
     "window-risk-tier",
+    *BUDGET_POLICIES,
+    *BUDGET_COVERAGE_POLICIES,
     "oracle",
 )
 
@@ -42,10 +50,12 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     history: deque[tuple[datetime, str, str]] = deque()
     policy_stats = {policy: _empty_stats() for policy in POLICIES}
     window_policy_selected = {policy: {} for policy in POLICIES}
+    budget_admissions = _build_budget_admissions(windows)
     decision_counts: Counter[str] = Counter()
     pressure_counts: Counter[str] = Counter()
     window_label_counts: Counter[str] = Counter(str(window.get("window_label") or "unknown") for window in windows)
     window_quality_counts: Counter[str] = Counter(str(window.get("quality_proxy_label") or "unknown") for window in windows)
+    window_risk_counts: Counter[str] = Counter(str(window.get("risk_tier") or "unknown") for window in windows)
 
     for alert in alerts:
         alert_ts = _parse_ts(alert.get("alert_ts"))
@@ -91,6 +101,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 self_healing=self_healing,
                 recent_similar_1h=recent_similar_1h,
                 recurrence_threshold=args.recurrence_threshold,
+                budget_admissions=budget_admissions,
             )
             _update_stats(
                 stats=policy_stats[policy],
@@ -124,8 +135,13 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "window_summary": _window_summary(windows),
         "window_labels": dict(window_label_counts.most_common()),
         "window_quality_proxy_labels": dict(window_quality_counts.most_common()),
+        "window_risk_tiers": dict(window_risk_counts.most_common()),
         "self_healing_decisions": dict(decision_counts.most_common()),
         "pressure_counts": dict(pressure_counts.most_common()),
+        "budget_admissions": {
+            policy: _budget_admission_summary(admission)
+            for policy, admission in budget_admissions.items()
+        },
         "policies": {
             policy: {
                 **_finalize_stats(policy_stats[policy], total),
@@ -136,6 +152,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     }
     if getattr(args, "output_windows_jsonl", ""):
         _write_windows_jsonl(Path(args.output_windows_jsonl), windows)
+    if getattr(args, "output_labels_jsonl", ""):
+        _write_labels_jsonl(Path(args.output_labels_jsonl), windows)
     if args.output_json:
         path = Path(args.output_json)
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -154,6 +172,7 @@ def _selected_by_policy(
     self_healing: dict[str, Any],
     recent_similar_1h: int,
     recurrence_threshold: int,
+    budget_admissions: dict[str, dict[str, Any]],
 ) -> bool:
     if policy == "invoke-all":
         return True
@@ -173,9 +192,41 @@ def _selected_by_policy(
         return _topology_timeline_selected(alert, context_views, incident_window, self_healing)
     if policy == "window-risk-tier":
         return _window_risk_tier_selected(alert, incident_window)
+    if policy.startswith("budget-risk-") or policy.startswith("budget-coverage-"):
+        admission = budget_admissions.get(policy) or {}
+        return _alert_id(alert) in (admission.get("representative_alert_ids") or set())
     if policy == "oracle":
         return _is_high_value(alert)
     raise ValueError(f"unknown policy: {policy}")
+
+
+def _build_budget_admissions(windows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    admissions: dict[str, dict[str, Any]] = {}
+    for value in BUDGET_FRACTIONS:
+        fraction = value / 100.0
+        admissions[f"budget-risk-{value}"] = select_windows_under_budget(windows, budget_fraction=fraction)
+        admissions[f"budget-coverage-{value}"] = select_windows_under_budget(
+            windows,
+            budget_fraction=fraction,
+            min_high_value=False,
+        )
+    return admissions
+
+
+def _budget_admission_summary(admission: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "admission_strategy": admission.get("admission_strategy"),
+        "budget_fraction": admission.get("budget_fraction"),
+        "budget_windows": admission.get("budget_windows"),
+        "budget_external_calls": admission.get("budget_external_calls"),
+        "used_external_calls": admission.get("used_external_calls"),
+        "safety_floor_extra_calls": admission.get("safety_floor_extra_calls"),
+        "windows_total": admission.get("windows_total"),
+        "selected_windows": admission.get("selected_windows"),
+        "selected_representative_alerts": admission.get("selected_representative_alerts"),
+        "covered_risk_atom_count": admission.get("covered_risk_atom_count"),
+        "selected_risk_weight": admission.get("selected_risk_weight"),
+    }
 
 
 def _window_risk_tier_selected(alert: dict[str, Any], incident_window: dict[str, Any] | None) -> bool:
@@ -415,9 +466,23 @@ def _write_windows_jsonl(path: Path, windows: list[dict[str, Any]]) -> None:
                 "window_label": window.get("window_label") or "",
                 "recommended_action": window.get("recommended_action") or "local",
                 "quality_proxy_label": window.get("quality_proxy_label") or "",
+                "risk_score": window.get("risk_score") or 0,
+                "risk_tier": window.get("risk_tier") or "low",
+                "risk_atoms": window.get("risk_atoms") or [],
+                "risk_offsets": window.get("risk_offsets") or [],
+                "risk_weights": window.get("risk_weights") or {},
+                "risk_reasons": window.get("risk_reasons") or [],
                 "decision_reason": window.get("decision_reason") or "",
                 "alert_count": window.get("alert_count") or 0,
                 "device_count": window.get("device_count") or 0,
+                "path_count": window.get("path_count") or 0,
+                "high_value_count": window.get("high_value_count") or 0,
+                "self_healing_count": window.get("self_healing_count") or 0,
+                "self_healing_dominant": bool(window.get("self_healing_dominant")),
+                "recurrence_pressure": bool(window.get("recurrence_pressure")),
+                "topology_pressure": bool(window.get("topology_pressure")),
+                "multi_device_spread": bool(window.get("multi_device_spread")),
+                "max_downstream_dependents": window.get("max_downstream_dependents") or 0,
                 "scenario_counts": window.get("scenario_counts") or {},
                 "pressure_score": window.get("pressure_score") or 0,
                 "selected_evidence_targets": window.get("selected_evidence_targets") or {},
@@ -425,6 +490,13 @@ def _write_windows_jsonl(path: Path, windows: list[dict[str, Any]]) -> None:
                 "timeline": window.get("timeline") or [],
             }
             fp.write(json.dumps(record, ensure_ascii=True, sort_keys=True) + "\n")
+
+
+def _write_labels_jsonl(path: Path, windows: list[dict[str, Any]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as fp:
+        for window in windows:
+            fp.write(json.dumps(build_weak_window_label(window), ensure_ascii=True, sort_keys=True) + "\n")
 
 
 def _scenario(alert: dict[str, Any]) -> str:
@@ -451,6 +523,7 @@ def main() -> None:
     parser.add_argument("--downstream-threshold", type=int, default=10)
     parser.add_argument("--output-json", default="")
     parser.add_argument("--output-windows-jsonl", default="")
+    parser.add_argument("--output-labels-jsonl", default="")
     run(parser.parse_args())
 
 
