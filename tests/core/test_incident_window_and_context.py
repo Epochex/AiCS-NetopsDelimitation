@@ -8,7 +8,10 @@ from core.aiops_agent.alert_reasoning_runtime.incident_window import (
     build_incident_window_index,
 )
 from core.aiops_agent.alert_reasoning_runtime.prompt_contracts import build_prompt_contracts
+from core.aiops_agent.alert_reasoning_runtime.budget_controller import select_windows_under_budget
+from core.aiops_agent.alert_reasoning_runtime.representative_selection import select_representative_alerts
 from core.aiops_agent.alert_reasoning_runtime.self_healing_policy import assess_self_healing_decision
+from core.aiops_agent.alert_reasoning_runtime.window_labeling import build_weak_window_label
 from core.aiops_agent.evidence_bundle import build_alert_evidence_bundle
 from core.benchmark.quality_cost_policy_runner import run as run_quality_cost
 
@@ -74,6 +77,13 @@ def test_incident_window_groups_path_shape_and_tracks_multi_device_pressure() ->
     assert windows[0]["recurrence_pressure"] is True
     assert windows[0]["window_label"] == "external_multi_device_spread"
     assert windows[0]["recommended_action"] == "external"
+    assert windows[0]["risk_tier"] == "high"
+    assert {atom["key"] for atom in windows[0]["risk_atoms"]} >= {
+        "spread:multi_device",
+        "pressure:recurrence",
+        "pressure:topology",
+    }
+    assert windows[0]["selected_evidence_targets"]["representative_alert_ids"]
     assert index["a2"]["device_count"] == 3
 
 
@@ -93,6 +103,65 @@ def test_incident_window_mixes_fault_and_transient_on_same_path_shape() -> None:
     assert index["a1"]["recommended_action"] == "external"
     assert boundary["selected_surface"]["alert_ids"] == ["a2"]
     assert boundary["excluded_surface"][0]["kind"] == "transient_context_not_primary"
+    assert boundary["risk_tier"] == "high"
+
+
+def test_representative_selection_and_budget_controller_keep_high_value_windows() -> None:
+    alerts = [
+        _alert("a1", ts="2026-04-10T00:00:00+00:00", device="CORE-R2", scenario="transient_fault"),
+        _alert("a2", ts="2026-04-10T00:01:00+00:00", device="CORE-R3", scenario="transient_fault"),
+        _alert("a3", ts="2026-04-10T00:02:00+00:00", device="CORE-R4", scenario="induced_fault"),
+    ]
+    windows, _ = build_incident_window_index(alerts, window_sec=600)
+    selected = select_representative_alerts(alerts, max_items=2)
+    admission = select_windows_under_budget(windows, budget_fraction=0.1)
+    weak = build_weak_window_label(windows[0])
+
+    assert "a3" in selected["representative_alert_ids"]
+    assert admission["admission_strategy"] == "marginal_uncovered_risk_per_representative_cost"
+    assert admission["selected_windows"] == 1
+    assert "a3" in admission["representative_alert_ids"]
+    assert weak["should_invoke_external"] is True
+    assert weak["selected_device_covered"] is True
+    assert any(atom["key"] == "value:high_fault" for atom in weak["risk_atoms"])
+
+
+def test_budget_controller_prefers_uncovered_risk_atoms() -> None:
+    windows = [
+        {
+            "window_id": "w1",
+            "high_value_count": 1,
+            "risk_score": 10,
+            "risk_tier": "high",
+            "risk_atoms": [{"key": "value:high_fault", "weight": 10}],
+            "selected_evidence_targets": {"representative_alert_ids": ["a1"]},
+        },
+        {
+            "window_id": "w2",
+            "high_value_count": 1,
+            "risk_score": 10,
+            "risk_tier": "high",
+            "risk_atoms": [{"key": "value:high_fault", "weight": 10}],
+            "selected_evidence_targets": {"representative_alert_ids": ["a2"]},
+        },
+        {
+            "window_id": "w3",
+            "high_value_count": 0,
+            "risk_score": 10,
+            "risk_tier": "high",
+            "risk_atoms": [
+                {"key": "spread:multi_device", "weight": 6},
+                {"key": "pressure:topology", "weight": 4},
+            ],
+            "selected_evidence_targets": {"representative_alert_ids": ["a3"]},
+        },
+    ]
+
+    admission = select_windows_under_budget(windows, budget_fraction=0.67, min_high_value=False)
+
+    assert admission["selected_window_ids"] == {"w1", "w3"}
+    assert admission["covered_risk_atom_count"] == 3
+    assert admission["used_external_calls"] == 2
 
 
 def test_self_healing_decision_separates_single_pressure_and_repeated_transient() -> None:
@@ -161,6 +230,7 @@ def test_quality_cost_policy_runner_reports_tradeoff_metrics(tmp_path: Path) -> 
             group_by_scenario=False,
             output_json="",
             output_windows_jsonl="",
+            output_labels_jsonl="",
         )
     )
 
@@ -171,4 +241,7 @@ def test_quality_cost_policy_runner_reports_tradeoff_metrics(tmp_path: Path) -> 
     assert report["policies"]["topology+timeline"]["calls"] >= 2
     assert report["policies"]["window-risk-tier"]["calls"] >= 1
     assert report["policies"]["window-risk-tier"]["window_metrics"]["high_value_window_recall"] == 1.0
+    assert report["policies"]["budget-risk-5"]["window_metrics"]["high_value_window_recall"] == 1.0
+    assert report["budget_admissions"]["budget-risk-10"]["selected_windows"] >= 1
+    assert report["window_risk_tiers"]["high"] == 1
     assert report["policies"]["topology+timeline"]["evidence_coverage_rate"] == 1.0

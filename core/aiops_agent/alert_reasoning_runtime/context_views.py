@@ -78,6 +78,9 @@ def build_context_views(
             "self_healing_decision": self_healing,
             "window_label": window_boundary.get("window_label") or "",
             "window_quality_proxy_label": window_boundary.get("quality_proxy_label") or "",
+            "window_risk_tier": window_boundary.get("risk_tier") or "low",
+            "window_risk_score": int(window_boundary.get("risk_score") or 0),
+            "window_risk_atoms": window_boundary.get("risk_atoms") or [],
         },
         "missing_evidence_view": missing,
         "excluded_evidence_view": excluded + list(window_boundary.get("excluded_surface") or []),
@@ -89,6 +92,8 @@ def build_context_views(
             "self_healing_reason": self_healing.get("reason") or "",
             "window_recommended_action": window_boundary.get("recommended_action") or "local",
             "window_decision_reason": window_boundary.get("decision_reason") or "",
+            "window_risk_tier": window_boundary.get("risk_tier") or "low",
+            "window_risk_atoms": window_boundary.get("risk_atoms") or [],
         },
     }
 
