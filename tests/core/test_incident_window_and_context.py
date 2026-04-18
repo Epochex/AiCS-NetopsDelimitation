@@ -14,6 +14,8 @@ from core.aiops_agent.alert_reasoning_runtime.self_healing_policy import assess_
 from core.aiops_agent.alert_reasoning_runtime.window_labeling import build_weak_window_label
 from core.aiops_agent.evidence_bundle import build_alert_evidence_bundle
 from core.benchmark.quality_cost_policy_runner import run as run_quality_cost
+from core.benchmark.window_expert_reviewer import review_window
+from core.benchmark.external_validation_adapter import run as run_external_validation
 
 
 def _alert(
@@ -245,3 +247,71 @@ def test_quality_cost_policy_runner_reports_tradeoff_metrics(tmp_path: Path) -> 
     assert report["budget_admissions"]["budget-risk-10"]["selected_windows"] >= 1
     assert report["window_risk_tiers"]["high"] == 1
     assert report["policies"]["topology+timeline"]["evidence_coverage_rate"] == 1.0
+
+
+def test_expert_style_window_review_distinguishes_pressure_from_local_transient() -> None:
+    high_value_window, _ = build_incident_window_index(
+        [
+            _alert("a1", ts="2026-04-10T00:00:00+00:00", device="CORE-R2", scenario="induced_fault"),
+            _alert("a2", ts="2026-04-10T00:01:00+00:00", device="CORE-R3", scenario="transient_fault"),
+        ],
+        window_sec=600,
+    )
+    local_window, _ = build_incident_window_index(
+        [
+            _alert("b1", ts="2026-04-10T00:00:00+00:00", device="CORE-R2", scenario="transient_fault"),
+        ],
+        window_sec=600,
+    )
+
+    high_review = review_window(high_value_window[0])
+    local_review = review_window(local_window[0])
+
+    assert high_review["should_invoke_external"] is True
+    assert high_review["false_skip_if_local"] is True
+    assert high_review["representative_alert_sufficient"] is True
+    assert local_review["should_invoke_external"] is False
+    assert local_review["false_skip_if_local"] is False
+
+
+def test_external_validation_adapter_reports_admission_metrics(tmp_path: Path) -> None:
+    dataset = tmp_path / "external.jsonl"
+    records = [
+        {
+            "id": "r1",
+            "timestamp": "2026-04-10T00:00:00+00:00",
+            "service": "checkout",
+            "fault_type": "latency_fault",
+            "trace_id": "trace-a",
+        },
+        {
+            "id": "r2",
+            "timestamp": "2026-04-10T00:01:00+00:00",
+            "service": "payment",
+            "fault_type": "latency_fault",
+            "trace_id": "trace-a",
+        },
+        {
+            "id": "r3",
+            "timestamp": "2026-04-10T00:02:00+00:00",
+            "service": "frontend",
+            "fault_type": "transient_fault",
+            "trace_id": "trace-b",
+        },
+    ]
+    with dataset.open("w", encoding="utf-8") as fp:
+        for record in records:
+            fp.write(json.dumps(record, ensure_ascii=True) + "\n")
+
+    report = run_external_validation(
+        Namespace(
+            dataset_jsonl=str(dataset),
+            window_sec=600,
+            output_json="",
+        )
+    )
+
+    assert report["converted_alerts"] == 3
+    assert report["incident_windows"] >= 2
+    assert report["policies"]["invoke-all"]["high_value_window_recall"] == 1.0
+    assert "budget-risk-20" in report["policies"]

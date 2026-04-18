@@ -30,10 +30,12 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         str(rate): _threshold_for_false_skip(scored, rate)
         for rate in TARGET_FALSE_SKIP_RATES
     }
+    label_sources = Counter(str(item.get("label_source") or "unknown") for item in scored)
     report = {
         "schema_version": 1,
         "labels_jsonl": args.labels_jsonl,
-        "label_source": "weak" if args.allow_weak_labels else "expert",
+        "label_source": "weak" if args.allow_weak_labels else _dominant_source(label_sources),
+        "label_sources": dict(label_sources.most_common()),
         "examples": len(scored),
         "positive_examples": sum(1 for item in scored if item["target"]),
         "negative_examples": sum(1 for item in scored if not item["target"]),
@@ -57,12 +59,15 @@ def _to_example(record: dict[str, Any], *, allow_weak: bool) -> dict[str, Any] |
         if not allow_weak:
             return None
         target = bool(weak.get("should_invoke_external"))
+        label_source = "weak"
     else:
         target = bool(expert_target)
+        label_source = str(expert.get("label_source") or "expert")
     atoms = window.get("risk_atoms") or weak.get("risk_atoms") or []
     return {
         "window_id": str(window.get("window_id") or weak.get("window_id") or ""),
         "target": target,
+        "label_source": label_source,
         "atoms": [
             _base_atom_key(str(atom.get("key") or ""))
             for atom in atoms
@@ -137,6 +142,12 @@ def _read_jsonl(path: Path) -> list[dict[str, Any]]:
             if line:
                 records.append(json.loads(line))
     return records
+
+
+def _dominant_source(sources: Counter[str]) -> str:
+    if not sources:
+        return "expert"
+    return sources.most_common(1)[0][0]
 
 
 def main() -> None:
