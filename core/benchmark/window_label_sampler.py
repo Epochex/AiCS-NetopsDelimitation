@@ -37,6 +37,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         {
             "window": window,
             "weak_label": build_weak_window_label(window),
+            "expert_label": _empty_expert_label(),
         }
         for window in sampled[: args.max_windows or None]
     ]
@@ -66,6 +67,19 @@ def _read_jsonl(path: Path) -> list[dict[str, Any]]:
                 continue
             records.append(json.loads(line))
     return records
+
+
+def _empty_expert_label() -> dict[str, Any]:
+    return {
+        "should_invoke_external": None,
+        "representative_alert_sufficient": None,
+        "selected_device_covered": None,
+        "selected_path_covered": None,
+        "timeline_sufficient": None,
+        "false_skip_if_local": None,
+        "reviewer": "",
+        "review_notes": "",
+    }
 
 
 def main() -> None:

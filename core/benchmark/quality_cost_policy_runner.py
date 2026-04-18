@@ -19,6 +19,10 @@ from core.aiops_agent.evidence_bundle import build_alert_evidence_bundle
 from core.benchmark.topology_subgraph_ablation import _is_high_value, _iter_alerts, _parse_ts
 
 
+BUDGET_FRACTIONS = (1, 2, 5, 10, 20, 40, 60)
+BUDGET_POLICIES = tuple(f"budget-risk-{value}" for value in BUDGET_FRACTIONS)
+BUDGET_COVERAGE_POLICIES = tuple(f"budget-coverage-{value}" for value in BUDGET_FRACTIONS)
+
 POLICIES = (
     "invoke-all",
     "severity-only",
@@ -28,12 +32,8 @@ POLICIES = (
     "topology-aware",
     "topology+timeline",
     "window-risk-tier",
-    "budget-risk-5",
-    "budget-risk-10",
-    "budget-risk-20",
-    "budget-coverage-5",
-    "budget-coverage-10",
-    "budget-coverage-20",
+    *BUDGET_POLICIES,
+    *BUDGET_COVERAGE_POLICIES,
     "oracle",
 )
 
@@ -201,14 +201,16 @@ def _selected_by_policy(
 
 
 def _build_budget_admissions(windows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
-    return {
-        "budget-risk-5": select_windows_under_budget(windows, budget_fraction=0.05),
-        "budget-risk-10": select_windows_under_budget(windows, budget_fraction=0.10),
-        "budget-risk-20": select_windows_under_budget(windows, budget_fraction=0.20),
-        "budget-coverage-5": select_windows_under_budget(windows, budget_fraction=0.05, min_high_value=False),
-        "budget-coverage-10": select_windows_under_budget(windows, budget_fraction=0.10, min_high_value=False),
-        "budget-coverage-20": select_windows_under_budget(windows, budget_fraction=0.20, min_high_value=False),
-    }
+    admissions: dict[str, dict[str, Any]] = {}
+    for value in BUDGET_FRACTIONS:
+        fraction = value / 100.0
+        admissions[f"budget-risk-{value}"] = select_windows_under_budget(windows, budget_fraction=fraction)
+        admissions[f"budget-coverage-{value}"] = select_windows_under_budget(
+            windows,
+            budget_fraction=fraction,
+            min_high_value=False,
+        )
+    return admissions
 
 
 def _budget_admission_summary(admission: dict[str, Any]) -> dict[str, Any]:
