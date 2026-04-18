@@ -16,6 +16,7 @@ from core.aiops_agent.evidence_bundle import build_alert_evidence_bundle
 from core.benchmark.quality_cost_policy_runner import run as run_quality_cost
 from core.benchmark.window_expert_reviewer import review_window
 from core.benchmark.external_validation_adapter import run as run_external_validation
+from core.benchmark.rcaeval_re1_converter import run as run_rcaeval_converter
 
 
 def _alert(
@@ -315,3 +316,36 @@ def test_external_validation_adapter_reports_admission_metrics(tmp_path: Path) -
     assert report["incident_windows"] >= 2
     assert report["policies"]["invoke-all"]["high_value_window_recall"] == 1.0
     assert "budget-risk-20" in report["policies"]
+    assert "budget-coverage-1" in report["policies"]
+    assert report["policies"]["invoke-all"]["external_calls"] == 3
+
+
+def test_rcaeval_re1_converter_preserves_root_and_metric_symptoms(tmp_path: Path) -> None:
+    case_dir = tmp_path / "RE1-OB" / "checkoutservice_mem" / "1"
+    case_dir.mkdir(parents=True)
+    inject = 1_700_000_600
+    (case_dir / "inject_time.txt").write_text(str(inject), encoding="utf-8")
+    with (case_dir / "data.csv").open("w", encoding="utf-8") as fp:
+        fp.write("time,checkoutservice_mem,paymentservice_latency,frontend_cpu\n")
+        for ts in range(inject - 10, inject):
+            fp.write(f"{ts},10,1.0,5.0\n")
+        for ts in range(inject, inject + 10):
+            fp.write(f"{ts},100,4.0,5.1\n")
+
+    output = tmp_path / "rcaeval.jsonl"
+    summary = run_rcaeval_converter(
+        Namespace(
+            re1_root=str(tmp_path),
+            output_jsonl=str(output),
+            output_summary_json="",
+            top_symptoms=3,
+            min_symptom_score=1.0,
+        )
+    )
+    records = [json.loads(line) for line in output.read_text(encoding="utf-8").splitlines()]
+
+    assert summary["cases"] == 1
+    assert records[0]["is_root_cause"] is True
+    assert records[0]["service"] == "checkoutservice"
+    assert records[0]["fault_type"] == "rcaeval_mem_fault"
+    assert any(record["service"] == "paymentservice" for record in records[1:])

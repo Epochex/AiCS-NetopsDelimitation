@@ -1,0 +1,42 @@
+{
+  "benchmarks": {
+    "RE1-OB": 125,
+    "RE1-SS": 125,
+    "RE1-TT": 125
+  },
+  "cases": 375,
+  "conversion_scope": "metric-derived admission records; RCAEval ground-truth service and fault labels are preserved",
+  "fault_types": {
+    "cpu": 75,
+    "delay": 75,
+    "disk": 75,
+    "loss": 75,
+    "mem": 75
+  },
+  "min_symptom_score": 1.0,
+  "output_jsonl": "documentation/results/rcaeval_re1_admission_records.jsonl",
+  "records": 2120,
+  "root_cause_records": 375,
+  "schema_version": 1,
+  "services": {
+    "adservice": 25,
+    "carts": 25,
+    "cartservice": 25,
+    "catalogue": 25,
+    "checkoutservice": 25,
+    "currencyservice": 25,
+    "orders": 25,
+    "payment": 25,
+    "productcatalogservice": 25,
+    "ts-auth-service": 25,
+    "ts-order-service": 25,
+    "ts-route-service": 25,
+    "ts-train-service": 25,
+    "ts-travel-service": 25,
+    "user": 25
+  },
+  "source": "RCAEval RE1",
+  "source_root": "/data/external_benchmarks/RCAEval/data/RE1",
+  "symptom_records": 1745,
+  "top_symptoms": 5
+}

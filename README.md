@@ -228,17 +228,39 @@ The earlier topology-aware alert-level gate is still useful as a baseline. It sh
 
 The window-level system supersedes this as the main path. The local topology view now sits inside the window evidence boundary instead of acting as the whole policy.
 
-## External Validation
+## External Validation on RCAEval RE1
 
-An RCAEval-style adapter is implemented for admission-layer transfer experiments. It converts external incident JSONL records into the same window abstraction and reports admission metrics for invoke-all, scenario-only, window-risk-tier, strict budget, and risk-budget policies.
+RCAEval RE1 is now used as an external admission benchmark. The goal is not to compete with RCAEval root-cause ranking methods. The goal is narrower: test whether the window-level admission layer transfers to another replayable incident benchmark with known root-cause service and fault labels.
 
-The adapter expects JSONL records with fields such as:
+The converter reads RCAEval RE1 metric cases and emits admission records. For each case, it keeps one root-cause record from the dataset label and derives a small set of symptom records from metrics whose post-injection behavior changes relative to the pre-injection baseline. This creates the same shape as the LCORE-D admission problem: a high-value window may contain both root evidence and symptom evidence, and the system should avoid invoking the external model for every symptom alert.
 
-```json
-{"timestamp": "...", "service": "...", "fault_type": "...", "trace_id": "..."}
-```
+Current RCAEval RE1 conversion:
 
-Its scope is limited: it tests whether the admission layer can transfer to another incident benchmark. It does not claim root-cause ranking accuracy. No RCAEval dataset is currently checked into this workspace, so the repository does not claim completed RCAEval results.
+| Quantity | Value |
+| --- | ---: |
+| RCAEval RE1 cases | 375 |
+| Benchmarks | RE1-OB, RE1-SS, RE1-TT |
+| Fault types | cpu, delay, disk, loss, mem |
+| Admission records | 2,120 |
+| Root-cause records | 375 |
+| Metric-derived symptom records | 1,745 |
+| Incident windows | 375 |
+
+External validation results:
+
+| Policy | External calls | Call reduction | High-value window recall | False-skip rate | Evidence target coverage |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Invoke all | 2,120 | 0.00% | 100.00% | 0.00% | 100.00% |
+| Scenario only | 375 | 82.31% | 100.00% | 0.00% | 100.00% |
+| Window risk tier | 375 | 82.31% | 100.00% | 0.00% | 100.00% |
+| Strict budget 20% | 75 | 96.46% | 20.00% | 80.00% | 100.00% |
+| Strict budget 60% | 225 | 89.39% | 60.00% | 40.00% | 100.00% |
+
+The RCAEval result mainly validates representative invocation under a labeled external benchmark. Calling every metric-derived record would issue 2,120 external calls. Calling one representative high-value record per case issues 375 calls while retaining all high-value windows. This uses RCAEval's ground-truth labels to construct the benchmark records; it is not a deployment-time claim that the system can identify the root cause without labels. The strict budget curve intentionally shows the risk of over-aggressive admission: when the budget is capped below the number of known fault windows, recall falls roughly with the budget. This is useful because it separates two modes that should not be conflated: a safety-floor policy preserves all known high-value windows, while a hard budget exposes the quality loss caused by insufficient budget.
+
+![RCAEval external validation frontier](documentation/images/rcaeval_external_validation_frontier.png)
+
+The RCAEval expert-style review file marks all 375 windows as external-worthy because every RE1 case is a fault-injection case with a known root-cause service. This is expected and useful for validating false-skip behavior, but it does not provide negative examples for selectivity calibration. The calibration report therefore includes a warning: selectivity and false-positive tradeoffs cannot be calibrated from RE1 alone. LCORE-D supplies the self-healing and transient-heavy side of the problem; RCAEval RE1 supplies an external fault-injection benchmark.
 
 ## Relation to BiAn and LogPilot
 
@@ -293,12 +315,34 @@ python3 -m core.benchmark.quality_cost_frontier_plot \
   --output-dir documentation/images
 ```
 
-Run the external validation adapter after exporting an RCAEval-style JSONL:
+Convert RCAEval RE1 after downloading and extracting the public data outside the repository:
+
+```bash
+python3 -m core.benchmark.rcaeval_re1_converter \
+  --re1-root /data/external_benchmarks/RCAEval/data/RE1 \
+  --output-jsonl documentation/results/rcaeval_re1_admission_records.jsonl \
+  --output-summary-json documentation/results/rcaeval_re1_conversion_summary.json \
+  --top-symptoms 5 \
+  --min-symptom-score 1.0
+```
+
+Run external validation on the converted records:
 
 ```bash
 python3 -m core.benchmark.external_validation_adapter \
-  --dataset-jsonl /path/to/rcaeval_export.jsonl \
-  --output-json /data/netops-runtime/LCORE-D/work/external-validation-rcaeval.json
+  --dataset-jsonl documentation/results/rcaeval_re1_admission_records.jsonl \
+  --window-sec 86400 \
+  --output-json documentation/results/rcaeval_re1_external_validation.json \
+  --output-windows-jsonl documentation/results/rcaeval_re1_windows.jsonl \
+  --output-labels-jsonl documentation/results/rcaeval_re1_weak_labels.jsonl
+```
+
+Render the RCAEval external-validation figure:
+
+```bash
+python3 -m core.benchmark.external_validation_plot \
+  --report-json documentation/results/rcaeval_re1_external_validation.json \
+  --output-dir documentation/images
 ```
 
 ## Current Claim Boundary
@@ -309,14 +353,15 @@ Supported by the current code and replay:
 - incident windows reduce repeated alert-level invocation;
 - evidence boundaries define what the model may see;
 - budgeted admission exposes call-reduction versus risk tradeoffs;
-- live provider replay validates serving isolation and schema checks.
+- live provider replay validates serving isolation and schema checks;
+- RCAEval RE1 shows the admission layer can be applied to an external replay benchmark and can reduce metric-record-level invocation through representative alerts.
 
 Not yet supported:
 
 - independent human expert labels;
-- true RCAEval external-validation results;
+- calibrated selectivity from an external dataset with both positive and negative windows;
 - incident-level localization accuracy;
 - operational diagnosis at production scale;
 - evidence that model explanations improve operator outcomes.
 
-The next research step is evidence, not more terminology: add independent window-level operator labels, run the RCAEval adapter on a real export, and evaluate explanation quality against those labels.
+The next research step is evidence, not more terminology: add independent window-level operator labels, extend external validation beyond RCAEval RE1 to datasets with negative or self-healing windows, and evaluate explanation quality against human-reviewed incident windows.

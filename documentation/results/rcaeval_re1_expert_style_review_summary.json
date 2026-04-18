@@ -1,0 +1,18 @@
+{
+  "false_skip_if_local": 375,
+  "local_windows": 0,
+  "output_jsonl": "documentation/results/rcaeval_re1_expert_style_labels.jsonl",
+  "representative_sufficient": 375,
+  "review_scope": "expert-style structural review from deterministic window fields; not a substitute for independent human operator labels",
+  "reviewer": "codex_structural_window_review_v1",
+  "risk_levels": {
+    "high": 375
+  },
+  "schema_version": 1,
+  "selected_device_covered": 375,
+  "selected_path_covered": 375,
+  "should_invoke_external": 375,
+  "timeline_sufficient": 375,
+  "windows_jsonl": "documentation/results/rcaeval_re1_windows.jsonl",
+  "windows_reviewed": 375
+}

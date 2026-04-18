@@ -1,0 +1,43 @@
+{
+  "calibrated_weights": {
+    "context:mixed_fault_transient": 9,
+    "missing:timeline": 0,
+    "occurrence:high": 9,
+    "pressure:recurrence": 9,
+    "pressure:topology": 9,
+    "scope:device": 9,
+    "scope:multi_path": 9,
+    "scope:path": 9,
+    "spread:multi_device": 9,
+    "value:high_fault": 9
+  },
+  "calibration_warnings": [
+    "no negative examples; selectivity and false-positive tradeoffs cannot be calibrated"
+  ],
+  "examples": 375,
+  "label_source": "expert_style_structural_review",
+  "label_sources": {
+    "expert_style_structural_review": 375
+  },
+  "labels_jsonl": "documentation/results/rcaeval_re1_expert_style_labels.jsonl",
+  "negative_examples": 0,
+  "positive_examples": 375,
+  "schema_version": 1,
+  "thresholds": {
+    "0.01": {
+      "false_skip_rate": 0.0,
+      "selected_rate": 1.0,
+      "threshold": 36
+    },
+    "0.05": {
+      "false_skip_rate": 0.016,
+      "selected_rate": 0.984,
+      "threshold": 72
+    },
+    "0.1": {
+      "false_skip_rate": 0.056,
+      "selected_rate": 0.944,
+      "threshold": 81
+    }
+  }
+}

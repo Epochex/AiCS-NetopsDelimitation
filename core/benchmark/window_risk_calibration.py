@@ -39,6 +39,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "examples": len(scored),
         "positive_examples": sum(1 for item in scored if item["target"]),
         "negative_examples": sum(1 for item in scored if not item["target"]),
+        "calibration_warnings": _calibration_warnings(scored),
         "calibrated_weights": weights,
         "thresholds": thresholds,
     }
@@ -148,6 +149,17 @@ def _dominant_source(sources: Counter[str]) -> str:
     if not sources:
         return "expert"
     return sources.most_common(1)[0][0]
+
+
+def _calibration_warnings(examples: list[dict[str, Any]]) -> list[str]:
+    positives = sum(1 for item in examples if item["target"])
+    negatives = len(examples) - positives
+    warnings: list[str] = []
+    if positives == 0:
+        warnings.append("no positive examples; false-skip calibration is not meaningful")
+    if negatives == 0:
+        warnings.append("no negative examples; selectivity and false-positive tradeoffs cannot be calibrated")
+    return warnings
 
 
 def main() -> None:
