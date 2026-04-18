@@ -8,22 +8,20 @@ from typing import Any
 
 def run(args: argparse.Namespace) -> dict[str, Any]:
     import matplotlib.pyplot as plt
-    import seaborn as sns
 
     report = json.loads(Path(args.report_json).read_text(encoding="utf-8"))
     rows = _rows(report)
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    sns.set_theme(style="whitegrid", context="paper", font_scale=1.15)
-    fig, axes = plt.subplots(1, 2, figsize=(12.2, 4.8), constrained_layout=True)
-    _plot_policy_family(axes[0], _budget_rows(rows, "budget-coverage-"), "A. Strict coverage budget")
-    _plot_policy_family(axes[1], _budget_rows(rows, "budget-risk-"), "B. Risk budget with safety floor")
-    fig.suptitle("Window-level admission quality-cost frontier", fontsize=15, fontweight="bold")
+    set_paper_style(plt)
+    fig, axes = plt.subplots(1, 2, figsize=(12.2, 4.2), constrained_layout=True)
+    _plot_policy_family(axes[0], _budget_rows(rows, "budget-coverage-"), "(a) strict budget")
+    _plot_policy_family(axes[1], _budget_rows(rows, "budget-risk-"), "(b) risk floor")
 
     png_path = output_dir / "window_admission_quality_cost_frontier.png"
     pdf_path = output_dir / "window_admission_quality_cost_frontier.pdf"
-    fig.savefig(png_path, dpi=220, bbox_inches="tight")
+    fig.savefig(png_path, dpi=300, bbox_inches="tight")
     fig.savefig(pdf_path, bbox_inches="tight")
     plt.close(fig)
 
@@ -43,34 +41,58 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     return summary
 
 
+def set_paper_style(plt: Any) -> None:
+    plt.rcParams.update(
+        {
+            "figure.facecolor": "white",
+            "axes.facecolor": "white",
+            "font.family": "sans-serif",
+            "font.sans-serif": ["Arial", "DejaVu Sans"],
+            "font.size": 10,
+            "axes.labelsize": 11,
+            "xtick.labelsize": 9,
+            "ytick.labelsize": 9,
+            "legend.fontsize": 8,
+            "axes.linewidth": 1.1,
+            "xtick.major.width": 1.0,
+            "ytick.major.width": 1.0,
+            "grid.color": "#d6d6d6",
+            "grid.linestyle": "--",
+            "grid.linewidth": 0.7,
+            "pdf.fonttype": 42,
+            "ps.fonttype": 42,
+        }
+    )
+
+
 def _plot_policy_family(ax: Any, rows: list[dict[str, Any]], title: str) -> None:
     x = [row["budget_percent"] for row in rows]
     series = [
         (
             "High-value recall",
             [100 * row["high_value_window_recall"] for row in rows],
-            "#7b61b6",
+            "#6f5aa8",
             "o",
             "-",
         ),
         (
             "Call reduction",
             [row["call_reduction"] for row in rows],
-            "#4f83d1",
+            "#3f6fb5",
             "D",
             "-",
         ),
         (
             "Pressure coverage",
             [100 * (1 - row["pressure_skip"]) for row in rows],
-            "#d95f02",
+            "#5aa9b5",
             "^",
             "-",
         ),
         (
             "Evidence coverage",
             [100 * row["evidence_coverage"] for row in rows],
-            "#6b8e23",
+            "#6f7f8f",
             None,
             "--",
         ),
@@ -87,35 +109,25 @@ def _plot_policy_family(ax: Any, rows: list[dict[str, Any]], title: str) -> None
             label=label,
             alpha=0.96,
         )
-        _direct_label(ax, x[-1], values[-1], label, color)
 
     _annotate_operating_point(ax, rows)
     ax.set_xlabel("External-call budget (% of windows)")
     ax.set_ylabel("Rate (%)")
     ax.set_ylim(-3, 108)
     _budget_xaxis(ax)
-    ax.set_title(title, loc="left", fontweight="bold")
-    ax.grid(True, axis="both", color="#d8d8d8", linestyle=":", linewidth=0.9)
-
-
-def _direct_label(ax: Any, x: float, y: float, label: str, color: str) -> None:
-    offsets = {
-        "High-value recall": 6.4,
-        "Call reduction": -4.8,
-        "Pressure coverage": 4.0,
-        "Evidence coverage": -7.0,
-    }
-    ax.annotate(
-        label,
-        xy=(x, y),
-        xytext=(8, offsets.get(label, 0)),
-        textcoords="offset points",
-        color=color,
-        fontsize=7,
-        va="center",
-        clip_on=False,
+    ax.grid(True, axis="both", which="major")
+    for spine in ax.spines.values():
+        spine.set_linewidth(1.1)
+    ax.text(
+        0.02,
+        0.05,
+        title,
+        transform=ax.transAxes,
+        fontsize=8,
+        fontweight="bold",
+        color="#333",
     )
-
+    ax.legend(loc="lower center", bbox_to_anchor=(0.5, -0.26), ncol=4, frameon=False, handlelength=2.2, columnspacing=0.9)
 
 def _annotate_operating_point(ax: Any, rows: list[dict[str, Any]]) -> None:
     target = next((row for row in rows if row["budget_percent"] == 20), rows[min(len(rows) - 1, 3)])
@@ -128,11 +140,10 @@ def _annotate_operating_point(ax: Any, rows: list[dict[str, Any]]) -> None:
     ax.annotate(
         text,
         xy=(x, y),
-        xytext=(22, -66),
+        xytext=(18, -58),
         textcoords="offset points",
         fontsize=7,
         arrowprops={"arrowstyle": "->", "lw": 0.9, "color": "#333"},
-        bbox={"boxstyle": "round,pad=0.2", "fc": "white", "ec": "#cccccc", "alpha": 0.88},
     )
 
 

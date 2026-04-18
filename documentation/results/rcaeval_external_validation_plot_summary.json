@@ -14,8 +14,8 @@
     "budget-coverage-40",
     "budget-coverage-60"
   ],
-  "pdf": "documentation/images/rcaeval_external_validation_frontier.pdf",
-  "png": "documentation/images/rcaeval_external_validation_frontier.png",
-  "report_json": "documentation/results/rcaeval_re1_external_validation.json",
+  "pdf": "/data/Netops-causality-remediation/documentation/images/rcaeval_external_validation_frontier.pdf",
+  "png": "/data/Netops-causality-remediation/documentation/images/rcaeval_external_validation_frontier.png",
+  "report_json": "/data/Netops-causality-remediation/documentation/results/rcaeval_re1_external_validation.json",
   "schema_version": 1
 }

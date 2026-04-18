@@ -8,23 +8,22 @@ from typing import Any
 
 def run(args: argparse.Namespace) -> dict[str, Any]:
     import matplotlib.pyplot as plt
-    import seaborn as sns
 
     report = json.loads(Path(args.report_json).read_text(encoding="utf-8"))
-    rows = _budget_rows(report)
+    coverage_rows = _budget_rows(report, "budget-coverage-")
+    risk_rows = _budget_rows(report, "budget-risk-")
     baselines = _baseline_rows(report)
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    sns.set_theme(style="whitegrid", context="paper", font_scale=1.12)
-    fig, axes = plt.subplots(1, 2, figsize=(12.4, 4.9), constrained_layout=True)
-    _plot_frontier(axes[0], rows)
-    _plot_baselines(axes[1], baselines)
-    fig.suptitle("RCAEval RE1 external validation: admission quality-cost behavior", fontsize=14, fontweight="bold")
+    set_paper_style(plt)
+    fig, axes = plt.subplots(1, 2, figsize=(12.4, 4.2), constrained_layout=True)
+    _plot_frontier(axes[0], coverage_rows, "(a) strict budget")
+    _plot_frontier(axes[1], risk_rows, "(b) risk floor")
 
     png_path = output_dir / "rcaeval_external_validation_frontier.png"
     pdf_path = output_dir / "rcaeval_external_validation_frontier.pdf"
-    fig.savefig(png_path, dpi=240, bbox_inches="tight")
+    fig.savefig(png_path, dpi=300, bbox_inches="tight")
     fig.savefig(pdf_path, bbox_inches="tight")
     plt.close(fig)
 
@@ -33,7 +32,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "report_json": args.report_json,
         "png": str(png_path),
         "pdf": str(pdf_path),
-        "budget_policies": [row["policy"] for row in rows],
+        "budget_policies": [row["policy"] for row in coverage_rows],
         "baselines": [row["policy"] for row in baselines],
     }
     if args.output_json:
@@ -45,14 +44,37 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     return summary
 
 
-def _plot_frontier(ax: Any, rows: list[dict[str, Any]]) -> None:
-    x = [row["calls"] for row in rows]
-    budget = [row["budget_percent"] for row in rows]
+def set_paper_style(plt: Any) -> None:
+    plt.rcParams.update(
+        {
+            "figure.facecolor": "white",
+            "axes.facecolor": "white",
+            "font.family": "sans-serif",
+            "font.sans-serif": ["Arial", "DejaVu Sans"],
+            "font.size": 10,
+            "axes.labelsize": 11,
+            "xtick.labelsize": 9,
+            "ytick.labelsize": 9,
+            "legend.fontsize": 8,
+            "axes.linewidth": 1.1,
+            "xtick.major.width": 1.0,
+            "ytick.major.width": 1.0,
+            "grid.color": "#d6d6d6",
+            "grid.linestyle": "--",
+            "grid.linewidth": 0.7,
+            "pdf.fonttype": 42,
+            "ps.fonttype": 42,
+        }
+    )
+
+
+def _plot_frontier(ax: Any, rows: list[dict[str, Any]], panel_label: str) -> None:
+    x = [row["budget_percent"] for row in rows]
     series = [
-        ("High-value recall", [100 * row["recall"] for row in rows], "#7b61b6", "o", "-"),
-        ("Call reduction", [row["call_reduction"] for row in rows], "#4f83d1", "D", "-"),
-        ("Pressure coverage", [100 * (1 - row["pressure_skip"]) for row in rows], "#d95f02", "^", "-"),
-        ("Evidence coverage", [100 * row["evidence_coverage"] for row in rows], "#6b8e23", None, "--"),
+        ("High-value recall", [100 * row["recall"] for row in rows], "#6f5aa8", "o", "-"),
+        ("Call reduction", [row["call_reduction"] for row in rows], "#3f6fb5", "D", "-"),
+        ("Pressure coverage", [100 * (1 - row["pressure_skip"]) for row in rows], "#5aa9b5", "^", "-"),
+        ("Evidence coverage", [100 * row["evidence_coverage"] for row in rows], "#6f7f8f", None, "--"),
     ]
     for label, values, color, marker, linestyle in series:
         ax.plot(
@@ -66,67 +88,38 @@ def _plot_frontier(ax: Any, rows: list[dict[str, Any]]) -> None:
             linestyle=linestyle,
             alpha=0.96,
         )
-    for xi, pct in zip(x, budget):
-        ax.annotate(f"{pct}%", xy=(xi, 2.0), ha="center", va="bottom", fontsize=6.7, color="#555")
-    ax.set_title("A. Coverage-budget frontier", loc="left", fontweight="bold")
-    ax.set_xlabel("External model calls")
+    ax.set_xlabel("External-call budget (% of windows)")
     ax.set_ylabel("Rate (%)")
     ax.set_ylim(-4, 108)
-    ax.grid(True, axis="both", linestyle=":", linewidth=0.9, color="#d8d8d8")
-    ax.margins(x=0.08)
-    ax.legend(
-        loc="upper center",
-        bbox_to_anchor=(0.5, -0.13),
-        ncol=4,
-        frameon=False,
-        fontsize=7.2,
-        handlelength=2.2,
-        columnspacing=1.0,
-    )
-
-
-def _plot_baselines(ax: Any, rows: list[dict[str, Any]]) -> None:
-    policies = [row["label"] for row in rows]
-    call_reduction = [row["call_reduction"] for row in rows]
-    recall = [100 * row["recall"] for row in rows]
-    x = list(range(len(rows)))
-    width = 0.36
-    ax.bar([i - width / 2 for i in x], call_reduction, width=width, color="#4f83d1", label="Call reduction")
-    ax.bar([i + width / 2 for i in x], recall, width=width, color="#7b61b6", label="High-value recall")
-    for i, row in enumerate(rows):
-        ax.annotate(
-            f"{row['calls']}",
-            xy=(i - width / 2, call_reduction[i]),
-            xytext=(0, 3),
-            textcoords="offset points",
-            ha="center",
-            fontsize=6.8,
-            color="#333",
-        )
-    ax.set_title("B. Admission baselines", loc="left", fontweight="bold")
-    ax.set_xticks(x)
-    ax.set_xticklabels(policies, rotation=18, ha="right")
-    ax.set_ylim(0, 112)
-    ax.set_ylabel("Rate (%)")
-    ax.legend(frameon=True, fontsize=7, loc="lower right")
-    ax.grid(True, axis="y", linestyle=":", linewidth=0.9, color="#d8d8d8")
+    _budget_xaxis(ax)
+    ax.grid(True, axis="both", which="major")
+    for spine in ax.spines.values():
+        spine.set_linewidth(1.1)
     ax.text(
         0.02,
-        0.95,
-        "Numbers above blue bars are external calls.",
+        0.05,
+        panel_label,
         transform=ax.transAxes,
-        va="top",
-        fontsize=7,
-        color="#444",
-        bbox={"boxstyle": "round,pad=0.2", "fc": "white", "ec": "#dddddd", "alpha": 0.9},
+        fontsize=8,
+        fontweight="bold",
+        color="#333",
     )
+    ax.legend(loc="lower center", bbox_to_anchor=(0.5, -0.26), ncol=4, frameon=False, handlelength=2.2, columnspacing=0.9)
 
 
-def _budget_rows(report: dict[str, Any]) -> list[dict[str, Any]]:
+def _budget_xaxis(ax: Any) -> None:
+    ticks = [1, 2, 5, 10, 20, 40, 60]
+    ax.set_xscale("log")
+    ax.set_xlim(0.8, 75)
+    ax.set_xticks(ticks)
+    ax.set_xticklabels([str(tick) for tick in ticks])
+
+
+def _budget_rows(report: dict[str, Any], prefix: str) -> list[dict[str, Any]]:
     policies = report.get("policies") or {}
     rows: list[dict[str, Any]] = []
     for name, item in policies.items():
-        if not name.startswith("budget-coverage-"):
+        if not name.startswith(prefix):
             continue
         rows.append(_row(name, item))
     return sorted(rows, key=lambda row: row["budget_percent"])
