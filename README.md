@@ -3,62 +3,94 @@
 [![English](https://img.shields.io/badge/Language-English-1f6feb)](./README.md)
 [![Simplified Chinese](https://img.shields.io/badge/Language-Simplified%20Chinese-2ea043)](./README_CN.md)
 
-This branch studies risk-aware LLM admission for NetOps alert streams. The system does not ask an LLM to decide whether an alert exists. Deterministic rules first produce a fixed alert stream. The post-alert layer then groups alerts into incident windows, builds a bounded evidence view, and decides whether a window should use external LLM interpretation.
+This branch studies **risk-aware LLM admission for deterministic NetOps alert streams**. The system does not ask a model to decide whether an alert exists. Deterministic monitoring first produces confirmed alerts. The post-alert layer then groups those alerts into incident windows, builds a window-level evidence boundary, and decides whether external LLM interpretation is worth the cost and risk.
 
 The current research question is:
 
-> After deterministic alerting, which incident windows are worth external LLM analysis, and how much risk is introduced when repeated or self-healing windows stay local?
+> Given a fixed deterministic alert stream, which incident windows should enter external LLM analysis, which windows can remain local, and how much risk is introduced by reducing model calls?
 
-This is an admission and budgeting layer before LLM-based root-cause analysis. It is not a full failure-localization system, not an execution system, and not a claim about diagnosis quality.
+This is an admission and context-boundary problem before LLM-based root-cause analysis. It is not a full failure-localization system, it does not write to devices, and it does not claim that model explanations are diagnostically correct.
 
-## System Flow
+## What Changed in This Branch
 
-The implemented flow has four stages.
+The earlier alert-level topology gate has been lifted to a window-level admission layer. The new path treats repeated alerts as one operational unit instead of calling a model for every alert. The main added mechanisms are:
 
-1. **Canonical facts.** LCORE-D telemetry is normalized into stable facts with device, fault, path, and metric fields.
-2. **Deterministic alerts.** Rule-backed alerting confirms alerts before any model call is considered.
-3. **Incident windows.** Alerts are grouped by time, path shape, device spread, and recurrence so repeated alerts are handled as one operational unit.
-4. **Risk-aware admission.** Each window is converted into risk atoms and a window-level evidence boundary. A budgeted selector chooses representative alerts for external LLM interpretation; lower-risk windows receive bounded local suggestions.
+- **Incident windows.** Deterministic alerts are grouped by time window and path shape, while retaining device spread, scenario mix, recurrence, and topology pressure.
+- **Self-healing-aware admission.** Transient and self-healing-looking alerts are not simply discarded. The system records whether they are single local transients, repeated transients, topology-pressure windows, or mixed with higher-value fault evidence.
+- **Window-level evidence boundary.** Each window has selected, excluded, and missing evidence surfaces. The selected surface is what the model may see; excluded and missing surfaces stay visible for audit.
+- **Risk atoms.** Window risk is represented as interpretable atoms such as high-value fault evidence, recurrence pressure, topology pressure, multi-device spread, downstream fanout, and missing evidence.
+- **Representative alert selection.** A window may contain many alerts, but the external path receives only a small representative set that covers device, path, scenario, time, and pressure features.
+- **Budgeted admission.** The selector chooses windows by marginal uncovered risk per representative-alert cost. This produces a quality-cost frontier instead of a single call-reduction number.
+- **Expert-style structural review.** A reproducible reviewer pass fills window-level labels from deterministic window fields, then calibrates risk weights to target false-skip rates. These labels are useful for engineering iteration, but they are not a substitute for independent operator labels.
 
-The local topology view is still active. It is used inside the evidence boundary to define which device, path, timeline, and recurrence cues may be shown to the model.
+## End-to-End Flow
+
+The implemented path has six stages. Each stage has a specific role and does not rely on a model to establish alerts.
+
+1. **Telemetry normalization.** LCORE-D router telemetry is converted into canonical facts with stable event identity, device fields, scenario labels, topology fields, and numeric metrics.
+2. **Deterministic alerting.** The core alerting path validates facts and emits deterministic alerts. The LLM is not in the alert formation path.
+3. **Window construction.** Alerts are grouped into incident windows using time and path shape. The window records alert count, devices, paths, scenario mixture, recurrence pressure, topology pressure, and downstream fanout.
+4. **Evidence-boundary construction.** The window is converted into selected evidence, excluded evidence, and missing evidence. The local topology subgraph is used here to define device and path evidence, not as a standalone paper claim.
+5. **Risk-aware admission.** Risk atoms and representative-alert cost drive the budget controller. The controller either keeps a window local or sends representative alerts and context views to the external provider.
+6. **Suggestion publication.** Local windows receive bounded local suggestions. External windows receive schema-checked, advisory-only LLM output. Neither path performs device-side changes.
 
 ```mermaid
 flowchart LR
   A["Network telemetry"] --> B["Canonical facts"]
   B --> C["Deterministic alerts"]
   C --> D["Incident windows"]
-  D --> E["Risk atoms + evidence boundary"]
-  E --> F["Representative alert selection"]
-  F --> G{"Budgeted admission"}
-  G -->|"local"| H["Bounded local suggestion"]
-  G -->|"external"| I["Schema-checked LLM interpretation"]
-  H --> J["Operator-facing suggestion"]
-  I --> J
+  D --> E["Evidence boundary"]
+  E --> F["Risk atoms"]
+  E --> G["Representative alerts"]
+  F --> H["Budgeted admission"]
+  G --> H
+  H -->|"local"| I["Bounded local suggestion"]
+  H -->|"external"| J["Schema-checked LLM interpretation"]
+  I --> K["Operator-facing suggestion"]
+  J --> K
 ```
 
-## Window-Level Evidence Boundary
+## Evidence Boundary
 
-The evidence boundary is the main post-alert object. It is constructed per incident window and has three surfaces:
+The evidence boundary is the object that connects deterministic alerts to optional model reasoning. It prevents two bad inputs: an under-contextualized single alert and an oversized dump of nearby telemetry.
 
-| Surface | Purpose |
+| Surface | Contents | Role |
+| --- | --- | --- |
+| Selected evidence | Seed devices, path signatures, representative alerts, timeline cues, recurrence cues, topology subgraph cues | May be exposed to an external model |
+| Excluded evidence | Local transient context, repeated non-primary alerts, weak context, topology noise nodes | Kept out of the model-facing view but retained for audit |
+| Missing evidence | Unavailable neighbor signals, missing path signals, missing history signals, single-alert timeline gaps | Exposes what the system does not know |
+
+The local topology subgraph remains active inside this boundary. It supplies seed device, path symptom, and noise-node cues. In the current window-level system, it is no longer the whole admission policy; it is one input to the evidence scope.
+
+## Incident Window Labels
+
+Windows are labeled by deterministic structure before model admission:
+
+| Window label | Meaning | Default role |
+| --- | --- | --- |
+| `external_induced_fault` | The window contains high-value fault evidence | External candidate |
+| `mixed_fault_and_transient` | The window mixes high-value and transient evidence | External candidate |
+| `external_multi_device_spread` | Transient-looking alerts span multiple devices | External candidate |
+| `external_repeated_transient` | Transient-looking alerts repeat inside the window | External candidate |
+| `local_transient_with_pressure` | Transient-looking window has topology pressure but no stronger trigger | Local by default, reviewable |
+| `local_single_transient` | Single low-pressure transient-looking window | Local |
+
+These labels are admission labels, not root-cause labels. They answer whether a window is worth external interpretation, not which device caused the incident.
+
+## Risk Atoms and Budgeted Admission
+
+Window risk is not treated as an opaque score. The system first extracts risk atoms:
+
+| Risk atom | Interpretation |
 | --- | --- |
-| Selected evidence | Device, path, timeline, recurrence, and local topology cues that may be sent to a model |
-| Excluded evidence | Transient, weak, or repeated non-primary alerts that should not dominate the model input |
-| Missing evidence | Unavailable device, path, neighbor, or history signals that should be visible during review |
-
-This prevents the model input from becoming either a single under-contextualized alert or a raw dump of nearby telemetry.
-
-## Risk-Aware Admission
-
-Window risk is represented as interpretable risk atoms rather than only a scalar score. Examples include:
-
-- high-value fault evidence
-- mixed fault and transient context
-- multi-device spread
-- recurrence pressure
-- topology pressure
-- missing path, device, or timeline evidence
-- self-healing dominance as a negative offset
+| `value:high_fault` | The window contains high-value fault evidence |
+| `context:mixed_fault_transient` | High-value and transient evidence appear in the same window |
+| `spread:multi_device` | The window spans multiple devices |
+| `pressure:recurrence` | The window contains repeated alerts |
+| `pressure:topology` | The window has path, downstream, or topology pressure |
+| `impact:downstream_fanout` | The affected device has high downstream fanout |
+| `scope:device`, `scope:path` | The selected window covers a device or path risk scope |
+| `missing:*` | Required evidence is unavailable |
 
 The budget controller selects windows by marginal uncovered risk per representative-alert cost:
 
@@ -69,95 +101,267 @@ priority(w) = gain(w | S) / representative_cost(w)
 
 Two budget families are evaluated:
 
-- **Strict coverage budget:** obeys the external-call budget exactly and shows the raw risk-quality tradeoff.
-- **Risk budget with safety floor:** keeps high-value windows eligible even when this exceeds the nominal budget.
+- **Strict coverage budget.** The selector obeys the external-call budget exactly. This exposes how much high-value coverage is lost when the budget is hard.
+- **Risk budget with safety floor.** The selector keeps high-value windows eligible even if this exceeds the nominal budget. This exposes the extra cost needed to avoid high-value false skips.
 
-## Current LCORE-D Results
+## Context Engineering
 
-The full LCORE-D replay contains 6,700 deterministic alerts grouped into 2,929 incident windows.
+External requests are not sent as one unstructured JSON dump. The post-alert path constructs fixed context views:
 
-| Policy | External calls | Call reduction | High-value window recall | Pressure-window skip rate |
-| --- | ---: | ---: | ---: | ---: |
-| Invoke all | 6,700 | 0.00% | 100.00% | 0.00% |
-| Scenario only | 562 | 91.61% | 100.00% | 85.62% |
-| Self-healing aware | 6,070 | 9.40% | 100.00% | 14.15% |
-| Topology + timeline | 4,588 | 31.52% | 100.00% | 50.80% |
-| Window risk tier | 2,983 | 55.48% | 100.00% | 50.61% |
-| Strict budget 20% | 586 | 91.25% | 91.94% | 83.60% |
-| Risk budget 20% | 586 | 91.25% | 100.00% | 84.21% |
+| Context view | Purpose |
+| --- | --- |
+| Alert view | Alert id, rule id, severity, scenario, metrics, and dimensions |
+| Topology view | Seed device, path signature, hop fields, downstream dependents, local topology subgraph cues, window devices, and window paths |
+| Timeline view | Window start/end, alert sequence, representative alerts, and window boundary |
+| History view | Recent recurrence, cluster size, self-healing decision, window label, risk tier, and risk atoms |
+| Missing-evidence view | Fields that are unavailable and should limit model certainty |
+| Excluded-evidence view | Context explicitly kept out of the model-facing selected surface |
+| Serving view | Local/external decision, risk tier, decision reason, and provider budget tier |
 
-The strict budget curve shows what is lost when the external-call budget is hard. The safety-floor curve shows the cost of retaining all high-value windows. This is the useful comparison: not just fewer calls, but fewer calls with an explicit risk signal.
+This structure is the practical context-engineering layer. It is simpler than a multi-agent RCA pipeline, but it gives the admission layer a stable contract and keeps model calls auditable.
+
+## Current LCORE-D Evaluation
+
+The full LCORE-D replay contains:
+
+| Quantity | Value |
+| --- | ---: |
+| Deterministic alerts | 6,700 |
+| Incident windows | 2,929 |
+| Average alerts per window | 2.287 |
+| Pressure windows | 2,622 |
+| Self-healing-dominant windows | 2,532 |
+| Multi-device windows | 911 |
+| High-value windows | 397 |
+
+Window labels in the current replay:
+
+| Label | Windows |
+| --- | ---: |
+| `external_induced_fault` | 216 |
+| `mixed_fault_and_transient` | 181 |
+| `external_multi_device_spread` | 815 |
+| `external_repeated_transient` | 103 |
+| `local_transient_with_pressure` | 1,327 |
+| `local_single_transient` | 287 |
+
+Policy comparison on the full replay:
+
+| Policy | External calls | Call reduction | Selected windows | Window reduction | High-value window recall | Pressure-window skip rate | Evidence target coverage |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Invoke all | 6,700 | 0.00% | 2,929 | 0.00% | 100.00% | 0.00% | 100.00% |
+| Scenario only | 562 | 91.61% | 397 | 86.45% | 100.00% | 85.62% | 100.00% |
+| Self-healing aware | 6,070 | 9.40% | 2,402 | 17.99% | 100.00% | 14.15% | 99.75% |
+| Topology + timeline | 4,588 | 31.52% | 1,310 | 55.27% | 100.00% | 50.80% | 100.00% |
+| Window risk tier | 2,983 | 55.48% | 1,315 | 55.10% | 100.00% | 50.61% | 100.00% |
+| Strict budget 20% | 586 | 91.25% | 450 | 84.64% | 91.94% | 83.60% | 100.00% |
+| Risk budget 20% | 586 | 91.25% | 434 | 85.18% | 100.00% | 84.21% | 100.00% |
+
+The important result is not only call reduction. The frontier shows how aggressive budget caps trade external calls against high-value coverage and residual pressure risk.
 
 ![Window-level admission quality-cost frontier](documentation/images/window_admission_quality_cost_frontier.png)
 
-## Labeling and Calibration
+## Expert-Style Structural Review and Calibration
 
-The current labels are weak labels derived from deterministic window structure. They are useful for engineering tests, but they are not a substitute for expert review.
+The repository includes a deterministic reviewer pass that fills the same fields expected from a human review file:
 
-The repository now includes a review workflow:
+- whether the window should invoke an external model;
+- whether local handling would be a false skip;
+- whether representative alerts are sufficient;
+- whether selected devices and paths are covered;
+- whether the timeline is sufficient.
 
-1. Sample reviewable windows across labels and risk tiers.
-2. Fill expert fields for whether the window should invoke an external model, whether the representative alert is sufficient, and whether selected device/path/timeline evidence is covered.
-3. Calibrate risk-atom weights to target false-skip rates such as 1%, 5%, or 10%.
+This pass is useful for repeatable engineering tests and for calibrating the risk-atom pipeline. It is not an independent human expert label set.
 
-The calibration path is intentionally interpretable. It adjusts atom weights and thresholds; it does not replace the admission layer with a black-box model.
+Current expert-style review results over 2,929 windows:
 
-## External Validation
+| Review field | Count |
+| --- | ---: |
+| Should invoke external | 1,310 |
+| Local windows | 1,619 |
+| False skip if local | 1,310 |
+| Representative sufficient | 2,929 |
+| Selected device covered | 2,929 |
+| Selected path covered | 2,929 |
+| Timeline sufficient | 2,929 |
 
-An external-validation adapter is provided for RCAEval-style JSONL exports. Its scope is admission-layer transfer: whether the windowing, evidence-boundary, and budgeted-admission logic can be applied to another incident benchmark. It does not evaluate root-cause ranking.
+Calibrated weights from the expert-style labels:
 
-RCAEval should be used after exporting incidents into JSONL with time, service or device, fault type, and optional path or trace identifiers. If no external dataset is present, the adapter fails explicitly instead of fabricating results.
+| Atom | Calibrated weight |
+| --- | ---: |
+| `value:high_fault` | 20 |
+| `context:mixed_fault_transient` | 20 |
+| `spread:multi_device` | 20 |
+| `pressure:recurrence` | 20 |
+| `scope:multi_path` | 20 |
+| `occurrence:high` | 20 |
+| `pressure:topology` | 6 |
+| `scope:device` | 5 |
+| `scope:path` | 5 |
+| `impact:downstream_fanout` | 1 |
+| `missing:timeline` | 0 |
+| `occurrence:pressure` | 0 |
 
-## Relation to LLM RCA Systems
+Calibrated thresholds:
 
-LLM-based RCA systems such as BiAn focus on what happens after an incident has already entered analysis: candidate narrowing, topology and timeline reasoning, and root-cause ranking. This project focuses on the layer before that step. It asks which windows should enter external LLM analysis at all, how many representative alerts are enough, and what risk remains when a window is handled locally.
+| Target false-skip rate | Threshold | Observed false-skip rate | Selected window rate |
+| --- | ---: | ---: | ---: |
+| 1% | 37 | 0.00% | 44.73% |
+| 5% | 37 | 0.00% | 44.73% |
+| 10% | 57 | 8.24% | 41.04% |
 
-The two ideas are complementary. A production RCA system can sit behind this admission layer; the admission layer controls budget, context, and serving isolation before the expensive analysis begins.
+This calibration is deliberately interpretable. It adjusts risk-atom weights and thresholds; it does not replace the admission layer with a black-box classifier.
+
+## Live Provider Checks
+
+The live GPU replay validates the serving boundary. Selected alerts reach the provider; skipped alerts stay local. The model response is schema checked and advisory only.
+
+![Live GPU replay](documentation/images/llm_provider_replay_real_full.png)
+
+The latest stratified prompt audit contains 24 alerts. It made 14 external calls and kept 10 local. Across the prompt iterations available in the runtime logs, the response-quality proxy improved from 0.943 to 0.987 and then 1.000 on this small slice. This is an output-shape and evidence-reference check, not evidence of diagnostic correctness.
+
+## Earlier Alert-Level Topology Gate
+
+The earlier topology-aware alert-level gate is still useful as a baseline. It showed that deterministic topology context can reduce provider calls before the window-level admission layer was added.
+
+![Topology ablation summary](documentation/images/topology_ablation_summary.png)
+
+The window-level system supersedes this as the main path. The local topology view now sits inside the window evidence boundary instead of acting as the whole policy.
+
+## External Validation on RCAEval RE1
+
+RCAEval RE1 is now used as an external admission benchmark. The goal is not to compete with RCAEval root-cause ranking methods. The goal is narrower: test whether the window-level admission layer transfers to another replayable incident benchmark with known root-cause service and fault labels.
+
+The converter reads RCAEval RE1 metric cases and emits admission records. For each case, it keeps one root-cause record from the dataset label and derives a small set of symptom records from metrics whose post-injection behavior changes relative to the pre-injection baseline. This creates the same shape as the LCORE-D admission problem: a high-value window may contain both root evidence and symptom evidence, and the system should avoid invoking the external model for every symptom alert.
+
+Current RCAEval RE1 conversion:
+
+| Quantity | Value |
+| --- | ---: |
+| RCAEval RE1 cases | 375 |
+| Benchmarks | RE1-OB, RE1-SS, RE1-TT |
+| Fault types | cpu, delay, disk, loss, mem |
+| Admission records | 2,120 |
+| Root-cause records | 375 |
+| Metric-derived symptom records | 1,745 |
+| Incident windows | 375 |
+
+External validation results:
+
+| Policy | External calls | Call reduction | High-value window recall | False-skip rate | Evidence target coverage |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Invoke all | 2,120 | 0.00% | 100.00% | 0.00% | 100.00% |
+| Scenario only | 375 | 82.31% | 100.00% | 0.00% | 100.00% |
+| Window risk tier | 375 | 82.31% | 100.00% | 0.00% | 100.00% |
+| Strict budget 20% | 75 | 96.46% | 20.00% | 80.00% | 100.00% |
+| Strict budget 60% | 225 | 89.39% | 60.00% | 40.00% | 100.00% |
+
+The RCAEval result mainly validates representative invocation under a labeled external benchmark. Calling every metric-derived record would issue 2,120 external calls. Calling one representative high-value record per case issues 375 calls while retaining all high-value windows. This uses RCAEval's ground-truth labels to construct the benchmark records; it is not a deployment-time claim that the system can identify the root cause without labels. The strict budget curve intentionally shows the risk of over-aggressive admission: when the budget is capped below the number of known fault windows, recall falls roughly with the budget. This is useful because it separates two modes that should not be conflated: a safety-floor policy preserves all known high-value windows, while a hard budget exposes the quality loss caused by insufficient budget.
+
+![RCAEval external validation frontier](documentation/images/rcaeval_external_validation_frontier.png)
+
+The RCAEval expert-style review file marks all 375 windows as external-worthy because every RE1 case is a fault-injection case with a known root-cause service. This is expected and useful for validating false-skip behavior, but it does not provide negative examples for selectivity calibration. The calibration report therefore includes a warning: selectivity and false-positive tradeoffs cannot be calibrated from RE1 alone. LCORE-D supplies the self-healing and transient-heavy side of the problem; RCAEval RE1 supplies an external fault-injection benchmark.
+
+## Relation to BiAn and LogPilot
+
+BiAn and this system address different layers. BiAn focuses on production-scale LLM-assisted failure localization after an incident has already entered analysis. It narrows candidate devices and integrates anomaly, topology, and timeline information to rank root causes. This project focuses on the layer before that: given many deterministic alerts, decide which incident windows are worth external model analysis at all.
+
+LogPilot is closer in one respect: it reduces alert volume before LLM-based log diagnosis by grouping or selecting representative events. This project differs in the object and metric. It works over deterministic NetOps alert windows, not only log clusters; it models self-healing and pressure windows explicitly; it builds a selected/excluded/missing evidence boundary; and it evaluates quality-cost tradeoffs through high-value recall, pressure-window skip rate, evidence coverage, and call reduction.
+
+The intended composition is:
+
+```text
+deterministic monitoring
+  -> window-level LLM admission and evidence boundary
+  -> optional LLM RCA system such as a BiAn-like analyzer
+  -> advisory operator output
+```
+
+This means the system is not competing with full RCA pipelines on root-cause accuracy. It is a budget, context, and serving-isolation layer that can sit in front of them.
 
 ## Reproducing the Current Evaluation
 
-Run the LCORE-D quality-cost evaluation:
+Run the full LCORE-D quality-cost evaluation:
 
 ```bash
 python3 -m core.benchmark.quality_cost_policy_runner \
-  --output-json /data/netops-runtime/LCORE-D/work/quality-cost-policy-runner-frontier-v1.json \
-  --output-windows-jsonl /data/netops-runtime/LCORE-D/work/incident-windows-frontier-v1.jsonl \
-  --output-labels-jsonl /data/netops-runtime/LCORE-D/work/window-labels-weak-frontier-v1.jsonl
+  --output-json /data/netops-runtime/LCORE-D/work/quality-cost-policy-runner-frontier-v2.json \
+  --output-windows-jsonl /data/netops-runtime/LCORE-D/work/incident-windows-frontier-v2.jsonl \
+  --output-labels-jsonl /data/netops-runtime/LCORE-D/work/window-labels-weak-frontier-v2.jsonl
 ```
 
-Render the paper-style figure:
+Create expert-style structural review labels:
 
 ```bash
-python3 -m core.benchmark.quality_cost_frontier_plot \
-  --report-json /data/netops-runtime/LCORE-D/work/quality-cost-policy-runner-frontier-v1.json \
-  --output-dir documentation/images
+python3 -m core.benchmark.window_expert_reviewer \
+  --windows-jsonl /data/netops-runtime/LCORE-D/work/incident-windows-frontier-v2.jsonl \
+  --output-jsonl /data/netops-runtime/LCORE-D/work/window-labels-expert-style-frontier-v2.jsonl \
+  --output-json /data/netops-runtime/LCORE-D/work/window-expert-style-review-frontier-v2.json
 ```
 
-Sample windows for expert review:
-
-```bash
-python3 -m core.benchmark.window_label_sampler \
-  --windows-jsonl /data/netops-runtime/LCORE-D/work/incident-windows-frontier-v1.jsonl \
-  --output-jsonl /data/netops-runtime/LCORE-D/work/window-label-review-sample-frontier-v1.jsonl \
-  --per-label 20
-```
-
-Run a weak-label calibration smoke test:
+Calibrate risk weights:
 
 ```bash
 python3 -m core.benchmark.window_risk_calibration \
-  --labels-jsonl /data/netops-runtime/LCORE-D/work/window-labels-weak-frontier-v1.jsonl \
-  --allow-weak-labels \
-  --output-json /data/netops-runtime/LCORE-D/work/window-risk-calibration-weak-frontier-v1.json
+  --labels-jsonl /data/netops-runtime/LCORE-D/work/window-labels-expert-style-frontier-v2.jsonl \
+  --output-json /data/netops-runtime/LCORE-D/work/window-risk-calibration-expert-style-frontier-v2.json
 ```
 
-## Current NSDI Gap
+Render the paper-style frontier:
 
-The system now has the right shape for a systems paper, but the remaining gap is evidence, not wording:
+```bash
+python3 -m core.benchmark.quality_cost_frontier_plot \
+  --report-json /data/netops-runtime/LCORE-D/work/quality-cost-policy-runner-frontier-v2.json \
+  --output-dir documentation/images
+```
 
-- add expert-reviewed window labels;
-- calibrate risk weights against target false-skip rates;
-- validate the admission layer on an external benchmark such as RCAEval;
-- evaluate recommendation quality only after the admission layer is stable.
+Convert RCAEval RE1 after downloading and extracting the public data outside the repository:
 
-Until those are complete, the supported claims are cost control, evidence-boundary construction, serving isolation, and replayability.
+```bash
+python3 -m core.benchmark.rcaeval_re1_converter \
+  --re1-root /data/external_benchmarks/RCAEval/data/RE1 \
+  --output-jsonl documentation/results/rcaeval_re1_admission_records.jsonl \
+  --output-summary-json documentation/results/rcaeval_re1_conversion_summary.json \
+  --top-symptoms 5 \
+  --min-symptom-score 1.0
+```
+
+Run external validation on the converted records:
+
+```bash
+python3 -m core.benchmark.external_validation_adapter \
+  --dataset-jsonl documentation/results/rcaeval_re1_admission_records.jsonl \
+  --window-sec 86400 \
+  --output-json documentation/results/rcaeval_re1_external_validation.json \
+  --output-windows-jsonl documentation/results/rcaeval_re1_windows.jsonl \
+  --output-labels-jsonl documentation/results/rcaeval_re1_weak_labels.jsonl
+```
+
+Render the RCAEval external-validation figure:
+
+```bash
+python3 -m core.benchmark.external_validation_plot \
+  --report-json documentation/results/rcaeval_re1_external_validation.json \
+  --output-dir documentation/images
+```
+
+## Current Claim Boundary
+
+Supported by the current code and replay:
+
+- deterministic alerts remain fixed before model use;
+- incident windows reduce repeated alert-level invocation;
+- evidence boundaries define what the model may see;
+- budgeted admission exposes call-reduction versus risk tradeoffs;
+- live provider replay validates serving isolation and schema checks;
+- RCAEval RE1 shows the admission layer can be applied to an external replay benchmark and can reduce metric-record-level invocation through representative alerts.
+
+Not yet supported:
+
+- independent human expert labels;
+- calibrated selectivity from an external dataset with both positive and negative windows;
+- incident-level localization accuracy;
+- operational diagnosis at production scale;
+- evidence that model explanations improve operator outcomes.
+
+The next research step is evidence, not more terminology: add independent window-level operator labels, extend external validation beyond RCAEval RE1 to datasets with negative or self-healing windows, and evaluate explanation quality against human-reviewed incident windows.

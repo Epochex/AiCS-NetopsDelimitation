@@ -16,11 +16,10 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     sns.set_theme(style="whitegrid", context="paper", font_scale=1.15)
-    fig, axes = plt.subplots(1, 3, figsize=(14.5, 4.6), constrained_layout=True)
-    _plot_recall_budget(axes[0], rows)
-    _plot_pressure_budget(axes[1], rows)
-    _plot_call_budget(axes[2], rows)
-    fig.suptitle("Window-level admission under external-call budgets", fontsize=15, fontweight="bold")
+    fig, axes = plt.subplots(1, 2, figsize=(12.2, 4.8), constrained_layout=True)
+    _plot_policy_family(axes[0], _budget_rows(rows, "budget-coverage-"), "A. Strict coverage budget")
+    _plot_policy_family(axes[1], _budget_rows(rows, "budget-risk-"), "B. Risk budget with safety floor")
+    fig.suptitle("Window-level admission quality-cost frontier", fontsize=15, fontweight="bold")
 
     png_path = output_dir / "window_admission_quality_cost_frontier.png"
     pdf_path = output_dir / "window_admission_quality_cost_frontier.pdf"
@@ -44,99 +43,97 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     return summary
 
 
-def _plot_recall_budget(ax: Any, rows: list[dict[str, Any]]) -> None:
-    safety = _budget_rows(rows, "budget-risk-")
-    strict = _budget_rows(rows, "budget-coverage-")
-    ax.plot(
-        [row["budget_percent"] for row in strict],
-        [row["high_value_window_recall"] for row in strict],
-        marker="o",
-        linewidth=2.2,
-        color="#1b9e77",
-        label="strict budget",
-    )
-    ax.plot(
-        [row["budget_percent"] for row in safety],
-        [row["high_value_window_recall"] for row in safety],
-        marker="s",
-        linewidth=2.2,
-        color="#d95f02",
-        label="risk budget + safety floor",
-    )
-    _baseline_line(ax, rows, "scenario-only", "scenario-only")
-    _baseline_line(ax, rows, "window-risk-tier", "risk-tier")
-    ax.set_xlabel("Nominal external-call budget (% windows)")
-    ax.set_ylabel("High-value window recall")
-    ax.set_ylim(-0.03, 1.06)
+def _plot_policy_family(ax: Any, rows: list[dict[str, Any]], title: str) -> None:
+    x = [row["budget_percent"] for row in rows]
+    series = [
+        (
+            "High-value recall",
+            [100 * row["high_value_window_recall"] for row in rows],
+            "#7b61b6",
+            "o",
+            "-",
+        ),
+        (
+            "Call reduction",
+            [row["call_reduction"] for row in rows],
+            "#4f83d1",
+            "D",
+            "-",
+        ),
+        (
+            "Pressure coverage",
+            [100 * (1 - row["pressure_skip"]) for row in rows],
+            "#d95f02",
+            "^",
+            "-",
+        ),
+        (
+            "Evidence coverage",
+            [100 * row["evidence_coverage"] for row in rows],
+            "#6b8e23",
+            None,
+            "--",
+        ),
+    ]
+    for label, values, color, marker, linestyle in series:
+        ax.plot(
+            x,
+            values,
+            color=color,
+            marker=marker,
+            linestyle=linestyle,
+            linewidth=2.0,
+            markersize=5.5 if marker else 0,
+            label=label,
+            alpha=0.96,
+        )
+        _direct_label(ax, x[-1], values[-1], label, color)
+
+    _annotate_operating_point(ax, rows)
+    ax.set_xlabel("External-call budget (% of windows)")
+    ax.set_ylabel("Rate (%)")
+    ax.set_ylim(-3, 108)
     _budget_xaxis(ax)
-    ax.set_title("A. High-value coverage", loc="left", fontweight="bold")
-    ax.legend(frameon=True, loc="lower right", fontsize=7)
+    ax.set_title(title, loc="left", fontweight="bold")
+    ax.grid(True, axis="both", color="#d8d8d8", linestyle=":", linewidth=0.9)
 
 
-def _plot_pressure_budget(ax: Any, rows: list[dict[str, Any]]) -> None:
-    safety = _budget_rows(rows, "budget-risk-")
-    strict = _budget_rows(rows, "budget-coverage-")
-    ax.plot(
-        [row["budget_percent"] for row in strict],
-        [row["pressure_skip"] for row in strict],
-        marker="o",
-        linewidth=2.2,
-        color="#1b9e77",
-        label="strict budget",
+def _direct_label(ax: Any, x: float, y: float, label: str, color: str) -> None:
+    offsets = {
+        "High-value recall": 6.4,
+        "Call reduction": -4.8,
+        "Pressure coverage": 4.0,
+        "Evidence coverage": -7.0,
+    }
+    ax.annotate(
+        label,
+        xy=(x, y),
+        xytext=(8, offsets.get(label, 0)),
+        textcoords="offset points",
+        color=color,
+        fontsize=7,
+        va="center",
+        clip_on=False,
     )
-    ax.plot(
-        [row["budget_percent"] for row in safety],
-        [row["pressure_skip"] for row in safety],
-        marker="s",
-        linewidth=2.2,
-        color="#d95f02",
-        label="risk budget + safety floor",
+
+
+def _annotate_operating_point(ax: Any, rows: list[dict[str, Any]]) -> None:
+    target = next((row for row in rows if row["budget_percent"] == 20), rows[min(len(rows) - 1, 3)])
+    x = target["budget_percent"]
+    y = target["call_reduction"]
+    text = (
+        f"{target['call_reduction']:.1f}% reduction\n"
+        f"{100 * target['high_value_window_recall']:.1f}% window recall"
     )
-    _baseline_line(ax, rows, "scenario-only", "scenario-only")
-    _baseline_line(ax, rows, "window-risk-tier", "risk-tier")
-    _baseline_line(ax, rows, "topology+timeline", "topology+timeline")
-    ax.set_xlabel("Nominal external-call budget (% windows)")
-    ax.set_ylabel("Pressure-window skip rate")
-    ax.set_ylim(-0.03, 1.06)
-    _budget_xaxis(ax)
-    ax.set_title("B. Residual pressure risk", loc="left", fontweight="bold")
-    ax.legend(frameon=True, loc="upper right", fontsize=7)
-
-
-def _plot_call_budget(ax: Any, rows: list[dict[str, Any]]) -> None:
-    safety = _budget_rows(rows, "budget-risk-")
-    strict = _budget_rows(rows, "budget-coverage-")
-    ax.plot(
-        [row["budget_percent"] for row in strict],
-        [row["calls"] for row in strict],
-        marker="o",
-        linewidth=2.2,
-        color="#1b9e77",
-        label="strict budget",
+    ax.annotate(
+        text,
+        xy=(x, y),
+        xytext=(22, -66),
+        textcoords="offset points",
+        fontsize=7,
+        arrowprops={"arrowstyle": "->", "lw": 0.9, "color": "#333"},
+        bbox={"boxstyle": "round,pad=0.2", "fc": "white", "ec": "#cccccc", "alpha": 0.88},
     )
-    ax.plot(
-        [row["budget_percent"] for row in safety],
-        [row["calls"] for row in safety],
-        marker="s",
-        linewidth=2.2,
-        color="#d95f02",
-        label="risk budget + safety floor",
-    )
-    _baseline_line(ax, rows, "scenario-only", "scenario-only", field="calls")
-    _baseline_line(ax, rows, "window-risk-tier", "risk-tier", field="calls")
-    ax.set_xlabel("Nominal external-call budget (% windows)")
-    ax.set_ylabel("External LLM calls")
-    _budget_xaxis(ax)
-    ax.set_title("C. Actual provider load", loc="left", fontweight="bold")
-    ax.legend(frameon=True, loc="upper left", fontsize=7)
-
-
-def _baseline_line(ax: Any, rows: list[dict[str, Any]], policy: str, label: str, *, field: str | None = None) -> None:
-    row = _row(rows, policy)
-    if not row:
-        return
-    value = row[field] if field else row["high_value_window_recall"] if "coverage" in ax.get_title().lower() else row["pressure_skip"]
-    ax.axhline(value, color="#6b7280", linestyle="--", linewidth=1.0, alpha=0.55, label=label)
 
 
 def _budget_xaxis(ax: Any) -> None:
@@ -179,23 +176,6 @@ def _budget_percent(policy: str) -> int:
         return int(policy.rsplit("-", 1)[-1])
     except ValueError:
         return 0
-
-
-def _row(rows: list[dict[str, Any]], policy: str) -> dict[str, Any] | None:
-    for row in rows:
-        if row["policy"] == policy:
-            return row
-    return None
-
-
-def _short(policy: str) -> str:
-    return {
-        "scenario-only": "scenario",
-        "self-healing-aware": "self-healing",
-        "window-risk-tier": "risk-tier",
-        "topology+timeline": "topology+timeline",
-        "invoke-all": "invoke-all",
-    }.get(policy, policy)
 
 
 def main() -> None:

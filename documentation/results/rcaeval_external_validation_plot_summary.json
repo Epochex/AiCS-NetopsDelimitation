@@ -1,0 +1,21 @@
+{
+  "baselines": [
+    "invoke-all",
+    "scenario-only",
+    "window-risk-tier",
+    "oracle"
+  ],
+  "budget_policies": [
+    "budget-coverage-1",
+    "budget-coverage-2",
+    "budget-coverage-5",
+    "budget-coverage-10",
+    "budget-coverage-20",
+    "budget-coverage-40",
+    "budget-coverage-60"
+  ],
+  "pdf": "documentation/images/rcaeval_external_validation_frontier.pdf",
+  "png": "documentation/images/rcaeval_external_validation_frontier.png",
+  "report_json": "documentation/results/rcaeval_re1_external_validation.json",
+  "schema_version": 1
+}
