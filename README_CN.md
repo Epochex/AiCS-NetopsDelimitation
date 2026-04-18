@@ -1,15 +1,17 @@
-## NetOps Causality Remediation
+## AiCS-NetopsDelimitation
 
 [![English](https://img.shields.io/badge/Language-English-1f6feb)](./README.md)
 [![Simplified Chinese](https://img.shields.io/badge/Language-Simplified%20Chinese-2ea043)](./README_CN.md)
 
-当前分支研究的是风险感知的 LLM 调用准入（risk-aware LLM admission）。系统不让大模型判断告警是否成立。确定性规则先产生固定告警流（fixed deterministic alert stream），告警之后的层再把告警聚成事故窗口（incident windows）、构造边界受控的证据视图（evidence boundary），并决定哪些窗口值得进入外部 LLM 分析。
+**AiCS-NetopsDelimitation** 研究确定性 NetOps 告警流之后的风险感知 LLM 调用准入（risk-aware LLM admission）和上下文界定（context delimitation）。AiCS 表示准入感知的事故上下文选择（Admission-aware Incident Context Selection）。Delimitation 指系统明确界定哪些事故窗口、代表告警和证据视图可以跨过外部模型解释边界。
+
+系统不让大模型判断告警是否成立。确定性规则先产生固定告警流（fixed deterministic alert stream），告警之后的层再把告警聚成事故窗口（incident windows）、构造边界受控的证据视图（evidence boundary），并决定哪些窗口值得进入外部 LLM 分析。
 
 当前研究问题是：
 
 > 确定性告警之后，哪些事故窗口值得外部 LLM 分析；当重复或自愈窗口留在本地路径时，系统引入了多少风险？
 
-这是一层位于 LLM 根因分析（LLM-based RCA）之前的准入与预算控制（admission and budgeting layer）。它不是完整故障定位系统，不是自动修复系统，也不主张生产级诊断准确率。
+这是一层位于 LLM 故障定位或根因分析（LLM-based fault localization / RCA）之前的准入与预算控制（admission and budgeting layer）。它不是完整故障定位系统，不是自动修复系统，也不主张生产级诊断准确率。
 
 ## 系统流程
 
@@ -29,7 +31,7 @@ flowchart LR
   C --> D["Incident windows"]
   D --> E["Risk atoms + evidence boundary"]
   E --> F["Representative alert selection"]
-  F --> G{"Budgeted admission"}
+  F --> G{"Risk-aware admission"}
   G -->|"local"| H["Bounded local suggestion"]
   G -->|"external"| I["Schema-checked LLM interpretation"]
   H --> J["Operator-facing suggestion"]
@@ -60,7 +62,7 @@ flowchart LR
 - 设备、路径或时间线缺失证据（missing evidence）
 - 自愈主导窗口的负向修正（self-healing dominance）
 
-预算控制器按“未覆盖风险收益 / 代表告警成本”选择窗口：
+预算控制器按“未覆盖风险收益 / 代表告警成本”选择窗口。这个机制是 AiCS-NetopsDelimitation 的准入核心：它不是给每条告警排序，而是在预算约束下选择哪些窗口和代表告警可以进入外部模型路径。
 
 ```text
 gain(w | S) = weight(risk_atoms(w) - covered_atoms(S))
@@ -104,13 +106,37 @@ priority(w) = gain(w | S) / representative_cost(w)
 
 ## 外部验证
 
-当前提供了 RCAEval 风格 JSONL 的外部验证适配器。它验证的是准入层迁移能力：窗口构造、证据边界和预算准入是否能应用到另一个事故 benchmark。它不声称根因定位准确率。
+当前已经在 RCAEval RE1 上完成一次外部准入验证。它验证的是准入层迁移能力：窗口构造、证据边界和预算准入是否能应用到另一个可回放事故 benchmark。它不声称根因定位准确率，也不和 RCAEval 上的根因排序方法正面对比。
 
-使用 RCAEval 时，需要先把事故导出成包含时间、服务或设备、故障类型、可选路径或 trace 标识的 JSONL。没有外部数据时，适配器会直接失败，不会伪造结果。
+当前转换结果如下：
+
+| 数量 | 值 |
+| --- | ---: |
+| RCAEval RE1 事故实例 | 375 |
+| benchmark | RE1-OB, RE1-SS, RE1-TT |
+| 故障类型 | cpu, delay, disk, loss, mem |
+| 准入记录 | 2,120 |
+| 标注高价值记录 | 375 |
+| 指标派生症状记录 | 1,745 |
+| 事故窗口 | 375 |
+
+外部验证结果如下：
+
+| 策略 | 外部调用 | 调用减少 | 高价值窗口召回 | 误跳过率 | 证据目标覆盖 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Invoke all | 2,120 | 0.00% | 100.00% | 0.00% | 100.00% |
+| Scenario only | 375 | 82.31% | 100.00% | 0.00% | 100.00% |
+| Window risk tier | 375 | 82.31% | 100.00% | 0.00% | 100.00% |
+| Strict budget 20% | 75 | 96.46% | 20.00% | 80.00% | 100.00% |
+| Strict budget 60% | 225 | 89.39% | 60.00% | 40.00% | 100.00% |
+
+这个结果验证的是代表告警调用（representative invocation）：如果对每条指标派生记录都调用模型，需要 2,120 次外部调用；如果每个已知故障窗口调用一个代表记录，则需要 375 次，同时保留全部高价值窗口。RCAEval RE1 全部是故障注入实例，因此它适合验证误跳过行为和代表调用，但不适合单独校准选择性；LCORE-D 提供 transient 和自愈窗口，RCAEval 提供外部故障注入窗口。
+
+![RCAEval external validation frontier](documentation/images/rcaeval_external_validation_frontier.png)
 
 ## 与 BiAn 类系统的关系
 
-BiAn 这类 LLM RCA 系统关注的是事故进入分析之后如何做候选收缩、拓扑/时间线推理和根因排序。本项目关注它之前的一层：哪些窗口应该进入外部 LLM 分析、一个窗口需要多少代表告警、窗口留在本地时残留多少风险。
+BiAn 这类 LLM RCA 系统关注的是事故进入分析之后如何做候选收缩、拓扑/时间线推理和可能原因排序。AiCS-NetopsDelimitation 关注它之前的一层：哪些窗口应该进入外部 LLM 分析、一个窗口需要多少代表告警、窗口留在本地时残留多少风险。
 
 两者不是正面竞争关系。BiAn 类系统可以放在本准入层之后；本准入层负责在昂贵分析开始之前控制预算、上下文和服务隔离。
 

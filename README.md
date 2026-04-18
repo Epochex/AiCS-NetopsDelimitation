@@ -1,15 +1,17 @@
-## NetOps Causality Remediation
+## AiCS-NetopsDelimitation
 
 [![English](https://img.shields.io/badge/Language-English-1f6feb)](./README.md)
 [![Simplified Chinese](https://img.shields.io/badge/Language-Simplified%20Chinese-2ea043)](./README_CN.md)
 
-This branch studies **risk-aware LLM admission for deterministic NetOps alert streams**. The system does not ask a model to decide whether an alert exists. Deterministic monitoring first produces confirmed alerts. The post-alert layer then groups those alerts into incident windows, builds a window-level evidence boundary, and decides whether external LLM interpretation is worth the cost and risk.
+**AiCS-NetopsDelimitation** studies risk-aware LLM admission and context delimitation for deterministic NetOps alert streams. AiCS stands for **Admission-aware Incident Context Selection**. Delimitation means the system explicitly bounds which incident windows, representative alerts, and evidence views may cross into external model interpretation.
+
+The system does not ask a model to decide whether an alert exists. Deterministic monitoring first produces confirmed alerts. The post-alert layer then groups those alerts into incident windows, builds a window-level evidence boundary, and decides whether external LLM interpretation is worth the cost and risk.
 
 The current research question is:
 
 > Given a fixed deterministic alert stream, which incident windows should enter external LLM analysis, which windows can remain local, and how much risk is introduced by reducing model calls?
 
-This is an admission and context-boundary problem before LLM-based root-cause analysis. It is not a full failure-localization system, it does not write to devices, and it does not claim that model explanations are diagnostically correct.
+This is an admission and context-boundary problem before LLM-based fault localization or root-cause analysis. It is not a full failure-localization system, it does not write to devices, and it does not claim that model explanations are diagnostically correct.
 
 ## What Changed in This Branch
 
@@ -20,7 +22,7 @@ The earlier alert-level topology gate has been lifted to a window-level admissio
 - **Window-level evidence boundary.** Each window has selected, excluded, and missing evidence surfaces. The selected surface is what the model may see; excluded and missing surfaces stay visible for audit.
 - **Risk atoms.** Window risk is represented as interpretable atoms such as high-value fault evidence, recurrence pressure, topology pressure, multi-device spread, downstream fanout, and missing evidence.
 - **Representative alert selection.** A window may contain many alerts, but the external path receives only a small representative set that covers device, path, scenario, time, and pressure features.
-- **Budgeted admission.** The selector chooses windows by marginal uncovered risk per representative-alert cost. This produces a quality-cost frontier instead of a single call-reduction number.
+- **Risk-aware budgeted admission.** The selector chooses windows by marginal uncovered risk per representative-alert cost. This produces a quality-cost frontier instead of a single call-reduction number.
 - **Expert-style structural review.** A reproducible reviewer pass fills window-level labels from deterministic window fields, then calibrates risk weights to target false-skip rates. These labels are useful for engineering iteration, but they are not a substitute for independent operator labels.
 
 ## End-to-End Flow
@@ -42,7 +44,7 @@ flowchart LR
   D --> E["Evidence boundary"]
   E --> F["Risk atoms"]
   E --> G["Representative alerts"]
-  F --> H["Budgeted admission"]
+  F --> H["Risk-aware admission"]
   G --> H
   H -->|"local"| I["Bounded local suggestion"]
   H -->|"external"| J["Schema-checked LLM interpretation"]
@@ -77,7 +79,7 @@ Windows are labeled by deterministic structure before model admission:
 
 These labels are admission labels, not root-cause labels. They answer whether a window is worth external interpretation, not which device caused the incident.
 
-## Risk Atoms and Budgeted Admission
+## Risk Atoms and Risk-Aware Admission
 
 Window risk is not treated as an opaque score. The system first extracts risk atoms:
 
@@ -118,7 +120,7 @@ External requests are not sent as one unstructured JSON dump. The post-alert pat
 | Excluded-evidence view | Context explicitly kept out of the model-facing selected surface |
 | Serving view | Local/external decision, risk tier, decision reason, and provider budget tier |
 
-This structure is the practical context-engineering layer. It is simpler than a multi-agent RCA pipeline, but it gives the admission layer a stable contract and keeps model calls auditable.
+This structure is the practical context-engineering layer. It is simpler than a multi-agent RCA pipeline, but it gives AiCS-NetopsDelimitation a stable admission contract and keeps model calls auditable.
 
 ## Current LCORE-D Evaluation
 
@@ -230,9 +232,9 @@ The window-level system supersedes this as the main path. The local topology vie
 
 ## External Validation on RCAEval RE1
 
-RCAEval RE1 is now used as an external admission benchmark. The goal is not to compete with RCAEval root-cause ranking methods. The goal is narrower: test whether the window-level admission layer transfers to another replayable incident benchmark with known root-cause service and fault labels.
+RCAEval RE1 is now used as an external admission benchmark. The goal is not to compete with RCAEval fault-ranking methods. The goal is narrower: test whether the window-level admission layer transfers to another replayable incident benchmark with known fault-service and fault-type labels.
 
-The converter reads RCAEval RE1 metric cases and emits admission records. For each case, it keeps one root-cause record from the dataset label and derives a small set of symptom records from metrics whose post-injection behavior changes relative to the pre-injection baseline. This creates the same shape as the LCORE-D admission problem: a high-value window may contain both root evidence and symptom evidence, and the system should avoid invoking the external model for every symptom alert.
+The converter reads RCAEval RE1 metric cases and emits admission records. For each case, it keeps one labeled fault-service record from the dataset label and derives a small set of symptom records from metrics whose post-injection behavior changes relative to the pre-injection baseline. This creates the same shape as the LCORE-D admission problem: a high-value window may contain both labeled fault evidence and symptom evidence, and the system should avoid invoking the external model for every symptom alert.
 
 Current RCAEval RE1 conversion:
 
@@ -264,15 +266,15 @@ The RCAEval expert-style review file marks all 375 windows as external-worthy be
 
 ## Relation to BiAn and LogPilot
 
-BiAn and this system address different layers. BiAn focuses on production-scale LLM-assisted failure localization after an incident has already entered analysis. It narrows candidate devices and integrates anomaly, topology, and timeline information to rank root causes. This project focuses on the layer before that: given many deterministic alerts, decide which incident windows are worth external model analysis at all.
+BiAn and AiCS-NetopsDelimitation address different layers. BiAn focuses on production-scale LLM-assisted failure localization after an incident has already entered analysis. It narrows candidate devices and integrates anomaly, topology, and timeline information to rank likely causes. AiCS-NetopsDelimitation focuses on the layer before that: given many deterministic alerts, decide which incident windows are worth external model analysis at all.
 
-LogPilot is closer in one respect: it reduces alert volume before LLM-based log diagnosis by grouping or selecting representative events. This project differs in the object and metric. It works over deterministic NetOps alert windows, not only log clusters; it models self-healing and pressure windows explicitly; it builds a selected/excluded/missing evidence boundary; and it evaluates quality-cost tradeoffs through high-value recall, pressure-window skip rate, evidence coverage, and call reduction.
+LogPilot is closer in one respect: it reduces alert volume before LLM-based log diagnosis by grouping or selecting representative events. AiCS-NetopsDelimitation differs in the object and metric. It works over deterministic NetOps alert windows, not only log clusters; it models self-healing and pressure windows explicitly; it builds a selected/excluded/missing evidence boundary; and it evaluates quality-cost tradeoffs through high-value recall, pressure-window skip rate, evidence coverage, and call reduction.
 
 The intended composition is:
 
 ```text
 deterministic monitoring
-  -> window-level LLM admission and evidence boundary
+  -> AiCS-NetopsDelimitation window admission and evidence boundary
   -> optional LLM RCA system such as a BiAn-like analyzer
   -> advisory operator output
 ```
@@ -352,7 +354,7 @@ Supported by the current code and replay:
 - deterministic alerts remain fixed before model use;
 - incident windows reduce repeated alert-level invocation;
 - evidence boundaries define what the model may see;
-- budgeted admission exposes call-reduction versus risk tradeoffs;
+- risk-aware budgeted admission exposes call-reduction versus risk tradeoffs;
 - live provider replay validates serving isolation and schema checks;
 - RCAEval RE1 shows the admission layer can be applied to an external replay benchmark and can reduce metric-record-level invocation through representative alerts.
 
