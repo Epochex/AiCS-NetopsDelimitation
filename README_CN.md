@@ -1,9 +1,9 @@
-## AiCS-NetopsDelimitation
+## AiCS: Risk-Aware Window-Level Admission for LLM-Assisted Network Operations
 
 [![English](https://img.shields.io/badge/Language-English-1f6feb)](./README.md)
 [![Simplified Chinese](https://img.shields.io/badge/Language-Simplified%20Chinese-2ea043)](./README_CN.md)
 
-**AiCS-NetopsDelimitation** 研究确定性 NetOps 告警流之后的风险感知 LLM 调用准入（risk-aware LLM admission）和上下文界定（context delimitation）。AiCS 表示准入感知的事故上下文选择（Admission-aware Incident Context Selection）。Delimitation 指系统明确界定哪些事故窗口、代表告警和证据视图可以跨过外部模型解释边界。
+**AiCS-NetopsDelimitation** 是 AiCS 系统的代码仓库。AiCS 研究确定性 NetOps 告警流之后的风险感知 LLM 调用准入（risk-aware LLM admission）和上下文界定（context delimitation）。AiCS 表示准入感知的事故上下文选择（Admission-aware Incident Context Selection）。Delimitation 指系统明确界定哪些事故窗口、代表告警和证据视图可以跨过外部模型解释边界。
 
 系统不让大模型判断告警是否成立。确定性规则先产生固定告警流（fixed deterministic alert stream），告警之后的层再把告警聚成事故窗口（incident windows）、构造边界受控的证据视图（evidence boundary），并决定哪些窗口值得进入外部 LLM 分析。
 
