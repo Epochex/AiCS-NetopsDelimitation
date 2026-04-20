@@ -17,6 +17,9 @@ from core.benchmark.quality_cost_policy_runner import run as run_quality_cost
 from core.benchmark.window_expert_reviewer import review_window
 from core.benchmark.external_validation_adapter import run as run_external_validation
 from core.benchmark.rcaeval_re1_converter import run as run_rcaeval_converter
+from core.benchmark.rcaeval_full_adapter import run as run_rcaeval_full_adapter
+from core.benchmark.admission_baseline_runner import run as run_admission_baselines
+from core.benchmark.prompt_quality_runner import run as run_prompt_quality
 
 
 def _alert(
@@ -349,3 +352,121 @@ def test_rcaeval_re1_converter_preserves_root_and_metric_symptoms(tmp_path: Path
     assert records[0]["service"] == "checkoutservice"
     assert records[0]["fault_type"] == "rcaeval_mem_fault"
     assert any(record["service"] == "paymentservice" for record in records[1:])
+
+
+def test_rcaeval_full_adapter_exports_records_windows_and_dataset_summary(tmp_path: Path) -> None:
+    case_dir = tmp_path / "data" / "RE1" / "RE1-OB" / "checkoutservice_cpu" / "1"
+    case_dir.mkdir(parents=True)
+    inject = 1_700_000_600
+    (case_dir / "inject_time.txt").write_text(str(inject), encoding="utf-8")
+    with (case_dir / "data.csv").open("w", encoding="utf-8") as fp:
+        fp.write("time,checkoutservice_cpu,paymentservice_latency,frontend_cpu\n")
+        for ts in range(inject - 10, inject):
+            fp.write(f"{ts},10,1.0,5.0\n")
+        for ts in range(inject, inject + 10):
+            fp.write(f"{ts},100,9.0,5.1\n")
+
+    output = tmp_path / "rcaeval_all.jsonl"
+    windows = tmp_path / "rcaeval_windows.jsonl"
+    summary = run_rcaeval_full_adapter(
+        Namespace(
+            rcaeval_root=str(tmp_path),
+            output_jsonl=str(output),
+            output_cases_jsonl="",
+            output_windows_jsonl=str(windows),
+            output_summary_json="",
+            window_sec=600,
+            top_symptoms=3,
+            min_symptom_score=1.0,
+        )
+    )
+    records = [json.loads(line) for line in output.read_text(encoding="utf-8").splitlines()]
+    window_records = [json.loads(line) for line in windows.read_text(encoding="utf-8").splitlines()]
+
+    assert summary["cases"] == 1
+    assert summary["per_dataset"]["RE1-OB"]["cases"] == 1
+    assert records[0]["dataset"] == "RE1-OB"
+    assert records[0]["dataset_family"] == "RE1"
+    assert window_records
+
+
+def test_unified_admission_baseline_runner_reports_required_policies(tmp_path: Path) -> None:
+    dataset = tmp_path / "external.jsonl"
+    records = [
+        {
+            "id": "r1",
+            "timestamp": "2026-04-10T00:00:00+00:00",
+            "service": "checkout",
+            "fault_type": "latency_fault",
+            "trace_id": "trace-a",
+        },
+        {
+            "id": "r2",
+            "timestamp": "2026-04-10T00:01:00+00:00",
+            "service": "payment",
+            "fault_type": "transient_fault",
+            "trace_id": "trace-a",
+        },
+        {
+            "id": "r3",
+            "timestamp": "2026-04-10T00:02:00+00:00",
+            "service": "frontend",
+            "fault_type": "transient_fault",
+            "trace_id": "trace-a",
+        },
+    ]
+    with dataset.open("w", encoding="utf-8") as fp:
+        for record in records:
+            fp.write(json.dumps(record, ensure_ascii=True) + "\n")
+
+    report = run_admission_baselines(
+        Namespace(
+            source="rcaeval",
+            alert_dir="",
+            dataset_jsonl=str(dataset),
+            limit_files=0,
+            max_alerts=0,
+            window_sec=600,
+            group_by_scenario=False,
+            budgets="1,20",
+            output_json="",
+            output_windows_jsonl="",
+        )
+    )
+
+    assert report["incident_windows"] >= 1
+    assert {"invoke-all", "analyze-all-windows", "representative-only", "scenario-only"}.issubset(
+        report["policies"]
+    )
+    assert "risk-score-20" in report["policies"]
+    assert "risk-coverage-20" in report["policies"]
+    assert report["policies"]["invoke-all"]["external_calls"] == 3
+    assert report["policies"]["representative-only"]["external_calls"] <= 3
+
+
+def test_prompt_quality_runner_scores_stage_specific_contracts(tmp_path: Path) -> None:
+    alerts = [
+        _alert("a1", ts="2026-04-10T00:00:00+00:00", device="CORE-R2", scenario="induced_fault"),
+        _alert("a2", ts="2026-04-10T00:01:00+00:00", device="CORE-R3", scenario="transient_fault"),
+    ]
+    windows, _ = build_incident_window_index(alerts, window_sec=600)
+    windows_jsonl = tmp_path / "windows.jsonl"
+    with windows_jsonl.open("w", encoding="utf-8") as fp:
+        for window in windows:
+            fp.write(json.dumps(window, ensure_ascii=True) + "\n")
+
+    raw = tmp_path / "prompt_raw.jsonl"
+    scores = run_prompt_quality(
+        Namespace(
+            windows_jsonl=str(windows_jsonl),
+            max_windows=0,
+            output_raw_jsonl=str(raw),
+            output_scores_json="",
+        )
+    )
+    raw_records = [json.loads(line) for line in raw.read_text(encoding="utf-8").splitlines()]
+
+    assert scores["strategies"]["full-contract"]["avg_quality_score"] >= scores["strategies"]["alert-only"]["avg_quality_score"]
+    assert scores["strategies"]["full-contract"]["avg_stage_count"] == 3.0
+    assert len(raw_records) == len(windows) * 5
+    assert any(record["strategy"] == "boundary-then-interpretation" for record in raw_records)
