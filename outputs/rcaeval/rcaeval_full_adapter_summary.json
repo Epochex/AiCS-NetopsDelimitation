@@ -1,0 +1,83 @@
+{
+  "cases": 375,
+  "conversion_scope": "RCAEval metric cases converted to admission-layer records; ground-truth service, fault type, dataset, and run identity are preserved.",
+  "incident_windows": 377,
+  "min_symptom_score": 1.0,
+  "output_jsonl": "outputs/rcaeval/rcaeval_admission_records.jsonl",
+  "output_windows_jsonl": "outputs/rcaeval/rcaeval_windows.jsonl",
+  "per_dataset": {
+    "RE1-OB": {
+      "cases": 125,
+      "dataset_family": "RE1",
+      "fault_types": {
+        "cpu": 25,
+        "delay": 25,
+        "disk": 25,
+        "loss": 25,
+        "mem": 25
+      },
+      "incident_windows": 125,
+      "records": 620,
+      "root_cause_records": 125,
+      "root_services": {
+        "adservice": 25,
+        "cartservice": 25,
+        "checkoutservice": 25,
+        "currencyservice": 25,
+        "productcatalogservice": 25
+      },
+      "symptom_records": 495
+    },
+    "RE1-SS": {
+      "cases": 125,
+      "dataset_family": "RE1",
+      "fault_types": {
+        "cpu": 25,
+        "delay": 25,
+        "disk": 25,
+        "loss": 25,
+        "mem": 25
+      },
+      "incident_windows": 125,
+      "records": 750,
+      "root_cause_records": 125,
+      "root_services": {
+        "carts": 25,
+        "catalogue": 25,
+        "orders": 25,
+        "payment": 25,
+        "user": 25
+      },
+      "symptom_records": 625
+    },
+    "RE1-TT": {
+      "cases": 125,
+      "dataset_family": "RE1",
+      "fault_types": {
+        "cpu": 25,
+        "delay": 25,
+        "disk": 25,
+        "loss": 25,
+        "mem": 25
+      },
+      "incident_windows": 127,
+      "records": 750,
+      "root_cause_records": 125,
+      "root_services": {
+        "ts-auth-service": 25,
+        "ts-order-service": 25,
+        "ts-route-service": 25,
+        "ts-train-service": 25,
+        "ts-travel-service": 25
+      },
+      "symptom_records": 625
+    }
+  },
+  "records": 2120,
+  "root_cause_records": 375,
+  "schema_version": 1,
+  "source": "RCAEval",
+  "source_root": "/data/external_benchmarks/RCAEval",
+  "symptom_records": 1745,
+  "top_symptoms": 5
+}

@@ -1,9 +1,9 @@
-## AiCS-NetopsDelimitation
+## AiCS: Risk-Aware Window-Level Admission for LLM-Assisted Network Operations
 
 [![English](https://img.shields.io/badge/Language-English-1f6feb)](./README.md)
 [![Simplified Chinese](https://img.shields.io/badge/Language-Simplified%20Chinese-2ea043)](./README_CN.md)
 
-**AiCS-NetopsDelimitation** studies risk-aware LLM admission and context delimitation for deterministic NetOps alert streams. AiCS stands for **Admission-aware Incident Context Selection**. Delimitation means the system explicitly bounds which incident windows, representative alerts, and evidence views may cross into external model interpretation.
+**AiCS-NetopsDelimitation** is the repository for AiCS, a system that studies risk-aware LLM admission and context delimitation for deterministic NetOps alert streams. AiCS stands for **Admission-aware Incident Context Selection**. Delimitation means the system explicitly bounds which incident windows, representative alerts, and evidence views may cross into external model interpretation.
 
 The system does not ask a model to decide whether an alert exists. Deterministic monitoring first produces confirmed alerts. The post-alert layer then groups those alerts into incident windows, builds a window-level evidence boundary, and decides whether external LLM interpretation is worth the cost and risk.
 

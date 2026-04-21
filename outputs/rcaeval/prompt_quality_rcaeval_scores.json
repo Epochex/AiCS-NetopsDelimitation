@@ -1,0 +1,73 @@
+{
+  "provider": "template",
+  "quality_scope": "prompt-contract and context-shape evaluation with deterministic template responses; external-model quality must be measured separately with saved provider outputs",
+  "schema_version": 1,
+  "strategies": {
+    "alert-only": {
+      "avg_quality_score": 0.625,
+      "avg_stage_count": 1.0,
+      "device_reference_rate": 0.0,
+      "excluded_evidence_ack_rate": 0.03,
+      "missing_evidence_ack_rate": 0.97,
+      "overclaim_rate": 0.0,
+      "path_reference_rate": 0.0,
+      "schema_valid_rate": 1.0,
+      "timeline_reference_rate": 1.0,
+      "unsafe_action_rate": 0.0,
+      "windows": 200
+    },
+    "boundary-then-interpretation": {
+      "avg_quality_score": 1.0,
+      "avg_stage_count": 2.0,
+      "device_reference_rate": 1.0,
+      "excluded_evidence_ack_rate": 1.0,
+      "missing_evidence_ack_rate": 1.0,
+      "overclaim_rate": 0.0,
+      "path_reference_rate": 1.0,
+      "schema_valid_rate": 1.0,
+      "timeline_reference_rate": 1.0,
+      "unsafe_action_rate": 0.0,
+      "windows": 200
+    },
+    "context-views": {
+      "avg_quality_score": 0.87875,
+      "avg_stage_count": 1.0,
+      "device_reference_rate": 1.0,
+      "excluded_evidence_ack_rate": 0.03,
+      "missing_evidence_ack_rate": 1.0,
+      "overclaim_rate": 0.0,
+      "path_reference_rate": 1.0,
+      "schema_valid_rate": 1.0,
+      "timeline_reference_rate": 1.0,
+      "unsafe_action_rate": 0.0,
+      "windows": 200
+    },
+    "full-contract": {
+      "avg_quality_score": 1.0,
+      "avg_stage_count": 3.0,
+      "device_reference_rate": 1.0,
+      "excluded_evidence_ack_rate": 1.0,
+      "missing_evidence_ack_rate": 1.0,
+      "overclaim_rate": 0.0,
+      "path_reference_rate": 1.0,
+      "schema_valid_rate": 1.0,
+      "timeline_reference_rate": 1.0,
+      "unsafe_action_rate": 0.0,
+      "windows": 200
+    },
+    "single-interpretation": {
+      "avg_quality_score": 0.75375,
+      "avg_stage_count": 1.0,
+      "device_reference_rate": 1.0,
+      "excluded_evidence_ack_rate": 0.03,
+      "missing_evidence_ack_rate": 0.97,
+      "overclaim_rate": 0.0,
+      "path_reference_rate": 1.0,
+      "schema_valid_rate": 1.0,
+      "timeline_reference_rate": 0.03,
+      "unsafe_action_rate": 0.0,
+      "windows": 200
+    }
+  },
+  "windows": 200
+}
