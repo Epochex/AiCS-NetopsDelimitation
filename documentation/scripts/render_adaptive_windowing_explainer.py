@@ -51,10 +51,10 @@ def _sample_alerts() -> list[dict]:
     return [
         _alert("a1", ts=base + timedelta(seconds=0), device="CORE-R2", scenario="transient_fault"),
         _alert("a2", ts=base + timedelta(seconds=60), device="CORE-R3", scenario="transient_fault"),
-        _alert("a3", ts=base + timedelta(seconds=120), device="CORE-R4", scenario="induced_fault"),
+        _alert("a3", ts=base + timedelta(seconds=120), device="CORE-R4", scenario="transient_fault"),
         _alert("a4", ts=base + timedelta(seconds=470), device="CORE-R5", scenario="transient_fault"),
         _alert("a5", ts=base + timedelta(seconds=530), device="CORE-R6", scenario="transient_fault"),
-        _alert("a6", ts=base + timedelta(seconds=1200), device="CORE-R7", scenario="transient_fault"),
+        _alert("a6", ts=base + timedelta(seconds=590), device="CORE-R9", scenario="induced_fault"),
     ]
 
 
@@ -63,8 +63,8 @@ def main() -> None:
     base_ts = datetime.fromisoformat(str(alerts[0]["alert_ts"]).replace("Z", "+00:00"))
     configs = [
         ("fixed 5m buckets", {"window_sec": 300, "window_mode": "fixed", "max_window_sec": 300}),
-        ("session gap 10m", {"window_sec": 600, "window_mode": "session", "max_window_sec": 900}),
-        ("adaptive gap", {"window_sec": 600, "window_mode": "adaptive", "max_window_sec": 900}),
+        ("gap-adaptive session", {"window_sec": 600, "window_mode": "adaptive", "max_window_sec": 900}),
+        ("topology-coupled AiCS", {"window_sec": 500, "window_mode": "aics-topology", "max_window_sec": 1200}),
     ]
     colors = ["#9ecae1", "#fdae6b", "#a1d99b", "#fdd0a2"]
 
@@ -100,14 +100,30 @@ def main() -> None:
         if kwargs["window_mode"] == "adaptive":
             gaps = sorted({int(window.get("group_idle_gap_sec") or 0) for window in windows})
             summary += f", learned gaps {gaps}s"
+        elif kwargs["window_mode"] == "aics-topology":
+            summary += ", soft split on frontier change"
         axis.set_title(f"{title}: {summary}", loc="left", fontsize=11)
         axis.set_ylim(0.0, 1.0)
         axis.set_yticks([])
         axis.grid(axis="x", alpha=0.2)
+        if kwargs["window_mode"] == "aics-topology":
+            axis.text(
+                0.67,
+                0.84,
+                "Split signals:\n"
+                "fault-family transition\n"
+                "device frontier shift\n"
+                "representative churn",
+                transform=axis.transAxes,
+                ha="left",
+                va="top",
+                fontsize=8.2,
+                bbox={"facecolor": "white", "edgecolor": "#cccccc", "pad": 2.0, "alpha": 0.96},
+            )
 
     axes[-1].set_xlabel("Minutes from first alert")
-    axes[-1].set_xlim(-0.5, 22.0)
-    fig.suptitle("Fixed buckets, session windows, and adaptive session windows on one alert burst", y=0.98, fontsize=13)
+    axes[-1].set_xlim(-0.5, 12.0)
+    fig.suptitle("Fixed buckets, gap-adaptive sessions, and topology-coupled AiCS on one alert burst", y=0.98, fontsize=13)
     fig.tight_layout(rect=(0, 0, 1, 0.96))
     OUTPUT_PNG.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(OUTPUT_PNG, dpi=180, bbox_inches="tight")

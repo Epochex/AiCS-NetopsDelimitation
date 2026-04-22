@@ -11,6 +11,8 @@ from statistics import mean, pstdev
 from typing import Any
 
 import matplotlib.pyplot as plt
+from matplotlib.patches import Rectangle
+from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 
 from core.aiops_agent.alert_reasoning_runtime.budget_controller import select_windows_under_budget
 from core.aiops_agent.alert_reasoning_runtime.incident_window import build_incident_window_index
@@ -268,74 +270,177 @@ def _render_plot(rows: list[dict[str, Any]], *, recommended_name: str, output_pn
         "aics-evidence": "P",
         "aics": "X",
     }
-    fig, ax = plt.subplots(figsize=(9.2, 6.1))
-    important = {
-        "fixed-600",
-        "session-900x1800",
-        "adaptive-600x1800",
-        "aics-topology-500x1200",
-        "aics-evidence-600x1800",
-        "aics-hybrid-600x1800",
-    }
+    fig, ax = plt.subplots(figsize=(10.2, 6.4))
+    by_name = {str(row["name"]): row for row in rows}
     label_offsets = {
-        "fixed-600": (8, 10),
-        "session-900x1800": (8, 8),
-        "adaptive-600x1800": (8, 8),
-        "aics-topology-500x1200": (8, 8),
-        "aics-evidence-600x1800": (8, 10),
-        "aics-hybrid-600x1800": (8, 4),
+        "fixed-600": (-172, -40),
+        "session-900x1800": (-26, -20),
+        "adaptive-600x1800": (10, 12),
+        "aics-topology-500x1200": (8, 12),
     }
+    topology_inset_offsets = {
+        "aics-topology-500x1200": (6, 6),
+        "aics-topology-600x1800": (6, -14),
+        "aics-topology-900x1800": (8, 6),
+    }
+    main_labels = {"fixed-600", "session-900x1800", "adaptive-600x1800", "aics-topology-500x1200"}
+    short_names = {
+        "fixed-600": "Fixed 10m Bucket",
+        "session-900x1800": "Long Session",
+        "adaptive-600x1800": "Gap-Adaptive",
+        "aics-topology-500x1200": "Topology-Coupled AiCS",
+        "aics-topology-600x1800": "Topology Wide",
+        "aics-topology-900x1800": "Topology Loose",
+        "aics-evidence-600x1800": "Evidence Default",
+        "aics-evidence-900x1800": "Evidence Loose",
+        "aics-hybrid-600x1800": "Hybrid Default",
+        "aics-hybrid-900x1800": "Hybrid Loose",
+    }
+    family_rows: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in rows:
+        family_rows[str(row["window_mode"])].append(row)
+
+    for family, items in family_rows.items():
+        if len(items) < 2:
+            continue
+        items_sorted = sorted(items, key=lambda item: int(item["lcore"]["strict_budget_20"]["external_calls"]))
+        ax.plot(
+            [item["lcore"]["strict_budget_20"]["external_calls"] for item in items_sorted],
+            [item["lcore"]["strict_budget_20"]["high_value_window_recall"] * 100.0 for item in items_sorted],
+            color=colors.get(family, "#666666"),
+            linewidth=1.2,
+            alpha=0.45,
+            zorder=2,
+        )
 
     for row in rows:
         color = colors.get(str(row["window_mode"]), "#333333")
-        marker = "*" if str(row["name"]) == recommended_name else markers.get(str(row["window_mode"]), "o")
-        bubble = 80 + 700 * float(row["lcore"]["single_alert_rate"])
+        marker = markers.get(str(row["window_mode"]), "o")
         edgecolor = "#111111" if str(row["name"]) == recommended_name else "white"
-        linewidth = 1.0 if str(row["name"]) == recommended_name else 0.8
+        linewidth = 1.2 if str(row["name"]) == recommended_name else 0.9
+        x = row["lcore"]["strict_budget_20"]["external_calls"]
+        y = row["lcore"]["strict_budget_20"]["high_value_window_recall"] * 100.0
         ax.scatter(
-            row["lcore"]["risk_budget_20"]["external_calls"],
-            row["lcore"]["strict_budget_20"]["high_value_window_recall"] * 100.0,
+            x,
+            y,
             color=color,
-            s=300 if marker == "*" else bubble,
+            s=220 if str(row["name"]) == recommended_name else 155,
             marker=marker,
-            alpha=0.9,
+            alpha=0.92,
             edgecolors=edgecolor,
             linewidths=linewidth,
-            zorder=4 if str(row["name"]) == recommended_name else 3,
+            zorder=5 if str(row["name"]) == recommended_name else 4,
         )
-        if str(row["name"]) in important or str(row["name"]) == recommended_name:
+        if str(row["name"]) in main_labels:
             offset = label_offsets.get(str(row["name"]), (6, 6))
             ax.annotate(
-                str(row["display_name"]),
-                (
-                    row["lcore"]["risk_budget_20"]["external_calls"],
-                    row["lcore"]["strict_budget_20"]["high_value_window_recall"] * 100.0,
-                ),
-                fontsize=8.2,
+                short_names.get(str(row["name"]), str(row["display_name"]))
+                + "\n"
+                + f"{int(row['lcore']['incident_windows'])} windows, "
+                + f"{row['lcore']['single_alert_rate'] * 100.0:.1f}% single",
+                (x, y),
+                fontsize=8.0,
                 xytext=offset,
                 textcoords="offset points",
+                arrowprops={"arrowstyle": "-", "lw": 0.7, "color": color, "alpha": 0.7},
+                bbox={
+                    "facecolor": "white",
+                    "edgecolor": "#dddddd",
+                    "boxstyle": "round,pad=0.22",
+                    "alpha": 0.95,
+                },
             )
 
-    ax.set_title("Window Boundary Algorithms on LCORE-D")
-    ax.set_xlabel("Risk-budget 20% external calls")
+    recommended = by_name[recommended_name]
+    recommended_x = recommended["lcore"]["strict_budget_20"]["external_calls"]
+    recommended_y = recommended["lcore"]["strict_budget_20"]["high_value_window_recall"] * 100.0
+    ax.axvline(recommended_x, color="#bdbdbd", linestyle="--", linewidth=0.9, zorder=1)
+    ax.axhline(recommended_y, color="#bdbdbd", linestyle=":", linewidth=0.9, zorder=1)
+    topology_rect = Rectangle(
+        (356, 77.3),
+        78,
+        8.0,
+        fill=False,
+        edgecolor=colors["aics-topology"],
+        linewidth=1.2,
+        linestyle="--",
+        alpha=0.7,
+        zorder=1,
+    )
+    ax.add_patch(topology_rect)
+    ax.annotate(
+        "better",
+        xy=(288, 90.4),
+        xytext=(338, 88.9),
+        fontsize=8.3,
+        color="#444444",
+        arrowprops={"arrowstyle": "->", "lw": 0.9, "color": "#666666"},
+    )
+
+    ax.set_title("Boundary Algorithms Under a Shared Strict-Budget Slice")
+    ax.set_xlabel("Strict-budget 20% external calls")
     ax.set_ylabel("Strict-budget 20% high-value recall (%)")
-    ax.grid(alpha=0.25)
-    ax.set_xlim(430, 610)
+    ax.grid(alpha=0.22)
+    ax.set_xlim(255, 610)
     ax.set_ylim(74, 93)
-    ax.axvline(500, color="#bbbbbb", linestyle="--", linewidth=0.8, zorder=1)
-    ax.axhline(84.52, color="#bbbbbb", linestyle=":", linewidth=0.8, zorder=1)
     ax.text(
         0.02,
-        0.98,
-        "Marker size: single-alert window rate\n"
-        "Color/shape: boundary family\n"
-        "RCAEval transfer: all dynamic methods keep 375 windows; fixed bucket yields 377",
+        0.91,
+        "Shared regime: strict-budget 20%\n"
+        "Colored links trace variants within each family\n"
+        "Green box marks the selected family region\n"
+        "Guides mark the recommended dynamic point\n"
+        "RCAEval transfer: dynamic methods keep 375 windows",
         transform=ax.transAxes,
         ha="left",
         va="top",
-        fontsize=8.0,
+        fontsize=7.8,
         bbox={"facecolor": "white", "edgecolor": "#cccccc", "pad": 2.5, "alpha": 0.95},
     )
+
+    inset = inset_axes(ax, width="42%", height="42%", loc="lower right", borderpad=1.2)
+    topology_rows = sorted(
+        family_rows["aics-topology"],
+        key=lambda item: int(item["lcore"]["strict_budget_20"]["external_calls"]),
+    )
+    inset.plot(
+        [item["lcore"]["strict_budget_20"]["external_calls"] for item in topology_rows],
+        [item["lcore"]["strict_budget_20"]["high_value_window_recall"] * 100.0 for item in topology_rows],
+        color=colors["aics-topology"],
+        linewidth=1.2,
+        alpha=0.5,
+        zorder=2,
+    )
+    for row in topology_rows:
+        x = row["lcore"]["strict_budget_20"]["external_calls"]
+        y = row["lcore"]["strict_budget_20"]["high_value_window_recall"] * 100.0
+        inset.scatter(
+            x,
+            y,
+            color=colors["aics-topology"],
+            marker=markers["aics-topology"],
+            s=90 if str(row["name"]) == recommended_name else 68,
+            alpha=0.95,
+            edgecolors="#111111" if str(row["name"]) == recommended_name else "white",
+            linewidths=0.8,
+            zorder=5 if str(row["name"]) == recommended_name else 4,
+        )
+        inset.annotate(
+            short_names.get(str(row["name"]), str(row["display_name"]))
+            + "\n"
+            + f"{int(row['lcore']['incident_windows'])}w, {row['lcore']['single_alert_rate'] * 100.0:.1f}% single",
+            (x, y),
+            fontsize=6.2,
+            xytext=topology_inset_offsets.get(str(row["name"]), (5, 4)),
+            textcoords="offset points",
+        )
+    inset.axvline(recommended_x, color="#bdbdbd", linestyle="--", linewidth=0.8, zorder=1)
+    inset.axhline(recommended_y, color="#bdbdbd", linestyle=":", linewidth=0.8, zorder=1)
+    inset.set_xlim(358, 434)
+    inset.set_ylim(77.2, 85.2)
+    inset.set_title("Selected family: topology-coupled", fontsize=7.2)
+    inset.grid(alpha=0.18)
+    inset.tick_params(labelsize=6.8)
 
     handles = [
         plt.Line2D(
@@ -350,7 +455,7 @@ def _render_plot(rows: list[dict[str, Any]], *, recommended_name: str, output_pn
         )
         for mode, color in colors.items()
     ]
-    ax.legend(handles=handles, loc="lower right", frameon=False, ncol=2)
+    ax.legend(handles=handles, loc="upper center", bbox_to_anchor=(0.75, 1.0), frameon=False, ncol=2)
     fig.tight_layout()
     output_png.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output_png, dpi=200, bbox_inches="tight")
@@ -363,11 +468,11 @@ def _display_name(name: str) -> str:
         "session-900x1800": "Long Session",
         "adaptive-600x1800": "Gap-Adaptive Session",
         "aics-topology-500x1200": "Topology-Coupled AiCS",
-        "aics-topology-600x1800": "Topology-Coupled Wide",
-        "aics-topology-900x1800": "Topology-Coupled Loose",
-        "aics-evidence-600x1800": "Evidence-Coupled AiCS",
-        "aics-evidence-900x1800": "Evidence-Coupled Loose",
-        "aics-hybrid-600x1800": "Hybrid AiCS",
+        "aics-topology-600x1800": "Topology Wide",
+        "aics-topology-900x1800": "Topology Loose",
+        "aics-evidence-600x1800": "Evidence Default",
+        "aics-evidence-900x1800": "Evidence Loose",
+        "aics-hybrid-600x1800": "Hybrid Default",
         "aics-hybrid-900x1800": "Hybrid Loose",
     }
     return labels.get(name, name)
