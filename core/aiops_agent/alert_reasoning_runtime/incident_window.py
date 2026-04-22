@@ -25,15 +25,85 @@ def build_incident_windows(
     window_sec: int = 600,
     *,
     group_by_scenario: bool = False,
+    window_mode: str = "session",
+    max_window_sec: int | None = None,
+    representative_max_items: int = 3,
 ) -> list[dict[str, Any]]:
     """Group deterministic alerts into bounded incident windows.
 
-    The grouping is intentionally deterministic and model-free. It uses a time
-    bucket, normalized scenario, and path shape. The path shape removes the
-    seed device prefix when LCORE-style hop metadata is available, allowing a
-    window to capture multiple devices that share the same topological shape.
+    The grouping is intentionally deterministic and model-free. The default
+    mode is sessionized: alerts with the same normalized path shape stay in
+    one incident window while their inter-arrival gap remains within
+    ``window_sec`` and the total session duration remains bounded. This avoids
+    splitting related alerts at arbitrary wall-clock bucket boundaries while
+    still preventing long-running transient streams from becoming one large
+    incident. ``window_mode="fixed"`` retains the older fixed-bucket behavior
+    for sensitivity checks. The path shape removes the seed device prefix when
+    LCORE-style hop metadata is available, allowing a window to capture
+    multiple devices that share the same topological shape.
     """
 
+    mode = str(window_mode or "session").strip().lower()
+    if mode in {"fixed", "bucket", "fixed_bucket"}:
+        return _build_fixed_bucket_windows(
+            alerts,
+            window_sec=window_sec,
+            group_by_scenario=group_by_scenario,
+            representative_max_items=representative_max_items,
+        )
+    if mode in {"adaptive", "adaptive_session", "adaptive-session"}:
+        return _build_adaptive_session_windows(
+            alerts,
+            default_idle_gap_sec=window_sec,
+            max_window_sec=max_window_sec or window_sec,
+            group_by_scenario=group_by_scenario,
+            representative_max_items=representative_max_items,
+        )
+    if mode in {"aics-topology", "aics_topology", "topology-coupled"}:
+        return _build_admission_coupled_windows(
+            alerts,
+            default_idle_gap_sec=window_sec,
+            max_window_sec=max_window_sec or window_sec,
+            group_by_scenario=group_by_scenario,
+            representative_max_items=representative_max_items,
+            strategy="topology",
+        )
+    if mode in {"aics-evidence", "aics_evidence", "evidence-coupled"}:
+        return _build_admission_coupled_windows(
+            alerts,
+            default_idle_gap_sec=window_sec,
+            max_window_sec=max_window_sec or window_sec,
+            group_by_scenario=group_by_scenario,
+            representative_max_items=representative_max_items,
+            strategy="evidence",
+        )
+    if mode in {"aics", "aics-hybrid", "aics_hybrid", "admission", "admission-coupled"}:
+        return _build_admission_coupled_windows(
+            alerts,
+            default_idle_gap_sec=window_sec,
+            max_window_sec=max_window_sec or window_sec,
+            group_by_scenario=group_by_scenario,
+            representative_max_items=representative_max_items,
+            strategy="hybrid",
+        )
+    if mode not in {"session", "sessionized", "idle_gap"}:
+        raise ValueError(f"unsupported incident window mode: {window_mode}")
+    return _build_sessionized_windows(
+        alerts,
+        idle_gap_sec=window_sec,
+        max_window_sec=max_window_sec or window_sec,
+        group_by_scenario=group_by_scenario,
+        representative_max_items=representative_max_items,
+    )
+
+
+def _build_fixed_bucket_windows(
+    alerts: list[dict[str, Any]],
+    *,
+    window_sec: int,
+    group_by_scenario: bool,
+    representative_max_items: int,
+) -> list[dict[str, Any]]:
     buckets: dict[tuple[int, str, str], list[dict[str, Any]]] = {}
     for alert in sorted(alerts, key=_alert_sort_key):
         ts = _parse_ts(alert.get("alert_ts"))
@@ -43,10 +113,255 @@ def build_incident_windows(
         buckets.setdefault(key, []).append(alert)
 
     windows = [
-        _build_window(bucket_key=key, window_alerts=value, window_sec=window_sec)
+        _build_window(
+            bucket_key=key,
+            window_alerts=value,
+            window_sec=window_sec,
+            representative_max_items=representative_max_items,
+        )
         for key, value in sorted(buckets.items(), key=lambda item: item[0])
     ]
     return windows
+
+
+def _build_sessionized_windows(
+    alerts: list[dict[str, Any]],
+    *,
+    idle_gap_sec: int,
+    max_window_sec: int,
+    group_by_scenario: bool,
+    representative_max_items: int,
+) -> list[dict[str, Any]]:
+    groups: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for alert in sorted(alerts, key=_alert_sort_key):
+        scenario = _scenario(alert) if group_by_scenario else "*"
+        groups.setdefault((scenario, _path_shape(alert)), []).append(alert)
+
+    windows: list[dict[str, Any]] = []
+    session_idx = 0
+    idle_gap = max(1, idle_gap_sec)
+    max_duration = max(idle_gap, max_window_sec)
+    for (scenario_key, path_shape), grouped_alerts in sorted(groups.items(), key=lambda item: item[0]):
+        current: list[dict[str, Any]] = []
+        start_ts: datetime | None = None
+        last_ts: datetime | None = None
+        for alert in grouped_alerts:
+            ts = _parse_ts(alert.get("alert_ts")) or last_ts or start_ts
+            if current and ts is not None and last_ts is not None:
+                gap = (ts - last_ts).total_seconds()
+                duration = (ts - start_ts).total_seconds() if start_ts is not None else 0
+                if gap > idle_gap or duration > max_duration:
+                    windows.append(
+                        _build_window(
+                            bucket_key=(session_idx, scenario_key, path_shape),
+                            window_alerts=current,
+                            window_sec=idle_gap,
+                            window_mode="session",
+                            max_window_sec=max_duration,
+                            representative_max_items=representative_max_items,
+                        )
+                    )
+                    session_idx += 1
+                    current = []
+                    start_ts = None
+            if not current:
+                start_ts = ts
+            current.append(alert)
+            last_ts = ts
+        if current:
+            windows.append(
+                _build_window(
+                    bucket_key=(session_idx, scenario_key, path_shape),
+                    window_alerts=current,
+                    window_sec=idle_gap,
+                    window_mode="session",
+                    max_window_sec=max_duration,
+                    representative_max_items=representative_max_items,
+                )
+            )
+            session_idx += 1
+    return sorted(windows, key=lambda window: (str(window.get("window_start") or ""), str(window.get("window_id") or "")))
+
+
+def _build_adaptive_session_windows(
+    alerts: list[dict[str, Any]],
+    *,
+    default_idle_gap_sec: int,
+    max_window_sec: int,
+    group_by_scenario: bool,
+    representative_max_items: int,
+) -> list[dict[str, Any]]:
+    groups: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for alert in sorted(alerts, key=_alert_sort_key):
+        scenario = _scenario(alert) if group_by_scenario else "*"
+        groups.setdefault((scenario, _path_shape(alert)), []).append(alert)
+
+    windows: list[dict[str, Any]] = []
+    session_idx = 0
+    default_idle_gap = max(1, default_idle_gap_sec)
+    max_duration_cap = max(default_idle_gap, max_window_sec)
+    for (scenario_key, path_shape), grouped_alerts in sorted(groups.items(), key=lambda item: item[0]):
+        parsed_ts = [_parse_ts(alert.get("alert_ts")) for alert in grouped_alerts]
+        gaps = _observed_gaps_sec(parsed_ts)
+        group_idle_gap = _estimate_group_idle_gap_sec(
+            gaps,
+            default_idle_gap_sec=default_idle_gap,
+            max_window_sec=max_duration_cap,
+        )
+        current: list[dict[str, Any]] = []
+        current_gaps: list[float] = []
+        start_ts: datetime | None = None
+        last_ts: datetime | None = None
+        max_duration = max(group_idle_gap, max_duration_cap)
+        for alert, ts in zip(grouped_alerts, parsed_ts):
+            ts = ts or last_ts or start_ts
+            if current and ts is not None and last_ts is not None:
+                gap = (ts - last_ts).total_seconds()
+                duration = (ts - start_ts).total_seconds() if start_ts is not None else 0.0
+                dynamic_gap = _dynamic_idle_gap_sec(
+                    current_gaps,
+                    group_idle_gap_sec=group_idle_gap,
+                    default_idle_gap_sec=default_idle_gap,
+                    max_window_sec=max_duration_cap,
+                )
+                if gap > dynamic_gap or duration > max_duration:
+                    windows.append(
+                        _build_window(
+                            bucket_key=(session_idx, scenario_key, path_shape),
+                            window_alerts=current,
+                            window_sec=group_idle_gap,
+                            window_mode="adaptive_session",
+                            max_window_sec=max_duration,
+                            group_idle_gap_sec=group_idle_gap,
+                            representative_max_items=representative_max_items,
+                        )
+                    )
+                    session_idx += 1
+                    current = []
+                    current_gaps = []
+                    start_ts = None
+            if not current:
+                start_ts = ts
+            elif ts is not None and last_ts is not None:
+                current_gaps.append((ts - last_ts).total_seconds())
+            current.append(alert)
+            last_ts = ts
+        if current:
+            windows.append(
+                _build_window(
+                    bucket_key=(session_idx, scenario_key, path_shape),
+                    window_alerts=current,
+                    window_sec=group_idle_gap,
+                    window_mode="adaptive_session",
+                    max_window_sec=max_duration,
+                    group_idle_gap_sec=group_idle_gap,
+                    representative_max_items=representative_max_items,
+                )
+            )
+            session_idx += 1
+    return sorted(windows, key=lambda window: (str(window.get("window_start") or ""), str(window.get("window_id") or "")))
+
+
+def _build_admission_coupled_windows(
+    alerts: list[dict[str, Any]],
+    *,
+    default_idle_gap_sec: int,
+    max_window_sec: int,
+    group_by_scenario: bool,
+    representative_max_items: int,
+    strategy: str,
+) -> list[dict[str, Any]]:
+    groups: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for alert in sorted(alerts, key=_alert_sort_key):
+        scenario = _scenario(alert) if group_by_scenario else "*"
+        groups.setdefault((scenario, _path_shape(alert)), []).append(alert)
+
+    windows: list[dict[str, Any]] = []
+    session_idx = 0
+    default_idle_gap = max(1, default_idle_gap_sec)
+    max_duration_cap = max(default_idle_gap, max_window_sec)
+    window_mode = f"aics_{strategy}"
+    for (scenario_key, path_shape), grouped_alerts in sorted(groups.items(), key=lambda item: item[0]):
+        parsed_ts = [_parse_ts(alert.get("alert_ts")) for alert in grouped_alerts]
+        gaps = _observed_gaps_sec(parsed_ts)
+        group_idle_gap = _estimate_group_idle_gap_sec(
+            gaps,
+            default_idle_gap_sec=default_idle_gap,
+            max_window_sec=max_duration_cap,
+        )
+        current: list[dict[str, Any]] = []
+        current_gaps: list[float] = []
+        start_ts: datetime | None = None
+        last_ts: datetime | None = None
+        max_duration = max(group_idle_gap, max_duration_cap)
+        for alert, ts in zip(grouped_alerts, parsed_ts):
+            ts = ts or last_ts or start_ts
+            if current and ts is not None and last_ts is not None:
+                gap = max(0.0, (ts - last_ts).total_seconds())
+                duration = (ts - start_ts).total_seconds() if start_ts is not None else 0.0
+                dynamic_gap = _dynamic_idle_gap_sec(
+                    current_gaps,
+                    group_idle_gap_sec=group_idle_gap,
+                    default_idle_gap_sec=default_idle_gap,
+                    max_window_sec=max_duration_cap,
+                )
+                hard_split = gap > dynamic_gap or duration > max_duration
+                soft_score, soft_reasons = _admission_boundary_score(
+                    current,
+                    next_alert=alert,
+                    gap_sec=gap,
+                    group_idle_gap_sec=group_idle_gap,
+                    dynamic_gap_sec=dynamic_gap,
+                    default_idle_gap_sec=default_idle_gap,
+                    strategy=strategy,
+                )
+                if hard_split or _should_soft_split(
+                    current,
+                    gap_sec=gap,
+                    duration_sec=duration,
+                    group_idle_gap_sec=group_idle_gap,
+                    dynamic_gap_sec=dynamic_gap,
+                    score=soft_score,
+                    reasons=soft_reasons,
+                    strategy=strategy,
+                ):
+                    windows.append(
+                        _build_window(
+                            bucket_key=(session_idx, scenario_key, path_shape),
+                            window_alerts=current,
+                            window_sec=group_idle_gap,
+                            window_mode=window_mode,
+                            max_window_sec=max_duration,
+                            group_idle_gap_sec=group_idle_gap,
+                            representative_max_items=representative_max_items,
+                            boundary_strategy=strategy,
+                        )
+                    )
+                    session_idx += 1
+                    current = []
+                    current_gaps = []
+                    start_ts = None
+            if not current:
+                start_ts = ts
+            elif ts is not None and last_ts is not None:
+                current_gaps.append(max(0.0, (ts - last_ts).total_seconds()))
+            current.append(alert)
+            last_ts = ts
+        if current:
+            windows.append(
+                _build_window(
+                    bucket_key=(session_idx, scenario_key, path_shape),
+                    window_alerts=current,
+                    window_sec=group_idle_gap,
+                    window_mode=window_mode,
+                    max_window_sec=max_duration,
+                    group_idle_gap_sec=group_idle_gap,
+                    representative_max_items=representative_max_items,
+                    boundary_strategy=strategy,
+                )
+            )
+            session_idx += 1
+    return sorted(windows, key=lambda window: (str(window.get("window_start") or ""), str(window.get("window_id") or "")))
 
 
 def index_windows_by_alert_id(windows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
@@ -63,11 +378,17 @@ def build_incident_window_index(
     window_sec: int = 600,
     *,
     group_by_scenario: bool = False,
+    window_mode: str = "session",
+    max_window_sec: int | None = None,
+    representative_max_items: int = 3,
 ) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]]]:
     windows = build_incident_windows(
         alerts,
         window_sec=window_sec,
         group_by_scenario=group_by_scenario,
+        window_mode=window_mode,
+        max_window_sec=max_window_sec,
+        representative_max_items=representative_max_items,
     )
     return windows, index_windows_by_alert_id(windows)
 
@@ -169,6 +490,11 @@ def _build_window(
     bucket_key: tuple[int, str, str],
     window_alerts: list[dict[str, Any]],
     window_sec: int,
+    window_mode: str = "fixed",
+    max_window_sec: int | None = None,
+    group_idle_gap_sec: int | None = None,
+    representative_max_items: int = 3,
+    boundary_strategy: str = "",
 ) -> dict[str, Any]:
     bucket, scenario_key, path_shape = bucket_key
     timestamps = [_parse_ts(alert.get("alert_ts")) for alert in window_alerts]
@@ -223,6 +549,7 @@ def _build_window(
         path_signatures=path_signatures,
         recommended_action=recommended_action,
         window_label=window_label,
+        representative_max_items=representative_max_items,
     )
     window_id = _hash_id(
         "incident-window|"
@@ -231,11 +558,16 @@ def _build_window(
     window = {
         "schema_version": 1,
         "window_id": window_id,
+        "window_mode": window_mode,
+        "boundary_strategy": boundary_strategy or window_mode,
         "window_sec": window_sec,
+        "max_window_sec": max_window_sec or window_sec,
+        "group_idle_gap_sec": group_idle_gap_sec or window_sec,
         "window_start": start.isoformat(),
         "window_end": end.isoformat(),
         "group_key": {
             "time_bucket": bucket,
+            "session_index": bucket if window_mode in {"session", "adaptive_session"} else None,
             "scenario": scenario_key,
             "path_shape": path_shape,
         },
@@ -332,9 +664,13 @@ def _window_evidence_targets(
     path_signatures: list[str],
     recommended_action: str,
     window_label: str,
+    representative_max_items: int,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     target_alerts = high_value_alerts or window_alerts
-    representative_selection = select_representative_alerts(target_alerts, max_items=3)
+    representative_selection = select_representative_alerts(
+        target_alerts,
+        max_items=max(1, representative_max_items),
+    )
     target_ids = _alert_ids(target_alerts)
     representative_ids = representative_selection.get("representative_alert_ids") or []
     selected = {
@@ -417,6 +753,249 @@ def _alert_sort_key(alert: dict[str, Any]) -> tuple[datetime, str]:
         _parse_ts(alert.get("alert_ts")) or datetime.min.replace(tzinfo=timezone.utc),
         str(alert.get("alert_id") or ""),
     )
+
+
+def _observed_gaps_sec(timestamps: list[datetime | None]) -> list[float]:
+    values: list[float] = []
+    previous: datetime | None = None
+    for ts in timestamps:
+        if ts is None:
+            continue
+        if previous is not None:
+            values.append(max(0.0, (ts - previous).total_seconds()))
+        previous = ts
+    return values
+
+
+def _estimate_group_idle_gap_sec(
+    gaps: list[float],
+    *,
+    default_idle_gap_sec: int,
+    max_window_sec: int,
+) -> int:
+    minimum = max(60, default_idle_gap_sec // 4)
+    positive = sorted(gap for gap in gaps if gap > 0)
+    if len(positive) < 3:
+        return max(minimum, default_idle_gap_sec)
+    median = _percentile(positive, 0.50)
+    q25 = _percentile(positive, 0.25)
+    q75 = _percentile(positive, 0.75)
+    q90 = _percentile(positive, 0.90)
+    mad = _percentile([abs(gap - median) for gap in positive], 0.50)
+    iqr = max(q75 - q25, 1.0)
+    robust_tail = max(q75 + iqr, median + 3.0 * max(mad, 1.0))
+    candidate = min(max(q90, robust_tail), float(max_window_sec))
+    return int(round(max(minimum, candidate)))
+
+
+def _dynamic_idle_gap_sec(
+    recent_gaps: list[float],
+    *,
+    group_idle_gap_sec: int,
+    default_idle_gap_sec: int,
+    max_window_sec: int,
+) -> int:
+    minimum = max(60, default_idle_gap_sec // 4)
+    if not recent_gaps:
+        return group_idle_gap_sec
+    tail = recent_gaps[-3:]
+    median = _percentile(tail, 0.50)
+    mad = _percentile([abs(gap - median) for gap in tail], 0.50)
+    local_scale = max(median * 3.0, median + 3.0 * max(mad, 1.0))
+    candidate = min(float(group_idle_gap_sec), local_scale, float(max_window_sec))
+    return int(round(max(minimum, candidate)))
+
+
+def _admission_boundary_score(
+    current_alerts: list[dict[str, Any]],
+    *,
+    next_alert: dict[str, Any],
+    gap_sec: float,
+    group_idle_gap_sec: int,
+    dynamic_gap_sec: int,
+    default_idle_gap_sec: int,
+    strategy: str,
+) -> tuple[int, list[str]]:
+    if not current_alerts:
+        return 0, []
+
+    weights_by_strategy = {
+        "topology": {
+            "gap_soft": 1,
+            "new_device": 2,
+            "new_path_signature": 1,
+            "fanout_tier_shift": 1,
+            "family_shift": 1,
+            "coverage_novelty": 0,
+            "representative_churn": 0,
+            "sudden_fault_entry": 1,
+        },
+        "evidence": {
+            "gap_soft": 1,
+            "new_device": 0,
+            "new_path_signature": 1,
+            "fanout_tier_shift": 0,
+            "family_shift": 2,
+            "coverage_novelty": 2,
+            "representative_churn": 1,
+            "sudden_fault_entry": 2,
+        },
+        "hybrid": {
+            "gap_soft": 1,
+            "new_device": 1,
+            "new_path_signature": 1,
+            "fanout_tier_shift": 1,
+            "family_shift": 2,
+            "coverage_novelty": 1,
+            "representative_churn": 1,
+            "sudden_fault_entry": 2,
+        },
+    }
+    weights = weights_by_strategy.get(strategy, weights_by_strategy["hybrid"])
+    score = 0
+    reasons: list[str] = []
+
+    current_devices = {_device(alert) for alert in current_alerts if _device(alert)}
+    current_paths = {_path_signature(alert) for alert in current_alerts if _path_signature(alert)}
+    current_families = {
+        family
+        for family in (_scenario_family(alert) for alert in current_alerts)
+        if family not in {"unknown", "normal"}
+    }
+    next_family = _scenario_family(next_alert)
+    next_device = _device(next_alert)
+    next_path = _path_signature(next_alert)
+
+    soft_gap_sec = max(60, int(round(min(group_idle_gap_sec, dynamic_gap_sec, max(default_idle_gap_sec, 60)) * 0.35)))
+    if gap_sec >= soft_gap_sec:
+        score += weights["gap_soft"]
+        reasons.append("soft temporal discontinuity")
+    if next_device and next_device not in current_devices:
+        score += weights["new_device"]
+        reasons.append("device frontier shift")
+    if next_path and next_path not in current_paths:
+        score += weights["new_path_signature"]
+        reasons.append("path signature shift")
+    if _downstream_tier(next_alert) not in {_downstream_tier(alert) for alert in current_alerts}:
+        score += weights["fanout_tier_shift"]
+        reasons.append("downstream fanout tier shift")
+    if current_families and next_family not in current_families and next_family not in {"unknown", "normal"}:
+        score += weights["family_shift"]
+        reasons.append("fault-state family transition")
+
+    novelty = len(_boundary_features(next_alert) - _boundary_feature_universe(current_alerts))
+    if novelty >= 2:
+        score += weights["coverage_novelty"]
+        reasons.append("evidence boundary novelty")
+
+    if _representative_churn(current_alerts, next_alert) >= 2:
+        score += weights["representative_churn"]
+        reasons.append("representative set churn")
+
+    if next_family == "fault" and all(_scenario_family(alert) == "transient" for alert in current_alerts) and len(current_alerts) >= 2:
+        score += weights["sudden_fault_entry"]
+        reasons.append("fault entry after transient burst")
+
+    return score, _dedupe(reasons)
+
+
+def _should_soft_split(
+    current_alerts: list[dict[str, Any]],
+    *,
+    gap_sec: float,
+    duration_sec: float,
+    group_idle_gap_sec: int,
+    dynamic_gap_sec: int,
+    score: int,
+    reasons: list[str],
+    strategy: str,
+) -> bool:
+    if len(current_alerts) < 2 or not reasons:
+        return False
+    thresholds = {"topology": 4, "evidence": 5, "hybrid": 5}
+    threshold = thresholds.get(strategy, 5)
+    soft_gap_sec = max(60, int(round(min(group_idle_gap_sec, dynamic_gap_sec) * 0.35)))
+    if gap_sec >= soft_gap_sec and score >= threshold:
+        return True
+    if "fault entry after transient burst" in reasons and gap_sec >= 60 and score >= threshold:
+        return True
+    if duration_sec >= max(group_idle_gap_sec, dynamic_gap_sec) and score >= (threshold + 1):
+        return True
+    return False
+
+
+def _percentile(values: list[float], q: float) -> float:
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    if len(ordered) == 1:
+        return float(ordered[0])
+    q = min(max(q, 0.0), 1.0)
+    index = q * (len(ordered) - 1)
+    lower = int(index)
+    upper = min(lower + 1, len(ordered) - 1)
+    weight = index - lower
+    return float(ordered[lower] * (1.0 - weight) + ordered[upper] * weight)
+
+
+def _scenario_family(alert: dict[str, Any]) -> str:
+    scenario = _scenario(alert)
+    if scenario == "induced_fault":
+        return "fault"
+    if scenario in SELF_HEALING_SCENARIOS:
+        return "transient"
+    if scenario in NON_FAULT_SCENARIOS:
+        return "normal"
+    return "unknown"
+
+
+def _downstream_tier(alert: dict[str, Any]) -> str:
+    downstream = _downstream_dependents(alert)
+    if downstream >= 10:
+        return "high"
+    if downstream >= 3:
+        return "medium"
+    return "low"
+
+
+def _boundary_features(alert: dict[str, Any]) -> set[str]:
+    features = {
+        f"device:{_device(alert) or 'unknown'}",
+        f"path:{_path_signature(alert) or 'unknown'}",
+        f"family:{_scenario_family(alert)}",
+        f"fanout:{_downstream_tier(alert)}",
+    }
+    if _is_high_value(alert):
+        features.add("value:high")
+    return features
+
+
+def _boundary_feature_universe(alerts: list[dict[str, Any]]) -> set[str]:
+    features: set[str] = set()
+    for alert in alerts:
+        features |= _boundary_features(alert)
+    return features
+
+
+def _representative_churn(current_alerts: list[dict[str, Any]], next_alert: dict[str, Any]) -> int:
+    before = set(
+        (select_representative_alerts(current_alerts, max_items=2).get("representative_alert_ids") or [])
+    )
+    after = set(
+        (select_representative_alerts([*current_alerts, next_alert], max_items=2).get("representative_alert_ids") or [])
+    )
+    return len(before ^ after)
+
+
+def _dedupe(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for value in values:
+        if not value or value in seen:
+            continue
+        seen.add(value)
+        deduped.append(value)
+    return deduped
 
 
 def _parse_ts(raw: Any) -> datetime | None:

@@ -75,6 +75,10 @@ def select_windows_under_budget(
     return {
         "schema_version": 1,
         "admission_strategy": "marginal_uncovered_risk_per_representative_cost",
+        "objective": {
+            "maximize": "unique_risk_atom_weight_under_representative_call_budget",
+            "safety_floor": "all_high_value_windows" if min_high_value else "none",
+        },
         "budget_fraction": budget_fraction,
         "budget_windows": budget_calls,
         "budget_external_calls": budget_calls,

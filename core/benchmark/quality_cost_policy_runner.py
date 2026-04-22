@@ -46,6 +46,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         alerts,
         window_sec=args.window_sec,
         group_by_scenario=bool(getattr(args, "group_by_scenario", False)),
+        window_mode=str(getattr(args, "window_mode", "session") or "session"),
+        max_window_sec=getattr(args, "max_window_sec", None),
     )
     history: deque[tuple[datetime, str, str]] = deque()
     policy_stats = {policy: _empty_stats() for policy in POLICIES}
@@ -131,6 +133,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "alert_dir": args.alert_dir,
         "alerts_scanned": total,
         "window_sec": args.window_sec,
+        "window_mode": str(getattr(args, "window_mode", "session") or "session"),
+        "max_window_sec": getattr(args, "max_window_sec", None) or args.window_sec,
         "incident_windows": len(windows),
         "window_summary": _window_summary(windows),
         "window_labels": dict(window_label_counts.most_common()),
@@ -461,6 +465,8 @@ def _write_windows_jsonl(path: Path, windows: list[dict[str, Any]]) -> None:
         for window in windows:
             record = {
                 "window_id": window.get("window_id") or "",
+                "window_mode": window.get("window_mode") or "",
+                "max_window_sec": window.get("max_window_sec") or 0,
                 "window_start": window.get("window_start") or "",
                 "window_end": window.get("window_end") or "",
                 "window_label": window.get("window_label") or "",
@@ -518,6 +524,19 @@ def main() -> None:
     parser.add_argument("--limit-files", type=int, default=0)
     parser.add_argument("--max-alerts", type=int, default=0)
     parser.add_argument("--window-sec", type=int, default=600)
+    parser.add_argument(
+        "--window-mode",
+        choices=[
+            "session",
+            "fixed",
+            "adaptive",
+            "aics-topology",
+            "aics-evidence",
+            "aics",
+        ],
+        default="session",
+    )
+    parser.add_argument("--max-window-sec", type=int, default=0)
     parser.add_argument("--group-by-scenario", action="store_true")
     parser.add_argument("--recurrence-threshold", type=int, default=12)
     parser.add_argument("--downstream-threshold", type=int, default=10)

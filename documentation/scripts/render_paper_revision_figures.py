@@ -352,9 +352,9 @@ def draw_quality_cost_overlay() -> Path:
 
     # Baseline markers from non-budget policies.
     baseline_map = {
-        "scenario-only": "scenario",
+        "scenario-only": "fault-state-only",
         "topology+timeline": "topology+timeline",
-        "window-risk-tier": "risk-tier",
+        "window-risk-tier": "window-risk-tier",
         "invoke-all": "invoke-all",
     }
     for policy, label in baseline_map.items():

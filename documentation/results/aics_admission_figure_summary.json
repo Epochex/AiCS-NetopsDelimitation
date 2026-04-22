@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "figures": {
+    "deterministic_boundary_audit": "/data/Netops-causality-remediation/documentation/images/aics_deterministic_boundary_audit.png",
+    "lcore_admission_tradeoff": "/data/Netops-causality-remediation/documentation/images/aics_lcore_admission_tradeoff.png"
+  },
+  "sources": {
+    "deterministic_audit": "/data/netops-runtime/LCORE-D/work/deterministic-layer-audit-v1.json",
+    "lcore_policy_report": "/data/Netops-causality-remediation/outputs/lcore_admission_baselines.json"
+  },
+  "display_names": {
+    "scenario-only": "Fault-state only",
+    "budget-coverage-20": "Strict budget 20%",
+    "budget-risk-20": "Risk-budget 20% (proposed)"
+  },
+  "proposed_operating_point": {
+    "policy_key": "budget-risk-20",
+    "display_name": "Risk-budget 20% (proposed)"
+  }
+}
