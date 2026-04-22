@@ -44,6 +44,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     windows, _ = build_incident_window_index(
         [_to_alert(record, idx) for idx, record in enumerate(records)],
         window_sec=args.window_sec,
+        window_mode=str(getattr(args, "window_mode", "session") or "session"),
+        max_window_sec=getattr(args, "max_window_sec", None),
     )
 
     _write_jsonl(Path(args.output_jsonl), records)
@@ -59,6 +61,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "cases": len(cases),
         "records": len(records),
         "incident_windows": len(windows),
+        "window_sec": args.window_sec,
+        "window_mode": str(getattr(args, "window_mode", "session") or "session"),
+        "max_window_sec": getattr(args, "max_window_sec", None) or args.window_sec,
         "root_cause_records": sum(1 for item in records if item.get("is_root_cause")),
         "symptom_records": sum(1 for item in records if not item.get("is_root_cause")),
         "top_symptoms": args.top_symptoms,
@@ -177,6 +182,19 @@ def main() -> None:
     parser.add_argument("--output-windows-jsonl", default="")
     parser.add_argument("--output-summary-json", default="")
     parser.add_argument("--window-sec", type=int, default=600)
+    parser.add_argument(
+        "--window-mode",
+        choices=[
+            "session",
+            "fixed",
+            "adaptive",
+            "aics-topology",
+            "aics-evidence",
+            "aics",
+        ],
+        default="session",
+    )
+    parser.add_argument("--max-window-sec", type=int, default=0)
     parser.add_argument("--top-symptoms", type=int, default=DEFAULT_TOP_SYMPTOMS)
     parser.add_argument("--min-symptom-score", type=float, default=1.0)
     run(parser.parse_args())

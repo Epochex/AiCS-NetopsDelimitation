@@ -1,0 +1,47 @@
+{
+  "delta": {
+    "incident_windows": -646,
+    "incident_windows_percent": -22.06,
+    "representative_only_calls": -646,
+    "representative_only_calls_percent": -22.06,
+    "risk_budget_20_calls": -86,
+    "risk_budget_20_calls_percent": -19.82,
+    "risk_budget_20_pressure_skip_delta": -0.001239,
+    "risk_budget_20_recall_delta": 0.0
+  },
+  "fixed_bucket_600": {
+    "alerts": 6700,
+    "fault_state_only_calls": 397,
+    "high_value_windows": 397,
+    "incident_windows": 2929,
+    "max_window_sec": 600,
+    "pressure_windows": 2622,
+    "representative_only_calls": 2929,
+    "risk_budget_20_call_reduction_percent": 93.52,
+    "risk_budget_20_calls": 434,
+    "risk_budget_20_high_value_window_recall": 1.0,
+    "risk_budget_20_pressure_window_skip_rate": 0.842105,
+    "strict_20_false_skip_rate": 0.080605,
+    "strict_20_high_value_window_recall": 0.919395,
+    "window_mode": "fixed",
+    "window_sec": 600
+  },
+  "schema_version": 1,
+  "sessionized_idle600_cap600": {
+    "alerts": 6700,
+    "fault_state_only_calls": 348,
+    "high_value_windows": 348,
+    "incident_windows": 2283,
+    "max_window_sec": 600,
+    "pressure_windows": 2124,
+    "representative_only_calls": 2283,
+    "risk_budget_20_call_reduction_percent": 94.81,
+    "risk_budget_20_calls": 348,
+    "risk_budget_20_high_value_window_recall": 1.0,
+    "risk_budget_20_pressure_window_skip_rate": 0.840866,
+    "strict_20_false_skip_rate": 0.117816,
+    "strict_20_high_value_window_recall": 0.882184,
+    "window_mode": "session",
+    "window_sec": 600
+  }
+}

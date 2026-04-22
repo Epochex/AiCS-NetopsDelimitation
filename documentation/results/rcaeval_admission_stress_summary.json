@@ -1,0 +1,726 @@
+{
+  "combined": {
+    "case_mix": {
+      "fault_dense": 21,
+      "symptom_heavy_mixed": 354
+    },
+    "high_value_windows": 375,
+    "incident_windows": 375,
+    "label": "combined",
+    "policies": {
+      "fault-state-only": {
+        "budget_summary": {},
+        "call_mode": "high-value-alerts",
+        "call_reduction_percent": 82.31,
+        "evidence_target_coverage_rate": 1.0,
+        "external_calls": 375,
+        "false_skip_rate": 0.0,
+        "false_skip_windows": 0,
+        "high_value_window_recall": 1.0,
+        "high_value_windows_retained": 375,
+        "high_value_windows_total": 375,
+        "pressure_window_skip_rate": 0.0,
+        "pressure_windows_skipped": 0,
+        "pressure_windows_total": 369,
+        "selected_windows": 375,
+        "window_reduction_percent": 0.0
+      },
+      "invoke-all": {
+        "budget_summary": {},
+        "call_mode": "all-alerts",
+        "call_reduction_percent": 0.0,
+        "evidence_target_coverage_rate": 1.0,
+        "external_calls": 2120,
+        "false_skip_rate": 0.0,
+        "false_skip_windows": 0,
+        "high_value_window_recall": 1.0,
+        "high_value_windows_retained": 375,
+        "high_value_windows_total": 375,
+        "pressure_window_skip_rate": 0.0,
+        "pressure_windows_skipped": 0,
+        "pressure_windows_total": 369,
+        "selected_windows": 375,
+        "window_reduction_percent": 0.0
+      },
+      "risk-budget-20": {
+        "budget_summary": {
+          "admission_strategy": "marginal_uncovered_risk_per_representative_cost",
+          "budget_external_calls": 75,
+          "budget_fraction": 0.2,
+          "covered_risk_atom_count": 864,
+          "safety_floor_extra_calls": 300,
+          "selected_windows": 375,
+          "used_external_calls": 375
+        },
+        "call_mode": "representative-alerts",
+        "call_reduction_percent": 82.31,
+        "evidence_target_coverage_rate": 1.0,
+        "external_calls": 375,
+        "false_skip_rate": 0.0,
+        "false_skip_windows": 0,
+        "high_value_window_recall": 1.0,
+        "high_value_windows_retained": 375,
+        "high_value_windows_total": 375,
+        "pressure_window_skip_rate": 0.0,
+        "pressure_windows_skipped": 0,
+        "pressure_windows_total": 369,
+        "selected_windows": 375,
+        "window_reduction_percent": 0.0
+      },
+      "strict-budget-20": {
+        "budget_summary": {
+          "admission_strategy": "marginal_uncovered_risk_per_representative_cost",
+          "budget_external_calls": 75,
+          "budget_fraction": 0.2,
+          "covered_risk_atom_count": 264,
+          "safety_floor_extra_calls": 0,
+          "selected_windows": 75,
+          "used_external_calls": 75
+        },
+        "call_mode": "representative-alerts",
+        "call_reduction_percent": 96.46,
+        "evidence_target_coverage_rate": 1.0,
+        "external_calls": 75,
+        "false_skip_rate": 0.8,
+        "false_skip_windows": 300,
+        "high_value_window_recall": 0.2,
+        "high_value_windows_retained": 75,
+        "high_value_windows_total": 375,
+        "pressure_window_skip_rate": 0.799458,
+        "pressure_windows_skipped": 295,
+        "pressure_windows_total": 369,
+        "selected_windows": 75,
+        "window_reduction_percent": 80.0
+      },
+      "window-risk-tier": {
+        "budget_summary": {},
+        "call_mode": "representative-alerts",
+        "call_reduction_percent": 82.31,
+        "evidence_target_coverage_rate": 1.0,
+        "external_calls": 375,
+        "false_skip_rate": 0.0,
+        "false_skip_windows": 0,
+        "high_value_window_recall": 1.0,
+        "high_value_windows_retained": 375,
+        "high_value_windows_total": 375,
+        "pressure_window_skip_rate": 0.0,
+        "pressure_windows_skipped": 0,
+        "pressure_windows_total": 369,
+        "selected_windows": 375,
+        "window_reduction_percent": 0.0
+      }
+    },
+    "risk_tiers": {
+      "high": 375
+    },
+    "window_labels": {
+      "external_induced_fault": 6,
+      "mixed_fault_and_transient": 369
+    }
+  },
+  "datasets": 3,
+  "max_window_sec": 600,
+  "per_case_mix": {
+    "fault_dense": {
+      "case_mix": {
+        "fault_dense": 21
+      },
+      "high_value_windows": 21,
+      "incident_windows": 21,
+      "label": "fault_dense",
+      "policies": {
+        "fault-state-only": {
+          "budget_summary": {},
+          "call_mode": "high-value-alerts",
+          "call_reduction_percent": 41.67,
+          "evidence_target_coverage_rate": 1.0,
+          "external_calls": 21,
+          "false_skip_rate": 0.0,
+          "false_skip_windows": 0,
+          "high_value_window_recall": 1.0,
+          "high_value_windows_retained": 21,
+          "high_value_windows_total": 21,
+          "pressure_window_skip_rate": 0.0,
+          "pressure_windows_skipped": 0,
+          "pressure_windows_total": 15,
+          "selected_windows": 21,
+          "window_reduction_percent": 0.0
+        },
+        "invoke-all": {
+          "budget_summary": {},
+          "call_mode": "all-alerts",
+          "call_reduction_percent": 0.0,
+          "evidence_target_coverage_rate": 1.0,
+          "external_calls": 36,
+          "false_skip_rate": 0.0,
+          "false_skip_windows": 0,
+          "high_value_window_recall": 1.0,
+          "high_value_windows_retained": 21,
+          "high_value_windows_total": 21,
+          "pressure_window_skip_rate": 0.0,
+          "pressure_windows_skipped": 0,
+          "pressure_windows_total": 15,
+          "selected_windows": 21,
+          "window_reduction_percent": 0.0
+        },
+        "risk-budget-20": {
+          "budget_summary": {
+            "admission_strategy": "marginal_uncovered_risk_per_representative_cost",
+            "budget_external_calls": 4,
+            "budget_fraction": 0.2,
+            "covered_risk_atom_count": 57,
+            "safety_floor_extra_calls": 17,
+            "selected_windows": 21,
+            "used_external_calls": 21
+          },
+          "call_mode": "representative-alerts",
+          "call_reduction_percent": 41.67,
+          "evidence_target_coverage_rate": 1.0,
+          "external_calls": 21,
+          "false_skip_rate": 0.0,
+          "false_skip_windows": 0,
+          "high_value_window_recall": 1.0,
+          "high_value_windows_retained": 21,
+          "high_value_windows_total": 21,
+          "pressure_window_skip_rate": 0.0,
+          "pressure_windows_skipped": 0,
+          "pressure_windows_total": 15,
+          "selected_windows": 21,
+          "window_reduction_percent": 0.0
+        },
+        "strict-budget-20": {
+          "budget_summary": {
+            "admission_strategy": "marginal_uncovered_risk_per_representative_cost",
+            "budget_external_calls": 4,
+            "budget_fraction": 0.2,
+            "covered_risk_atom_count": 21,
+            "safety_floor_extra_calls": 0,
+            "selected_windows": 4,
+            "used_external_calls": 4
+          },
+          "call_mode": "representative-alerts",
+          "call_reduction_percent": 88.89,
+          "evidence_target_coverage_rate": 1.0,
+          "external_calls": 4,
+          "false_skip_rate": 0.809524,
+          "false_skip_windows": 17,
+          "high_value_window_recall": 0.190476,
+          "high_value_windows_retained": 4,
+          "high_value_windows_total": 21,
+          "pressure_window_skip_rate": 0.733333,
+          "pressure_windows_skipped": 11,
+          "pressure_windows_total": 15,
+          "selected_windows": 4,
+          "window_reduction_percent": 80.95
+        },
+        "window-risk-tier": {
+          "budget_summary": {},
+          "call_mode": "representative-alerts",
+          "call_reduction_percent": 41.67,
+          "evidence_target_coverage_rate": 1.0,
+          "external_calls": 21,
+          "false_skip_rate": 0.0,
+          "false_skip_windows": 0,
+          "high_value_window_recall": 1.0,
+          "high_value_windows_retained": 21,
+          "high_value_windows_total": 21,
+          "pressure_window_skip_rate": 0.0,
+          "pressure_windows_skipped": 0,
+          "pressure_windows_total": 15,
+          "selected_windows": 21,
+          "window_reduction_percent": 0.0
+        }
+      },
+      "risk_tiers": {
+        "high": 21
+      },
+      "window_labels": {
+        "external_induced_fault": 6,
+        "mixed_fault_and_transient": 15
+      }
+    },
+    "symptom_heavy_mixed": {
+      "case_mix": {
+        "symptom_heavy_mixed": 354
+      },
+      "high_value_windows": 354,
+      "incident_windows": 354,
+      "label": "symptom_heavy_mixed",
+      "policies": {
+        "fault-state-only": {
+          "budget_summary": {},
+          "call_mode": "high-value-alerts",
+          "call_reduction_percent": 83.01,
+          "evidence_target_coverage_rate": 1.0,
+          "external_calls": 354,
+          "false_skip_rate": 0.0,
+          "false_skip_windows": 0,
+          "high_value_window_recall": 1.0,
+          "high_value_windows_retained": 354,
+          "high_value_windows_total": 354,
+          "pressure_window_skip_rate": 0.0,
+          "pressure_windows_skipped": 0,
+          "pressure_windows_total": 354,
+          "selected_windows": 354,
+          "window_reduction_percent": 0.0
+        },
+        "invoke-all": {
+          "budget_summary": {},
+          "call_mode": "all-alerts",
+          "call_reduction_percent": 0.0,
+          "evidence_target_coverage_rate": 1.0,
+          "external_calls": 2084,
+          "false_skip_rate": 0.0,
+          "false_skip_windows": 0,
+          "high_value_window_recall": 1.0,
+          "high_value_windows_retained": 354,
+          "high_value_windows_total": 354,
+          "pressure_window_skip_rate": 0.0,
+          "pressure_windows_skipped": 0,
+          "pressure_windows_total": 354,
+          "selected_windows": 354,
+          "window_reduction_percent": 0.0
+        },
+        "risk-budget-20": {
+          "budget_summary": {
+            "admission_strategy": "marginal_uncovered_risk_per_representative_cost",
+            "budget_external_calls": 71,
+            "budget_fraction": 0.2,
+            "covered_risk_atom_count": 821,
+            "safety_floor_extra_calls": 283,
+            "selected_windows": 354,
+            "used_external_calls": 354
+          },
+          "call_mode": "representative-alerts",
+          "call_reduction_percent": 83.01,
+          "evidence_target_coverage_rate": 1.0,
+          "external_calls": 354,
+          "false_skip_rate": 0.0,
+          "false_skip_windows": 0,
+          "high_value_window_recall": 1.0,
+          "high_value_windows_retained": 354,
+          "high_value_windows_total": 354,
+          "pressure_window_skip_rate": 0.0,
+          "pressure_windows_skipped": 0,
+          "pressure_windows_total": 354,
+          "selected_windows": 354,
+          "window_reduction_percent": 0.0
+        },
+        "strict-budget-20": {
+          "budget_summary": {
+            "admission_strategy": "marginal_uncovered_risk_per_representative_cost",
+            "budget_external_calls": 71,
+            "budget_fraction": 0.2,
+            "covered_risk_atom_count": 255,
+            "safety_floor_extra_calls": 0,
+            "selected_windows": 71,
+            "used_external_calls": 71
+          },
+          "call_mode": "representative-alerts",
+          "call_reduction_percent": 96.59,
+          "evidence_target_coverage_rate": 1.0,
+          "external_calls": 71,
+          "false_skip_rate": 0.799435,
+          "false_skip_windows": 283,
+          "high_value_window_recall": 0.200565,
+          "high_value_windows_retained": 71,
+          "high_value_windows_total": 354,
+          "pressure_window_skip_rate": 0.799435,
+          "pressure_windows_skipped": 283,
+          "pressure_windows_total": 354,
+          "selected_windows": 71,
+          "window_reduction_percent": 79.94
+        },
+        "window-risk-tier": {
+          "budget_summary": {},
+          "call_mode": "representative-alerts",
+          "call_reduction_percent": 83.01,
+          "evidence_target_coverage_rate": 1.0,
+          "external_calls": 354,
+          "false_skip_rate": 0.0,
+          "false_skip_windows": 0,
+          "high_value_window_recall": 1.0,
+          "high_value_windows_retained": 354,
+          "high_value_windows_total": 354,
+          "pressure_window_skip_rate": 0.0,
+          "pressure_windows_skipped": 0,
+          "pressure_windows_total": 354,
+          "selected_windows": 354,
+          "window_reduction_percent": 0.0
+        }
+      },
+      "risk_tiers": {
+        "high": 354
+      },
+      "window_labels": {
+        "mixed_fault_and_transient": 354
+      }
+    }
+  },
+  "per_dataset": {
+    "RE1-OB": {
+      "case_mix": {
+        "fault_dense": 21,
+        "symptom_heavy_mixed": 104
+      },
+      "high_value_windows": 125,
+      "incident_windows": 125,
+      "label": "RE1-OB",
+      "policies": {
+        "fault-state-only": {
+          "budget_summary": {},
+          "call_mode": "high-value-alerts",
+          "call_reduction_percent": 79.84,
+          "evidence_target_coverage_rate": 1.0,
+          "external_calls": 125,
+          "false_skip_rate": 0.0,
+          "false_skip_windows": 0,
+          "high_value_window_recall": 1.0,
+          "high_value_windows_retained": 125,
+          "high_value_windows_total": 125,
+          "pressure_window_skip_rate": 0.0,
+          "pressure_windows_skipped": 0,
+          "pressure_windows_total": 119,
+          "selected_windows": 125,
+          "window_reduction_percent": 0.0
+        },
+        "invoke-all": {
+          "budget_summary": {},
+          "call_mode": "all-alerts",
+          "call_reduction_percent": 0.0,
+          "evidence_target_coverage_rate": 1.0,
+          "external_calls": 620,
+          "false_skip_rate": 0.0,
+          "false_skip_windows": 0,
+          "high_value_window_recall": 1.0,
+          "high_value_windows_retained": 125,
+          "high_value_windows_total": 125,
+          "pressure_window_skip_rate": 0.0,
+          "pressure_windows_skipped": 0,
+          "pressure_windows_total": 119,
+          "selected_windows": 125,
+          "window_reduction_percent": 0.0
+        },
+        "risk-budget-20": {
+          "budget_summary": {
+            "admission_strategy": "marginal_uncovered_risk_per_representative_cost",
+            "budget_external_calls": 25,
+            "budget_fraction": 0.2,
+            "covered_risk_atom_count": 269,
+            "safety_floor_extra_calls": 100,
+            "selected_windows": 125,
+            "used_external_calls": 125
+          },
+          "call_mode": "representative-alerts",
+          "call_reduction_percent": 79.84,
+          "evidence_target_coverage_rate": 1.0,
+          "external_calls": 125,
+          "false_skip_rate": 0.0,
+          "false_skip_windows": 0,
+          "high_value_window_recall": 1.0,
+          "high_value_windows_retained": 125,
+          "high_value_windows_total": 125,
+          "pressure_window_skip_rate": 0.0,
+          "pressure_windows_skipped": 0,
+          "pressure_windows_total": 119,
+          "selected_windows": 125,
+          "window_reduction_percent": 0.0
+        },
+        "strict-budget-20": {
+          "budget_summary": {
+            "admission_strategy": "marginal_uncovered_risk_per_representative_cost",
+            "budget_external_calls": 25,
+            "budget_fraction": 0.2,
+            "covered_risk_atom_count": 69,
+            "safety_floor_extra_calls": 0,
+            "selected_windows": 25,
+            "used_external_calls": 25
+          },
+          "call_mode": "representative-alerts",
+          "call_reduction_percent": 95.97,
+          "evidence_target_coverage_rate": 1.0,
+          "external_calls": 25,
+          "false_skip_rate": 0.8,
+          "false_skip_windows": 100,
+          "high_value_window_recall": 0.2,
+          "high_value_windows_retained": 25,
+          "high_value_windows_total": 125,
+          "pressure_window_skip_rate": 0.798319,
+          "pressure_windows_skipped": 95,
+          "pressure_windows_total": 119,
+          "selected_windows": 25,
+          "window_reduction_percent": 80.0
+        },
+        "window-risk-tier": {
+          "budget_summary": {},
+          "call_mode": "representative-alerts",
+          "call_reduction_percent": 79.84,
+          "evidence_target_coverage_rate": 1.0,
+          "external_calls": 125,
+          "false_skip_rate": 0.0,
+          "false_skip_windows": 0,
+          "high_value_window_recall": 1.0,
+          "high_value_windows_retained": 125,
+          "high_value_windows_total": 125,
+          "pressure_window_skip_rate": 0.0,
+          "pressure_windows_skipped": 0,
+          "pressure_windows_total": 119,
+          "selected_windows": 125,
+          "window_reduction_percent": 0.0
+        }
+      },
+      "risk_tiers": {
+        "high": 125
+      },
+      "window_labels": {
+        "external_induced_fault": 6,
+        "mixed_fault_and_transient": 119
+      }
+    },
+    "RE1-SS": {
+      "case_mix": {
+        "symptom_heavy_mixed": 125
+      },
+      "high_value_windows": 125,
+      "incident_windows": 125,
+      "label": "RE1-SS",
+      "policies": {
+        "fault-state-only": {
+          "budget_summary": {},
+          "call_mode": "high-value-alerts",
+          "call_reduction_percent": 83.33,
+          "evidence_target_coverage_rate": 1.0,
+          "external_calls": 125,
+          "false_skip_rate": 0.0,
+          "false_skip_windows": 0,
+          "high_value_window_recall": 1.0,
+          "high_value_windows_retained": 125,
+          "high_value_windows_total": 125,
+          "pressure_window_skip_rate": 0.0,
+          "pressure_windows_skipped": 0,
+          "pressure_windows_total": 125,
+          "selected_windows": 125,
+          "window_reduction_percent": 0.0
+        },
+        "invoke-all": {
+          "budget_summary": {},
+          "call_mode": "all-alerts",
+          "call_reduction_percent": 0.0,
+          "evidence_target_coverage_rate": 1.0,
+          "external_calls": 750,
+          "false_skip_rate": 0.0,
+          "false_skip_windows": 0,
+          "high_value_window_recall": 1.0,
+          "high_value_windows_retained": 125,
+          "high_value_windows_total": 125,
+          "pressure_window_skip_rate": 0.0,
+          "pressure_windows_skipped": 0,
+          "pressure_windows_total": 125,
+          "selected_windows": 125,
+          "window_reduction_percent": 0.0
+        },
+        "risk-budget-20": {
+          "budget_summary": {
+            "admission_strategy": "marginal_uncovered_risk_per_representative_cost",
+            "budget_external_calls": 25,
+            "budget_fraction": 0.2,
+            "covered_risk_atom_count": 287,
+            "safety_floor_extra_calls": 100,
+            "selected_windows": 125,
+            "used_external_calls": 125
+          },
+          "call_mode": "representative-alerts",
+          "call_reduction_percent": 83.33,
+          "evidence_target_coverage_rate": 1.0,
+          "external_calls": 125,
+          "false_skip_rate": 0.0,
+          "false_skip_windows": 0,
+          "high_value_window_recall": 1.0,
+          "high_value_windows_retained": 125,
+          "high_value_windows_total": 125,
+          "pressure_window_skip_rate": 0.0,
+          "pressure_windows_skipped": 0,
+          "pressure_windows_total": 125,
+          "selected_windows": 125,
+          "window_reduction_percent": 0.0
+        },
+        "strict-budget-20": {
+          "budget_summary": {
+            "admission_strategy": "marginal_uncovered_risk_per_representative_cost",
+            "budget_external_calls": 25,
+            "budget_fraction": 0.2,
+            "covered_risk_atom_count": 87,
+            "safety_floor_extra_calls": 0,
+            "selected_windows": 25,
+            "used_external_calls": 25
+          },
+          "call_mode": "representative-alerts",
+          "call_reduction_percent": 96.67,
+          "evidence_target_coverage_rate": 1.0,
+          "external_calls": 25,
+          "false_skip_rate": 0.8,
+          "false_skip_windows": 100,
+          "high_value_window_recall": 0.2,
+          "high_value_windows_retained": 25,
+          "high_value_windows_total": 125,
+          "pressure_window_skip_rate": 0.8,
+          "pressure_windows_skipped": 100,
+          "pressure_windows_total": 125,
+          "selected_windows": 25,
+          "window_reduction_percent": 80.0
+        },
+        "window-risk-tier": {
+          "budget_summary": {},
+          "call_mode": "representative-alerts",
+          "call_reduction_percent": 83.33,
+          "evidence_target_coverage_rate": 1.0,
+          "external_calls": 125,
+          "false_skip_rate": 0.0,
+          "false_skip_windows": 0,
+          "high_value_window_recall": 1.0,
+          "high_value_windows_retained": 125,
+          "high_value_windows_total": 125,
+          "pressure_window_skip_rate": 0.0,
+          "pressure_windows_skipped": 0,
+          "pressure_windows_total": 125,
+          "selected_windows": 125,
+          "window_reduction_percent": 0.0
+        }
+      },
+      "risk_tiers": {
+        "high": 125
+      },
+      "window_labels": {
+        "mixed_fault_and_transient": 125
+      }
+    },
+    "RE1-TT": {
+      "case_mix": {
+        "symptom_heavy_mixed": 125
+      },
+      "high_value_windows": 125,
+      "incident_windows": 125,
+      "label": "RE1-TT",
+      "policies": {
+        "fault-state-only": {
+          "budget_summary": {},
+          "call_mode": "high-value-alerts",
+          "call_reduction_percent": 83.33,
+          "evidence_target_coverage_rate": 1.0,
+          "external_calls": 125,
+          "false_skip_rate": 0.0,
+          "false_skip_windows": 0,
+          "high_value_window_recall": 1.0,
+          "high_value_windows_retained": 125,
+          "high_value_windows_total": 125,
+          "pressure_window_skip_rate": 0.0,
+          "pressure_windows_skipped": 0,
+          "pressure_windows_total": 125,
+          "selected_windows": 125,
+          "window_reduction_percent": 0.0
+        },
+        "invoke-all": {
+          "budget_summary": {},
+          "call_mode": "all-alerts",
+          "call_reduction_percent": 0.0,
+          "evidence_target_coverage_rate": 1.0,
+          "external_calls": 750,
+          "false_skip_rate": 0.0,
+          "false_skip_windows": 0,
+          "high_value_window_recall": 1.0,
+          "high_value_windows_retained": 125,
+          "high_value_windows_total": 125,
+          "pressure_window_skip_rate": 0.0,
+          "pressure_windows_skipped": 0,
+          "pressure_windows_total": 125,
+          "selected_windows": 125,
+          "window_reduction_percent": 0.0
+        },
+        "risk-budget-20": {
+          "budget_summary": {
+            "admission_strategy": "marginal_uncovered_risk_per_representative_cost",
+            "budget_external_calls": 25,
+            "budget_fraction": 0.2,
+            "covered_risk_atom_count": 320,
+            "safety_floor_extra_calls": 100,
+            "selected_windows": 125,
+            "used_external_calls": 125
+          },
+          "call_mode": "representative-alerts",
+          "call_reduction_percent": 83.33,
+          "evidence_target_coverage_rate": 1.0,
+          "external_calls": 125,
+          "false_skip_rate": 0.0,
+          "false_skip_windows": 0,
+          "high_value_window_recall": 1.0,
+          "high_value_windows_retained": 125,
+          "high_value_windows_total": 125,
+          "pressure_window_skip_rate": 0.0,
+          "pressure_windows_skipped": 0,
+          "pressure_windows_total": 125,
+          "selected_windows": 125,
+          "window_reduction_percent": 0.0
+        },
+        "strict-budget-20": {
+          "budget_summary": {
+            "admission_strategy": "marginal_uncovered_risk_per_representative_cost",
+            "budget_external_calls": 25,
+            "budget_fraction": 0.2,
+            "covered_risk_atom_count": 118,
+            "safety_floor_extra_calls": 0,
+            "selected_windows": 25,
+            "used_external_calls": 25
+          },
+          "call_mode": "representative-alerts",
+          "call_reduction_percent": 96.67,
+          "evidence_target_coverage_rate": 1.0,
+          "external_calls": 25,
+          "false_skip_rate": 0.8,
+          "false_skip_windows": 100,
+          "high_value_window_recall": 0.2,
+          "high_value_windows_retained": 25,
+          "high_value_windows_total": 125,
+          "pressure_window_skip_rate": 0.8,
+          "pressure_windows_skipped": 100,
+          "pressure_windows_total": 125,
+          "selected_windows": 25,
+          "window_reduction_percent": 80.0
+        },
+        "window-risk-tier": {
+          "budget_summary": {},
+          "call_mode": "representative-alerts",
+          "call_reduction_percent": 83.33,
+          "evidence_target_coverage_rate": 1.0,
+          "external_calls": 125,
+          "false_skip_rate": 0.0,
+          "false_skip_windows": 0,
+          "high_value_window_recall": 1.0,
+          "high_value_windows_retained": 125,
+          "high_value_windows_total": 125,
+          "pressure_window_skip_rate": 0.0,
+          "pressure_windows_skipped": 0,
+          "pressure_windows_total": 125,
+          "selected_windows": 125,
+          "window_reduction_percent": 0.0
+        }
+      },
+      "risk_tiers": {
+        "high": 125
+      },
+      "window_labels": {
+        "mixed_fault_and_transient": 125
+      }
+    }
+  },
+  "records": 2120,
+  "records_jsonl": "/data/Netops-causality-remediation/outputs/rcaeval/rcaeval_admission_records.jsonl",
+  "schema_version": 1,
+  "shortcut_risk_summary": {
+    "fault_dense_rate": 0.056,
+    "note": "A low fault-dense rate means the fault-state shortcut must survive symptom-heavy windows to remain effective.",
+    "symptom_heavy_mixed_rate": 0.944,
+    "transient_only_rate": 0.0
+  },
+  "window_mode": "session",
+  "window_sec": 600
+}

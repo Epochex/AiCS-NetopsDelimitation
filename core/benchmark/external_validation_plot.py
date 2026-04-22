@@ -34,6 +34,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "pdf": str(pdf_path),
         "budget_policies": [row["policy"] for row in coverage_rows],
         "baselines": [row["policy"] for row in baselines],
+        "baseline_display_names": {row["policy"]: row["label"] for row in baselines},
     }
     if args.output_json:
         Path(args.output_json).write_text(
@@ -128,9 +129,9 @@ def _budget_rows(report: dict[str, Any], prefix: str) -> list[dict[str, Any]]:
 def _baseline_rows(report: dict[str, Any]) -> list[dict[str, Any]]:
     labels = {
         "invoke-all": "invoke-all",
-        "scenario-only": "scenario-only",
-        "window-risk-tier": "risk-tier",
-        "oracle": "oracle",
+        "scenario-only": "fault-state-only",
+        "window-risk-tier": "window-risk-tier",
+        "oracle": "fault-state-only-oracle",
     }
     policies = report.get("policies") or {}
     return [

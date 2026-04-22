@@ -1,0 +1,27 @@
+{
+  "baseline_display_names": {
+    "invoke-all": "invoke-all",
+    "oracle": "fault-state-only-oracle",
+    "scenario-only": "fault-state-only",
+    "window-risk-tier": "window-risk-tier"
+  },
+  "baselines": [
+    "invoke-all",
+    "scenario-only",
+    "window-risk-tier",
+    "oracle"
+  ],
+  "budget_policies": [
+    "budget-coverage-1",
+    "budget-coverage-2",
+    "budget-coverage-5",
+    "budget-coverage-10",
+    "budget-coverage-20",
+    "budget-coverage-40",
+    "budget-coverage-60"
+  ],
+  "pdf": "/data/Netops-causality-remediation/documentation/images/rcaeval_external_validation_frontier.pdf",
+  "png": "/data/Netops-causality-remediation/documentation/images/rcaeval_external_validation_frontier.png",
+  "report_json": "/data/Netops-causality-remediation/documentation/results/rcaeval_re1_external_validation.json",
+  "schema_version": 1
+}

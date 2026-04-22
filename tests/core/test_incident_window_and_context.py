@@ -112,6 +112,34 @@ def test_incident_window_mixes_fault_and_transient_on_same_path_shape() -> None:
     assert boundary["risk_tier"] == "high"
 
 
+def test_sessionized_window_merges_across_fixed_bucket_boundary() -> None:
+    alerts = [
+        _alert("a1", ts="2026-04-10T00:09:50+00:00", device="CORE-R2", scenario="transient_fault"),
+        _alert("a2", ts="2026-04-10T00:10:05+00:00", device="CORE-R3", scenario="transient_fault"),
+    ]
+
+    session_windows, _ = build_incident_window_index(alerts, window_sec=600)
+    fixed_windows, _ = build_incident_window_index(alerts, window_sec=600, window_mode="fixed")
+
+    assert len(session_windows) == 1
+    assert session_windows[0]["window_mode"] == "session"
+    assert session_windows[0]["alert_count"] == 2
+    assert len(fixed_windows) == 2
+    assert {window["window_mode"] for window in fixed_windows} == {"fixed"}
+
+
+def test_sessionized_window_closes_after_idle_gap() -> None:
+    alerts = [
+        _alert("a1", ts="2026-04-10T00:00:00+00:00", device="CORE-R2", scenario="transient_fault"),
+        _alert("a2", ts="2026-04-10T00:10:01+00:00", device="CORE-R3", scenario="transient_fault"),
+    ]
+
+    windows, _ = build_incident_window_index(alerts, window_sec=600)
+
+    assert len(windows) == 2
+    assert [window["alert_count"] for window in windows] == [1, 1]
+
+
 def test_representative_selection_and_budget_controller_keep_high_value_windows() -> None:
     alerts = [
         _alert("a1", ts="2026-04-10T00:00:00+00:00", device="CORE-R2", scenario="transient_fault"),

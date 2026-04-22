@@ -33,6 +33,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         alerts,
         window_sec=args.window_sec,
         group_by_scenario=bool(getattr(args, "group_by_scenario", False)),
+        window_mode=str(getattr(args, "window_mode", "session") or "session"),
+        max_window_sec=getattr(args, "max_window_sec", None),
     )
     policies = _evaluate_policies(windows, budget_fractions=budget_fractions)
     report = {
@@ -43,6 +45,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "high_value_windows": sum(1 for window in windows if _is_high_value_window(window)),
         "pressure_windows": sum(1 for window in windows if _has_pressure(window)),
         "window_sec": args.window_sec,
+        "window_mode": str(getattr(args, "window_mode", "session") or "session"),
+        "max_window_sec": getattr(args, "max_window_sec", None) or args.window_sec,
         "policies": policies,
         "per_dataset": _per_dataset_reports(args, budget_fractions=budget_fractions),
         "metric_scope": (
@@ -84,6 +88,8 @@ def _per_dataset_reports(args: argparse.Namespace, *, budget_fractions: tuple[in
             alerts,
             window_sec=args.window_sec,
             group_by_scenario=bool(getattr(args, "group_by_scenario", False)),
+            window_mode=str(getattr(args, "window_mode", "session") or "session"),
+            max_window_sec=getattr(args, "max_window_sec", None),
         )
         reports[dataset] = {
             "alerts": len(alerts),
@@ -311,6 +317,8 @@ def main() -> None:
     parser.add_argument("--limit-files", type=int, default=0)
     parser.add_argument("--max-alerts", type=int, default=0)
     parser.add_argument("--window-sec", type=int, default=600)
+    parser.add_argument("--window-mode", choices=["session", "fixed", "adaptive"], default="session")
+    parser.add_argument("--max-window-sec", type=int, default=0)
     parser.add_argument("--group-by-scenario", action="store_true")
     parser.add_argument("--budgets", default="1,2,5,10,20,40,60")
     parser.add_argument("--output-json", default="")
