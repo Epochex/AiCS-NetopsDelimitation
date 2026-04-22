@@ -1,0 +1,83 @@
+{
+  "cases": 90,
+  "conversion_scope": "RCAEval cases converted to admission-layer records across metrics, logs, and traces when available; ground-truth service, fault type, dataset, run identity, and derived indicator metadata are preserved.",
+  "incident_windows": 90,
+  "included_families": [
+    "RE3"
+  ],
+  "max_window_sec": 600,
+  "min_symptom_score": 1.0,
+  "output_jsonl": "/data/Netops-causality-remediation/outputs/rcaeval/rcaeval_re3_admission_records.jsonl",
+  "output_windows_jsonl": "",
+  "per_dataset": {
+    "RE3-OB": {
+      "cases": 30,
+      "dataset_family": "RE3",
+      "fault_types": {
+        "f1": 9,
+        "f2": 3,
+        "f3": 6,
+        "f4": 6,
+        "f5": 6
+      },
+      "incident_windows": 30,
+      "records": 172,
+      "root_cause_records": 30,
+      "root_services": {
+        "adservice": 9,
+        "cartservice": 3,
+        "currencyservice": 3,
+        "emailservice": 15
+      },
+      "symptom_records": 142
+    },
+    "RE3-SS": {
+      "cases": 30,
+      "dataset_family": "RE3",
+      "fault_types": {
+        "f1": 10,
+        "f2": 3,
+        "f3": 10,
+        "f4": 7
+      },
+      "incident_windows": 30,
+      "records": 180,
+      "root_cause_records": 30,
+      "root_services": {
+        "carts": 12,
+        "front-end": 9,
+        "orders": 9
+      },
+      "symptom_records": 150
+    },
+    "RE3-TT": {
+      "cases": 30,
+      "dataset_family": "RE3",
+      "fault_types": {
+        "1": 3,
+        "f1": 7,
+        "f2": 7,
+        "f3": 7,
+        "f4": 6
+      },
+      "incident_windows": 30,
+      "records": 180,
+      "root_cause_records": 30,
+      "root_services": {
+        "ts-auth-service": 15,
+        "ts-route-service": 12,
+        "ts-route-service_f3": 3
+      },
+      "symptom_records": 150
+    }
+  },
+  "records": 532,
+  "root_cause_records": 90,
+  "schema_version": 1,
+  "source": "RCAEval",
+  "source_root": "/data/external_benchmarks/RCAEval",
+  "symptom_records": 442,
+  "top_symptoms": 5,
+  "window_mode": "session",
+  "window_sec": 600
+}

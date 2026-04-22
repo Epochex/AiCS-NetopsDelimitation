@@ -1,0 +1,92 @@
+{
+  "cases": 270,
+  "conversion_scope": "RCAEval cases converted to admission-layer records across metrics, logs, and traces when available; ground-truth service, fault type, dataset, run identity, and derived indicator metadata are preserved.",
+  "incident_windows": 270,
+  "included_families": [
+    "RE2"
+  ],
+  "max_window_sec": 600,
+  "min_symptom_score": 1.0,
+  "output_jsonl": "/data/Netops-causality-remediation/outputs/rcaeval/rcaeval_re2_admission_records.jsonl",
+  "output_windows_jsonl": "",
+  "per_dataset": {
+    "RE2-OB": {
+      "cases": 90,
+      "dataset_family": "RE2",
+      "fault_types": {
+        "cpu": 15,
+        "delay": 15,
+        "disk": 15,
+        "loss": 15,
+        "mem": 15,
+        "socket": 15
+      },
+      "incident_windows": 90,
+      "records": 1025,
+      "root_cause_records": 90,
+      "root_services": {
+        "checkoutservice": 18,
+        "currencyservice": 18,
+        "emailservice": 18,
+        "productcatalogservice": 18,
+        "recommendationservice": 18
+      },
+      "symptom_records": 935
+    },
+    "RE2-SS": {
+      "cases": 90,
+      "dataset_family": "RE2",
+      "fault_types": {
+        "cpu": 15,
+        "delay": 15,
+        "disk": 15,
+        "loss": 15,
+        "mem": 15,
+        "socket": 15
+      },
+      "incident_windows": 90,
+      "records": 710,
+      "root_cause_records": 90,
+      "root_services": {
+        "carts": 18,
+        "catalogue": 18,
+        "orders": 18,
+        "payment": 18,
+        "user": 18
+      },
+      "symptom_records": 620
+    },
+    "RE2-TT": {
+      "cases": 90,
+      "dataset_family": "RE2",
+      "fault_types": {
+        "cpu": 15,
+        "delay": 15,
+        "disk": 15,
+        "loss": 15,
+        "mem": 15,
+        "socket": 15
+      },
+      "incident_windows": 90,
+      "records": 1070,
+      "root_cause_records": 90,
+      "root_services": {
+        "ts-auth-service": 18,
+        "ts-order-service": 18,
+        "ts-route-service": 18,
+        "ts-train-service": 18,
+        "ts-travel-service": 18
+      },
+      "symptom_records": 980
+    }
+  },
+  "records": 2805,
+  "root_cause_records": 270,
+  "schema_version": 1,
+  "source": "RCAEval",
+  "source_root": "/data/external_benchmarks/RCAEval",
+  "symptom_records": 2535,
+  "top_symptoms": 5,
+  "window_mode": "session",
+  "window_sec": 600
+}
