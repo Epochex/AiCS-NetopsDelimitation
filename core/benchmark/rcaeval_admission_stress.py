@@ -88,6 +88,8 @@ def _materialize_records(args: argparse.Namespace, *, output_jsonl: Path) -> Non
             window_mode=str(getattr(args, "window_mode", "session") or "session"),
             max_window_sec=getattr(args, "max_window_sec", None),
             top_symptoms=args.top_symptoms,
+            top_logs=getattr(args, "top_logs", 4),
+            top_traces=getattr(args, "top_traces", 4),
             min_symptom_score=args.min_symptom_score,
         )
     )
@@ -262,6 +264,8 @@ def main() -> None:
     )
     parser.add_argument("--max-window-sec", type=int, default=0)
     parser.add_argument("--top-symptoms", type=int, default=5)
+    parser.add_argument("--top-logs", type=int, default=4)
+    parser.add_argument("--top-traces", type=int, default=4)
     parser.add_argument("--min-symptom-score", type=float, default=1.0)
     parser.add_argument("--output-json", default=DEFAULT_OUTPUT_JSON)
     parser.add_argument("--output-png", default=DEFAULT_OUTPUT_PNG)

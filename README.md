@@ -129,35 +129,35 @@ The full LCORE-D replay contains:
 | Quantity | Value |
 | --- | ---: |
 | Deterministic alerts | 6,700 |
-| Incident windows | 2,929 |
-| Average alerts per window | 2.287 |
-| Pressure windows | 2,622 |
-| Self-healing-dominant windows | 2,532 |
-| Multi-device windows | 911 |
-| High-value windows | 397 |
+| Sessionized incident windows | 2,283 |
+| Average alerts per window | 2.935 |
+| Pressure windows | 2,124 |
+| Self-healing-dominant windows | 1,935 |
+| Multi-device windows | 782 |
+| High-value windows | 348 |
 
 Window labels in the current replay:
 
 | Label | Windows |
 | --- | ---: |
-| `external_induced_fault` | 216 |
-| `mixed_fault_and_transient` | 181 |
-| `external_multi_device_spread` | 815 |
-| `external_repeated_transient` | 103 |
-| `local_transient_with_pressure` | 1,327 |
-| `local_single_transient` | 287 |
+| `external_induced_fault` | 154 |
+| `mixed_fault_and_transient` | 194 |
+| `external_multi_device_spread` | 697 |
+| `external_repeated_transient` | 238 |
+| `local_transient_with_pressure` | 851 |
+| `local_single_transient` | 149 |
 
 Policy comparison on the full replay:
 
 | Policy | External calls | Call reduction | Selected windows | Window reduction | High-value window recall | Pressure-window skip rate | Evidence target coverage |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| Invoke all | 6,700 | 0.00% | 2,929 | 0.00% | 100.00% | 0.00% | 100.00% |
-| Scenario only | 562 | 91.61% | 397 | 86.45% | 100.00% | 85.62% | 100.00% |
-| Self-healing aware | 6,070 | 9.40% | 2,402 | 17.99% | 100.00% | 14.15% | 99.75% |
-| Topology + timeline | 4,588 | 31.52% | 1,310 | 55.27% | 100.00% | 50.80% | 100.00% |
-| Window risk tier | 2,983 | 55.48% | 1,315 | 55.10% | 100.00% | 50.61% | 100.00% |
-| Strict budget 20% | 586 | 91.25% | 450 | 84.64% | 91.94% | 83.60% | 100.00% |
-| Risk budget 20% | 586 | 91.25% | 434 | 85.18% | 100.00% | 84.21% | 100.00% |
+| Invoke all | 6,700 | 0.00% | 2,283 | 0.00% | 100.00% | 0.00% | 100.00% |
+| Fault-state only | 562 | 91.61% | 348 | 84.76% | 100.00% | 84.09% | 100.00% |
+| Self-healing aware | 6,230 | 7.01% | 1,944 | 14.85% | 100.00% | 12.48% | 99.79% |
+| Topology + timeline | 5,193 | 22.49% | 1,277 | 44.06% | 100.00% | 40.35% | 100.00% |
+| Window risk tier | 3,117 | 53.48% | 1,283 | 43.80% | 100.00% | 40.07% | 100.00% |
+| Strict budget 20% | 457 | 93.18% | 347 | 84.80% | 88.22% | 84.13% | 100.00% |
+| Risk budget 20% | 500 | 92.54% | 348 | 84.76% | 100.00% | 84.09% | 100.00% |
 
 The important result is not only call reduction. The frontier shows how aggressive budget caps trade external calls against high-value coverage and residual pressure risk.
 
@@ -175,17 +175,17 @@ The repository includes a deterministic reviewer pass that fills the same fields
 
 This pass is useful for repeatable engineering tests and for calibrating the risk-atom pipeline. It is not an independent human expert label set.
 
-Current expert-style review results over 2,929 windows:
+Current expert-style review results over 2,283 sessionized windows:
 
 | Review field | Count |
 | --- | ---: |
-| Should invoke external | 1,310 |
-| Local windows | 1,619 |
-| False skip if local | 1,310 |
-| Representative sufficient | 2,929 |
-| Selected device covered | 2,929 |
-| Selected path covered | 2,929 |
-| Timeline sufficient | 2,929 |
+| Should invoke external | 1,278 |
+| Local windows | 1,005 |
+| False skip if local | 1,278 |
+| Representative sufficient | 2,283 |
+| Selected device covered | 2,283 |
+| Selected path covered | 2,283 |
+| Timeline sufficient | 2,283 |
 
 Calibrated weights from the expert-style labels:
 
@@ -200,7 +200,7 @@ Calibrated weights from the expert-style labels:
 | `pressure:topology` | 6 |
 | `scope:device` | 5 |
 | `scope:path` | 5 |
-| `impact:downstream_fanout` | 1 |
+| `impact:downstream_fanout` | 2 |
 | `missing:timeline` | 0 |
 | `occurrence:pressure` | 0 |
 
@@ -208,9 +208,9 @@ Calibrated thresholds:
 
 | Target false-skip rate | Threshold | Observed false-skip rate | Selected window rate |
 | --- | ---: | ---: | ---: |
-| 1% | 37 | 0.00% | 44.73% |
-| 5% | 37 | 0.00% | 44.73% |
-| 10% | 57 | 8.24% | 41.04% |
+| 1% | 38 | 0.078% | 55.94% |
+| 5% | 38 | 0.078% | 55.94% |
+| 10% | 38 | 0.078% | 55.94% |
 
 This calibration is deliberately interpretable. It adjusts risk-atom weights and thresholds; it does not replace the admission layer with a black-box classifier.
 
@@ -253,7 +253,7 @@ External validation results:
 | Policy | External calls | Call reduction | High-value window recall | False-skip rate | Evidence target coverage |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | Invoke all | 2,120 | 0.00% | 100.00% | 0.00% | 100.00% |
-| Scenario only | 375 | 82.31% | 100.00% | 0.00% | 100.00% |
+| Fault-state only | 375 | 82.31% | 100.00% | 0.00% | 100.00% |
 | Window risk tier | 375 | 82.31% | 100.00% | 0.00% | 100.00% |
 | Strict budget 20% | 75 | 96.46% | 20.00% | 80.00% | 100.00% |
 | Strict budget 60% | 225 | 89.39% | 60.00% | 40.00% | 100.00% |
