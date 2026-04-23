@@ -107,8 +107,9 @@ def test_incident_window_mixes_fault_and_transient_on_same_path_shape() -> None:
     assert windows[0]["high_value_count"] == 1
     assert windows[0]["self_healing_count"] == 1
     assert index["a1"]["recommended_action"] == "external"
-    assert boundary["selected_surface"]["alert_ids"] == ["a2"]
-    assert boundary["excluded_surface"][0]["kind"] == "transient_context_not_primary"
+    assert boundary["selected_surface"]["alert_ids"] == ["a1", "a2"]
+    assert boundary["selected_surface"]["representative_selection"]["branch_coverage"]["coverage_rate"] == 1.0
+    assert boundary["excluded_surface"] == []
     assert boundary["risk_tier"] == "high"
 
 
@@ -158,6 +159,88 @@ def test_representative_selection_and_budget_controller_keep_high_value_windows(
     assert weak["should_invoke_external"] is True
     assert weak["selected_device_covered"] is True
     assert any(atom["key"] == "value:high_fault" for atom in weak["risk_atoms"])
+
+
+def test_branch_preserving_selector_keeps_mixed_window_branches() -> None:
+    alerts = [
+        _alert("a1", ts="2026-04-10T00:00:00+00:00", device="CORE-R2", scenario="transient_fault"),
+        _alert("a2", ts="2026-04-10T00:01:00+00:00", device="CORE-R3", scenario="transient_fault"),
+        _alert("a3", ts="2026-04-10T00:02:00+00:00", device="CORE-R4", scenario="induced_fault"),
+    ]
+
+    legacy = select_representative_alerts(
+        [alerts[2]],
+        max_items=3,
+        reference_alerts=alerts,
+        strategy="legacy",
+        timeline_required=True,
+    )
+    branch = select_representative_alerts(
+        alerts,
+        max_items=3,
+        reference_alerts=alerts,
+        strategy="branch-preserving",
+        timeline_required=True,
+    )
+
+    assert legacy["branch_coverage"]["coverage_rate"] < 1.0
+    assert branch["branch_coverage"]["coverage_rate"] == 1.0
+    assert set(branch["representative_alert_ids"]) == {"a1", "a2", "a3"}
+
+
+def test_branch_preserving_selector_anchors_recurrence_timeline() -> None:
+    alerts = [
+        _alert("a1", ts="2026-04-10T09:05:00+00:00", device="CORE-R3", scenario="transient_fault"),
+        _alert("a2", ts="2026-04-10T09:07:00+00:00", device="CORE-R3", scenario="transient_fault"),
+        _alert("a3", ts="2026-04-10T09:09:00+00:00", device="CORE-R3", scenario="transient_fault"),
+    ]
+
+    legacy = select_representative_alerts(
+        alerts,
+        max_items=2,
+        reference_alerts=alerts,
+        strategy="legacy",
+        timeline_required=True,
+    )
+    branch = select_representative_alerts(
+        alerts,
+        max_items=2,
+        reference_alerts=alerts,
+        strategy="branch-preserving",
+        timeline_required=True,
+    )
+
+    assert legacy["branch_coverage"]["coverage_rate"] < 1.0
+    assert branch["branch_coverage"]["coverage_rate"] == 1.0
+    assert set(branch["representative_alert_ids"]) == {"a1", "a3"}
+
+
+def test_branch_preserving_window_targets_include_context_branch() -> None:
+    alerts = [
+        _alert("a1", ts="2026-04-10T00:00:00+00:00", device="CORE-R2", scenario="transient_fault"),
+        _alert("a2", ts="2026-04-10T00:01:00+00:00", device="CORE-R3", scenario="transient_fault"),
+        _alert("a3", ts="2026-04-10T00:02:00+00:00", device="CORE-R4", scenario="induced_fault"),
+    ]
+
+    legacy_windows, _ = build_incident_window_index(
+        alerts,
+        window_sec=600,
+        representative_max_items=3,
+        representative_strategy="legacy",
+    )
+    branch_windows, _ = build_incident_window_index(
+        alerts,
+        window_sec=600,
+        representative_max_items=3,
+        representative_strategy="branch-preserving",
+    )
+
+    legacy_selected = legacy_windows[0]["selected_evidence_targets"]
+    branch_selected = branch_windows[0]["selected_evidence_targets"]
+
+    assert legacy_selected["devices"] == ["CORE-R4"]
+    assert branch_selected["devices"] == ["CORE-R2", "CORE-R3", "CORE-R4"]
+    assert branch_selected["representative_selection"]["branch_coverage"]["coverage_rate"] == 1.0
 
 
 def test_budget_controller_prefers_uncovered_risk_atoms() -> None:

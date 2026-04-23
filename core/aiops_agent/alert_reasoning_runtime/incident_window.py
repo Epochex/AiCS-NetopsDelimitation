@@ -28,6 +28,7 @@ def build_incident_windows(
     window_mode: str = "session",
     max_window_sec: int | None = None,
     representative_max_items: int = 3,
+    representative_strategy: str = "branch-preserving",
 ) -> list[dict[str, Any]]:
     """Group deterministic alerts into bounded incident windows.
 
@@ -50,6 +51,7 @@ def build_incident_windows(
             window_sec=window_sec,
             group_by_scenario=group_by_scenario,
             representative_max_items=representative_max_items,
+            representative_strategy=representative_strategy,
         )
     if mode in {"adaptive", "adaptive_session", "adaptive-session"}:
         return _build_adaptive_session_windows(
@@ -58,6 +60,7 @@ def build_incident_windows(
             max_window_sec=max_window_sec or window_sec,
             group_by_scenario=group_by_scenario,
             representative_max_items=representative_max_items,
+            representative_strategy=representative_strategy,
         )
     if mode in {"aics-topology", "aics_topology", "topology-coupled"}:
         return _build_admission_coupled_windows(
@@ -66,6 +69,7 @@ def build_incident_windows(
             max_window_sec=max_window_sec or window_sec,
             group_by_scenario=group_by_scenario,
             representative_max_items=representative_max_items,
+            representative_strategy=representative_strategy,
             strategy="topology",
         )
     if mode in {"aics-evidence", "aics_evidence", "evidence-coupled"}:
@@ -75,6 +79,7 @@ def build_incident_windows(
             max_window_sec=max_window_sec or window_sec,
             group_by_scenario=group_by_scenario,
             representative_max_items=representative_max_items,
+            representative_strategy=representative_strategy,
             strategy="evidence",
         )
     if mode in {"aics", "aics-hybrid", "aics_hybrid", "admission", "admission-coupled"}:
@@ -84,6 +89,7 @@ def build_incident_windows(
             max_window_sec=max_window_sec or window_sec,
             group_by_scenario=group_by_scenario,
             representative_max_items=representative_max_items,
+            representative_strategy=representative_strategy,
             strategy="hybrid",
         )
     if mode not in {"session", "sessionized", "idle_gap"}:
@@ -94,6 +100,7 @@ def build_incident_windows(
         max_window_sec=max_window_sec or window_sec,
         group_by_scenario=group_by_scenario,
         representative_max_items=representative_max_items,
+        representative_strategy=representative_strategy,
     )
 
 
@@ -103,6 +110,7 @@ def _build_fixed_bucket_windows(
     window_sec: int,
     group_by_scenario: bool,
     representative_max_items: int,
+    representative_strategy: str,
 ) -> list[dict[str, Any]]:
     buckets: dict[tuple[int, str, str], list[dict[str, Any]]] = {}
     for alert in sorted(alerts, key=_alert_sort_key):
@@ -118,6 +126,7 @@ def _build_fixed_bucket_windows(
             window_alerts=value,
             window_sec=window_sec,
             representative_max_items=representative_max_items,
+            representative_strategy=representative_strategy,
         )
         for key, value in sorted(buckets.items(), key=lambda item: item[0])
     ]
@@ -131,6 +140,7 @@ def _build_sessionized_windows(
     max_window_sec: int,
     group_by_scenario: bool,
     representative_max_items: int,
+    representative_strategy: str,
 ) -> list[dict[str, Any]]:
     groups: dict[tuple[str, str], list[dict[str, Any]]] = {}
     for alert in sorted(alerts, key=_alert_sort_key):
@@ -159,6 +169,7 @@ def _build_sessionized_windows(
                             window_mode="session",
                             max_window_sec=max_duration,
                             representative_max_items=representative_max_items,
+                            representative_strategy=representative_strategy,
                         )
                     )
                     session_idx += 1
@@ -177,6 +188,7 @@ def _build_sessionized_windows(
                     window_mode="session",
                     max_window_sec=max_duration,
                     representative_max_items=representative_max_items,
+                    representative_strategy=representative_strategy,
                 )
             )
             session_idx += 1
@@ -190,6 +202,7 @@ def _build_adaptive_session_windows(
     max_window_sec: int,
     group_by_scenario: bool,
     representative_max_items: int,
+    representative_strategy: str,
 ) -> list[dict[str, Any]]:
     groups: dict[tuple[str, str], list[dict[str, Any]]] = {}
     for alert in sorted(alerts, key=_alert_sort_key):
@@ -234,6 +247,7 @@ def _build_adaptive_session_windows(
                             max_window_sec=max_duration,
                             group_idle_gap_sec=group_idle_gap,
                             representative_max_items=representative_max_items,
+                            representative_strategy=representative_strategy,
                         )
                     )
                     session_idx += 1
@@ -256,6 +270,7 @@ def _build_adaptive_session_windows(
                     max_window_sec=max_duration,
                     group_idle_gap_sec=group_idle_gap,
                     representative_max_items=representative_max_items,
+                    representative_strategy=representative_strategy,
                 )
             )
             session_idx += 1
@@ -269,6 +284,7 @@ def _build_admission_coupled_windows(
     max_window_sec: int,
     group_by_scenario: bool,
     representative_max_items: int,
+    representative_strategy: str,
     strategy: str,
 ) -> list[dict[str, Any]]:
     groups: dict[tuple[str, str], list[dict[str, Any]]] = {}
@@ -334,6 +350,7 @@ def _build_admission_coupled_windows(
                             max_window_sec=max_duration,
                             group_idle_gap_sec=group_idle_gap,
                             representative_max_items=representative_max_items,
+                            representative_strategy=representative_strategy,
                             boundary_strategy=strategy,
                         )
                     )
@@ -357,6 +374,7 @@ def _build_admission_coupled_windows(
                     max_window_sec=max_duration,
                     group_idle_gap_sec=group_idle_gap,
                     representative_max_items=representative_max_items,
+                    representative_strategy=representative_strategy,
                     boundary_strategy=strategy,
                 )
             )
@@ -381,6 +399,7 @@ def build_incident_window_index(
     window_mode: str = "session",
     max_window_sec: int | None = None,
     representative_max_items: int = 3,
+    representative_strategy: str = "branch-preserving",
 ) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]]]:
     windows = build_incident_windows(
         alerts,
@@ -389,6 +408,7 @@ def build_incident_window_index(
         window_mode=window_mode,
         max_window_sec=max_window_sec,
         representative_max_items=representative_max_items,
+        representative_strategy=representative_strategy,
     )
     return windows, index_windows_by_alert_id(windows)
 
@@ -494,6 +514,7 @@ def _build_window(
     max_window_sec: int | None = None,
     group_idle_gap_sec: int | None = None,
     representative_max_items: int = 3,
+    representative_strategy: str = "branch-preserving",
     boundary_strategy: str = "",
 ) -> dict[str, Any]:
     bucket, scenario_key, path_shape = bucket_key
@@ -550,6 +571,7 @@ def _build_window(
         recommended_action=recommended_action,
         window_label=window_label,
         representative_max_items=representative_max_items,
+        representative_strategy=representative_strategy,
     )
     window_id = _hash_id(
         "incident-window|"
@@ -665,23 +687,47 @@ def _window_evidence_targets(
     recommended_action: str,
     window_label: str,
     representative_max_items: int,
+    representative_strategy: str,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     target_alerts = high_value_alerts or window_alerts
+    branch_sensitive = (
+        str(representative_strategy or "").strip().lower() != "legacy"
+        and recommended_action == "external"
+        and (
+            window_label in {"mixed_fault_and_transient", "external_multi_device_spread", "external_repeated_transient"}
+            or len(devices) >= 2
+            or len(path_signatures) >= 2
+            or len(window_alerts) >= 3
+        )
+    )
+    candidate_alerts = window_alerts if branch_sensitive else target_alerts
     representative_selection = select_representative_alerts(
-        target_alerts,
+        candidate_alerts,
         max_items=max(1, representative_max_items),
+        reference_alerts=window_alerts,
+        strategy=representative_strategy,
+        timeline_required=len(window_alerts) > 1,
     )
     target_ids = _alert_ids(target_alerts)
     representative_ids = representative_selection.get("representative_alert_ids") or []
+    selected_carrier_ids = set(representative_ids)
+    if branch_sensitive:
+        selected_carrier_ids.update(_alert_ids(high_value_alerts))
+    selected_alerts = [
+        alert
+        for alert in sorted(window_alerts, key=_alert_sort_key)
+        if str(alert.get("alert_id") or "") in selected_carrier_ids
+    ] or target_alerts
     selected = {
-        "alert_ids": target_ids[:12],
+        "alert_ids": (_alert_ids(selected_alerts) if branch_sensitive else target_ids)[:12],
         "representative_alert_ids": representative_ids[:6],
         "representative_selection": representative_selection,
-        "devices": sorted({_device(alert) for alert in target_alerts if _device(alert)})[:8] or devices[:8],
-        "path_signatures": sorted({_path_signature(alert) for alert in target_alerts if _path_signature(alert)})[:8]
+        "devices": sorted({_device(alert) for alert in selected_alerts if _device(alert)})[:8] or devices[:8],
+        "path_signatures": sorted({_path_signature(alert) for alert in selected_alerts if _path_signature(alert)})[:8]
         or path_signatures[:8],
         "timeline_required": len(window_alerts) > 1,
         "selection_basis": window_label,
+        "selection_strategy": representative_strategy,
     }
     excluded: list[dict[str, Any]] = []
     if recommended_action == "local":
@@ -693,13 +739,20 @@ def _window_evidence_targets(
             }
         )
     elif high_value_alerts and self_healing_alerts:
-        excluded.append(
-            {
-                "kind": "transient_context_not_primary",
-                "alert_ids": _alert_ids(self_healing_alerts)[:12],
-                "reason": "transient alerts are retained as context but not primary targets",
-            }
-        )
+        selected_ids = set(_alert_ids(selected_alerts))
+        excluded_transient_ids = [
+            alert_id
+            for alert_id in _alert_ids(self_healing_alerts)
+            if alert_id not in selected_ids
+        ]
+        if excluded_transient_ids:
+            excluded.append(
+                {
+                    "kind": "transient_context_not_primary",
+                    "alert_ids": excluded_transient_ids[:12],
+                    "reason": "transient alerts are retained as context but not primary targets",
+                }
+            )
     return selected, excluded
 
 
@@ -979,10 +1032,20 @@ def _boundary_feature_universe(alerts: list[dict[str, Any]]) -> set[str]:
 
 def _representative_churn(current_alerts: list[dict[str, Any]], next_alert: dict[str, Any]) -> int:
     before = set(
-        (select_representative_alerts(current_alerts, max_items=2).get("representative_alert_ids") or [])
+        (
+            select_representative_alerts(current_alerts, max_items=2, strategy="legacy").get(
+                "representative_alert_ids"
+            )
+            or []
+        )
     )
     after = set(
-        (select_representative_alerts([*current_alerts, next_alert], max_items=2).get("representative_alert_ids") or [])
+        (
+            select_representative_alerts([*current_alerts, next_alert], max_items=2, strategy="legacy").get(
+                "representative_alert_ids"
+            )
+            or []
+        )
     )
     return len(before ^ after)
 

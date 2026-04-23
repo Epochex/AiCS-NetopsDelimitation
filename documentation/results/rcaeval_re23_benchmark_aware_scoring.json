@@ -1,0 +1,341 @@
+{
+  "datasets": [
+    "RE2-OB",
+    "RE2-SS",
+    "RE2-TT",
+    "RE3-OB",
+    "RE3-SS",
+    "RE3-TT"
+  ],
+  "max_window_sec": 1200,
+  "per_dataset": {
+    "RE2-OB": {
+      "alert-only": {
+        "evidence_binding": 0.0,
+        "fault_service_hit": 0.0,
+        "missing_evidence_awareness": 0.977273,
+        "overclaim": 0.0,
+        "root_indicator_hit": 0.0,
+        "timeline_consistency": 1.0,
+        "topology_consistency": 0.0,
+        "unsafe_action": 0.0,
+        "windows": 176
+      },
+      "boundary-then-interpretation": {
+        "evidence_binding": 1.0,
+        "fault_service_hit": 1.0,
+        "missing_evidence_awareness": 1.0,
+        "overclaim": 0.0,
+        "root_indicator_hit": 1.0,
+        "timeline_consistency": 1.0,
+        "topology_consistency": 1.0,
+        "unsafe_action": 0.0,
+        "windows": 176
+      },
+      "context-views": {
+        "evidence_binding": 0.666667,
+        "fault_service_hit": 1.0,
+        "missing_evidence_awareness": 0.977273,
+        "overclaim": 0.0,
+        "root_indicator_hit": 0.0,
+        "timeline_consistency": 1.0,
+        "topology_consistency": 1.0,
+        "unsafe_action": 0.0,
+        "windows": 176
+      },
+      "full-contract": {
+        "evidence_binding": 1.0,
+        "fault_service_hit": 1.0,
+        "missing_evidence_awareness": 1.0,
+        "overclaim": 0.0,
+        "root_indicator_hit": 1.0,
+        "timeline_consistency": 1.0,
+        "topology_consistency": 1.0,
+        "unsafe_action": 0.0,
+        "windows": 176
+      }
+    },
+    "RE2-SS": {
+      "alert-only": {
+        "evidence_binding": 0.0,
+        "fault_service_hit": 0.0,
+        "missing_evidence_awareness": 0.868217,
+        "overclaim": 0.0,
+        "root_indicator_hit": 0.0,
+        "timeline_consistency": 1.0,
+        "topology_consistency": 0.0,
+        "unsafe_action": 0.0,
+        "windows": 129
+      },
+      "boundary-then-interpretation": {
+        "evidence_binding": 1.0,
+        "fault_service_hit": 1.0,
+        "missing_evidence_awareness": 1.0,
+        "overclaim": 0.0,
+        "root_indicator_hit": 1.0,
+        "timeline_consistency": 1.0,
+        "topology_consistency": 1.0,
+        "unsafe_action": 0.0,
+        "windows": 129
+      },
+      "context-views": {
+        "evidence_binding": 0.666667,
+        "fault_service_hit": 1.0,
+        "missing_evidence_awareness": 0.868217,
+        "overclaim": 0.0,
+        "root_indicator_hit": 0.0,
+        "timeline_consistency": 1.0,
+        "topology_consistency": 1.0,
+        "unsafe_action": 0.0,
+        "windows": 129
+      },
+      "full-contract": {
+        "evidence_binding": 1.0,
+        "fault_service_hit": 1.0,
+        "missing_evidence_awareness": 1.0,
+        "overclaim": 0.0,
+        "root_indicator_hit": 1.0,
+        "timeline_consistency": 1.0,
+        "topology_consistency": 1.0,
+        "unsafe_action": 0.0,
+        "windows": 129
+      }
+    },
+    "RE2-TT": {
+      "alert-only": {
+        "evidence_binding": 0.0,
+        "fault_service_hit": 0.0,
+        "missing_evidence_awareness": 1.0,
+        "overclaim": 0.0,
+        "root_indicator_hit": 0.0,
+        "timeline_consistency": 1.0,
+        "topology_consistency": 0.0,
+        "unsafe_action": 0.0,
+        "windows": 187
+      },
+      "boundary-then-interpretation": {
+        "evidence_binding": 1.0,
+        "fault_service_hit": 1.0,
+        "missing_evidence_awareness": 1.0,
+        "overclaim": 0.0,
+        "root_indicator_hit": 1.0,
+        "timeline_consistency": 1.0,
+        "topology_consistency": 1.0,
+        "unsafe_action": 0.0,
+        "windows": 187
+      },
+      "context-views": {
+        "evidence_binding": 0.666667,
+        "fault_service_hit": 1.0,
+        "missing_evidence_awareness": 1.0,
+        "overclaim": 0.0,
+        "root_indicator_hit": 0.0,
+        "timeline_consistency": 1.0,
+        "topology_consistency": 1.0,
+        "unsafe_action": 0.0,
+        "windows": 187
+      },
+      "full-contract": {
+        "evidence_binding": 1.0,
+        "fault_service_hit": 1.0,
+        "missing_evidence_awareness": 1.0,
+        "overclaim": 0.0,
+        "root_indicator_hit": 1.0,
+        "timeline_consistency": 1.0,
+        "topology_consistency": 1.0,
+        "unsafe_action": 0.0,
+        "windows": 187
+      }
+    },
+    "RE3-OB": {
+      "alert-only": {
+        "evidence_binding": 0.0,
+        "fault_service_hit": 0.0,
+        "missing_evidence_awareness": 1.0,
+        "overclaim": 0.0,
+        "root_indicator_hit": 0.0,
+        "timeline_consistency": 1.0,
+        "topology_consistency": 0.0,
+        "unsafe_action": 0.0,
+        "windows": 30
+      },
+      "boundary-then-interpretation": {
+        "evidence_binding": 1.0,
+        "fault_service_hit": 1.0,
+        "missing_evidence_awareness": 1.0,
+        "overclaim": 0.0,
+        "root_indicator_hit": 1.0,
+        "timeline_consistency": 1.0,
+        "topology_consistency": 1.0,
+        "unsafe_action": 0.0,
+        "windows": 30
+      },
+      "context-views": {
+        "evidence_binding": 0.666667,
+        "fault_service_hit": 1.0,
+        "missing_evidence_awareness": 1.0,
+        "overclaim": 0.0,
+        "root_indicator_hit": 0.0,
+        "timeline_consistency": 1.0,
+        "topology_consistency": 1.0,
+        "unsafe_action": 0.0,
+        "windows": 30
+      },
+      "full-contract": {
+        "evidence_binding": 1.0,
+        "fault_service_hit": 1.0,
+        "missing_evidence_awareness": 1.0,
+        "overclaim": 0.0,
+        "root_indicator_hit": 1.0,
+        "timeline_consistency": 1.0,
+        "topology_consistency": 1.0,
+        "unsafe_action": 0.0,
+        "windows": 30
+      }
+    },
+    "RE3-SS": {
+      "alert-only": {
+        "evidence_binding": 0.0,
+        "fault_service_hit": 0.0,
+        "missing_evidence_awareness": 1.0,
+        "overclaim": 0.0,
+        "root_indicator_hit": 0.0,
+        "timeline_consistency": 1.0,
+        "topology_consistency": 0.0,
+        "unsafe_action": 0.0,
+        "windows": 30
+      },
+      "boundary-then-interpretation": {
+        "evidence_binding": 1.0,
+        "fault_service_hit": 1.0,
+        "missing_evidence_awareness": 1.0,
+        "overclaim": 0.0,
+        "root_indicator_hit": 1.0,
+        "timeline_consistency": 1.0,
+        "topology_consistency": 1.0,
+        "unsafe_action": 0.0,
+        "windows": 30
+      },
+      "context-views": {
+        "evidence_binding": 0.666667,
+        "fault_service_hit": 1.0,
+        "missing_evidence_awareness": 1.0,
+        "overclaim": 0.0,
+        "root_indicator_hit": 0.0,
+        "timeline_consistency": 1.0,
+        "topology_consistency": 1.0,
+        "unsafe_action": 0.0,
+        "windows": 30
+      },
+      "full-contract": {
+        "evidence_binding": 1.0,
+        "fault_service_hit": 1.0,
+        "missing_evidence_awareness": 1.0,
+        "overclaim": 0.0,
+        "root_indicator_hit": 1.0,
+        "timeline_consistency": 1.0,
+        "topology_consistency": 1.0,
+        "unsafe_action": 0.0,
+        "windows": 30
+      }
+    },
+    "RE3-TT": {
+      "alert-only": {
+        "evidence_binding": 0.0,
+        "fault_service_hit": 0.0,
+        "missing_evidence_awareness": 1.0,
+        "overclaim": 0.0,
+        "root_indicator_hit": 0.0,
+        "timeline_consistency": 1.0,
+        "topology_consistency": 0.0,
+        "unsafe_action": 0.0,
+        "windows": 30
+      },
+      "boundary-then-interpretation": {
+        "evidence_binding": 1.0,
+        "fault_service_hit": 1.0,
+        "missing_evidence_awareness": 1.0,
+        "overclaim": 0.0,
+        "root_indicator_hit": 1.0,
+        "timeline_consistency": 1.0,
+        "topology_consistency": 1.0,
+        "unsafe_action": 0.0,
+        "windows": 30
+      },
+      "context-views": {
+        "evidence_binding": 0.666667,
+        "fault_service_hit": 1.0,
+        "missing_evidence_awareness": 1.0,
+        "overclaim": 0.0,
+        "root_indicator_hit": 0.0,
+        "timeline_consistency": 1.0,
+        "topology_consistency": 1.0,
+        "unsafe_action": 0.0,
+        "windows": 30
+      },
+      "full-contract": {
+        "evidence_binding": 1.0,
+        "fault_service_hit": 1.0,
+        "missing_evidence_awareness": 1.0,
+        "overclaim": 0.0,
+        "root_indicator_hit": 1.0,
+        "timeline_consistency": 1.0,
+        "topology_consistency": 1.0,
+        "unsafe_action": 0.0,
+        "windows": 30
+      }
+    }
+  },
+  "quality_scope": "benchmark-aware structural scoring on RCAEval RE2/RE3 windows; measures evidence binding, topology/timeline consistency, missing-evidence awareness, overclaim and unsafe-action language, and root-service/root-indicator hits against annotated case structure rather than end-to-end diagnostic success",
+  "records": 3337,
+  "records_jsonl": "/data/Netops-causality-remediation/outputs/rcaeval/rcaeval_re23_admission_records.jsonl",
+  "schema_version": 1,
+  "strategies": {
+    "alert-only": {
+      "evidence_binding": 0.0,
+      "fault_service_hit": 0.0,
+      "missing_evidence_awareness": 0.963918,
+      "overclaim": 0.0,
+      "root_indicator_hit": 0.0,
+      "timeline_consistency": 1.0,
+      "topology_consistency": 0.0,
+      "unsafe_action": 0.0,
+      "windows": 582
+    },
+    "boundary-then-interpretation": {
+      "evidence_binding": 1.0,
+      "fault_service_hit": 1.0,
+      "missing_evidence_awareness": 1.0,
+      "overclaim": 0.0,
+      "root_indicator_hit": 1.0,
+      "timeline_consistency": 1.0,
+      "topology_consistency": 1.0,
+      "unsafe_action": 0.0,
+      "windows": 582
+    },
+    "context-views": {
+      "evidence_binding": 0.666667,
+      "fault_service_hit": 1.0,
+      "missing_evidence_awareness": 0.963918,
+      "overclaim": 0.0,
+      "root_indicator_hit": 0.0,
+      "timeline_consistency": 1.0,
+      "topology_consistency": 1.0,
+      "unsafe_action": 0.0,
+      "windows": 582
+    },
+    "full-contract": {
+      "evidence_binding": 1.0,
+      "fault_service_hit": 1.0,
+      "missing_evidence_awareness": 1.0,
+      "overclaim": 0.0,
+      "root_indicator_hit": 1.0,
+      "timeline_consistency": 1.0,
+      "topology_consistency": 1.0,
+      "unsafe_action": 0.0,
+      "windows": 582
+    }
+  },
+  "window_mode": "aics-topology",
+  "window_sec": 500
+}

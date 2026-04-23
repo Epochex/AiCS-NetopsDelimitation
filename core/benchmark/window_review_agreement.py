@@ -15,6 +15,8 @@ REVIEW_FIELDS = (
     "selected_path_covered",
     "timeline_sufficient",
     "false_skip_if_local",
+    "boundary_should_split_further",
+    "boundary_should_merge_adjacent",
 )
 
 

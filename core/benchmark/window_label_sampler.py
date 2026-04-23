@@ -77,6 +77,8 @@ def _empty_expert_label() -> dict[str, Any]:
         "selected_path_covered": None,
         "timeline_sufficient": None,
         "false_skip_if_local": None,
+        "boundary_should_split_further": None,
+        "boundary_should_merge_adjacent": None,
         "reviewer": "",
         "review_notes": "",
     }
